@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -6,6 +8,16 @@ from pwdlib import PasswordHash
 from app.config import get_settings
 
 _pwd = PasswordHash.recommended()
+
+
+def generate_refresh_token() -> str:
+    """A high-entropy opaque refresh token (the raw value is returned to the client once)."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_token(token: str) -> str:
+    """Hash a refresh token for storage — we never persist the raw value (SHA-256)."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 class InvalidTokenError(Exception):

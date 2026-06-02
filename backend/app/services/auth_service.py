@@ -1,24 +1,30 @@
 """Authentication business logic.
 
-Depends only on the `UserRepository` interface and pure security helpers — no
-FastAPI, no SQLAlchemy. Raises domain exceptions; the API layer maps them to HTTP.
+Issues a short-lived access token plus a long-lived, rotating refresh token.
+Refresh tokens are stored hashed; refreshing rotates (revokes the old, issues a
+new one). Depends only on repository interfaces and pure security helpers.
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from app.core.security import (
     InvalidTokenError,
     create_access_token,
     decode_access_token,
+    generate_refresh_token,
     hash_password,
+    hash_token,
     verify_password,
 )
 from app.domain.exceptions import (
     AuthenticationError,
     EmailAlreadyExistsError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
 )
 from app.models.user import User
+from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.user_repository import UserRepository
 
 
@@ -26,11 +32,31 @@ from app.repositories.user_repository import UserRepository
 class AuthResult:
     user: User
     access_token: str
+    refresh_token: str
 
 
 class AuthService:
-    def __init__(self, users: UserRepository) -> None:
+    def __init__(
+        self,
+        users: UserRepository,
+        refresh_tokens: RefreshTokenRepository,
+        refresh_ttl_days: int,
+    ) -> None:
         self._users = users
+        self._refresh = refresh_tokens
+        self._refresh_ttl_days = refresh_ttl_days
+
+    async def _issue_tokens(self, user: User) -> AuthResult:
+        raw_refresh = generate_refresh_token()
+        expires_at = datetime.now(timezone.utc) + timedelta(days=self._refresh_ttl_days)
+        await self._refresh.create(
+            user_id=user.id, token_hash=hash_token(raw_refresh), expires_at=expires_at
+        )
+        return AuthResult(
+            user=user,
+            access_token=create_access_token(subject=str(user.id)),
+            refresh_token=raw_refresh,
+        )
 
     async def register(self, email: str, password: str, native_language: str) -> AuthResult:
         if await self._users.get_by_email(email) is not None:
@@ -41,13 +67,35 @@ class AuthService:
             native_language=native_language,
         )
         user = await self._users.create(user)
-        return AuthResult(user=user, access_token=create_access_token(subject=str(user.id)))
+        return await self._issue_tokens(user)
 
     async def login(self, email: str, password: str) -> AuthResult:
         user = await self._users.get_by_email(email)
         if user is None or not verify_password(password, user.hashed_password):
             raise InvalidCredentialsError("Invalid credentials")
-        return AuthResult(user=user, access_token=create_access_token(subject=str(user.id)))
+        return await self._issue_tokens(user)
+
+    async def refresh(self, raw_refresh_token: str) -> AuthResult:
+        record = await self._refresh.get_by_hash(hash_token(raw_refresh_token))
+        now = datetime.now(timezone.utc)
+        if record is None or record.revoked_at is not None:
+            raise InvalidRefreshTokenError("Invalid refresh token")
+        expires_at = record.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= now:
+            raise InvalidRefreshTokenError("Refresh token expired")
+        # Rotation: the presented refresh token is single-use.
+        await self._refresh.revoke(record, revoked_at=now)
+        user = await self._users.get_by_id(record.user_id)
+        if user is None:
+            raise InvalidRefreshTokenError("Invalid refresh token")
+        return await self._issue_tokens(user)
+
+    async def logout(self, raw_refresh_token: str) -> None:
+        record = await self._refresh.get_by_hash(hash_token(raw_refresh_token))
+        if record is not None and record.revoked_at is None:
+            await self._refresh.revoke(record, revoked_at=datetime.now(timezone.utc))
 
     async def get_authenticated_user(self, token: str) -> User:
         try:

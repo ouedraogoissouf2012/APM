@@ -40,3 +40,11 @@ class QuotaExhaustedError(DomainError):
 
 class ActiveSessionExistsError(ConflictError):
     """The user already has a session in progress (one at a time)."""
+
+
+class InvalidRefreshTokenError(AuthenticationError):
+    """The refresh token is unknown, expired or revoked."""
+
+
+class RateLimitedError(DomainError):
+    """The caller made too many requests in the allowed window."""

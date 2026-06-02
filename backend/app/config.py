@@ -11,7 +11,11 @@ class Settings(BaseSettings):
 
     jwt_secret: str
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 10080
+    access_token_expire_minutes: int = 60  # short-lived access token
+    refresh_token_expire_days: int = 30
+
+    login_rate_limit_max: int = 5  # attempts
+    login_rate_limit_window_seconds: int = 60
 
     livekit_url: str = ""
     livekit_api_key: str = ""

@@ -5,22 +5,23 @@ from app.domain.exceptions import (
     AuthenticationError,
     EmailAlreadyExistsError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
 )
 from app.services.auth_service import AuthService
-from tests.unit.fakes import InMemoryUserRepository
+from tests.unit.fakes import InMemoryRefreshTokenRepository, InMemoryUserRepository
 
 
 def _service() -> AuthService:
-    return AuthService(InMemoryUserRepository())
+    return AuthService(InMemoryUserRepository(), InMemoryRefreshTokenRepository(), refresh_ttl_days=30)
 
 
 @pytest.mark.asyncio
-async def test_register_creates_user_and_valid_token():
+async def test_register_creates_user_and_tokens():
     service = _service()
     result = await service.register("a@b.com", "s3cret!", "fr")
     assert result.user.email == "a@b.com"
-    assert result.user.id == 1
-    assert decode_access_token(result.access_token) == "1"
+    assert decode_access_token(result.access_token) == str(result.user.id)
+    assert result.refresh_token  # opaque refresh token issued
 
 
 @pytest.mark.asyncio
@@ -52,6 +53,40 @@ async def test_login_unknown_email_raises():
     service = _service()
     with pytest.raises(InvalidCredentialsError):
         await service.login("ghost@b.com", "whatever")
+
+
+@pytest.mark.asyncio
+async def test_refresh_rotates_and_returns_new_tokens():
+    service = _service()
+    reg = await service.register("r@b.com", "s3cret!", "fr")
+    refreshed = await service.refresh(reg.refresh_token)
+    assert refreshed.refresh_token != reg.refresh_token  # rotation
+    assert decode_access_token(refreshed.access_token) == str(reg.user.id)
+
+
+@pytest.mark.asyncio
+async def test_refresh_with_used_token_is_rejected():
+    service = _service()
+    reg = await service.register("r2@b.com", "s3cret!", "fr")
+    await service.refresh(reg.refresh_token)  # consumes/rotates it
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh(reg.refresh_token)  # reuse rejected
+
+
+@pytest.mark.asyncio
+async def test_refresh_unknown_token_rejected():
+    service = _service()
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh("not-a-real-token")
+
+
+@pytest.mark.asyncio
+async def test_logout_revokes_refresh_token():
+    service = _service()
+    reg = await service.register("lo@b.com", "s3cret!", "fr")
+    await service.logout(reg.refresh_token)
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh(reg.refresh_token)
 
 
 @pytest.mark.asyncio
