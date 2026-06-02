@@ -4,7 +4,7 @@ These are substitutable for the SQLAlchemy implementations (Liskov), letting us
 unit-test services with no database.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.models.learner_profile import LearnerProfile
 from app.models.refresh_token import RefreshToken
@@ -19,9 +19,7 @@ class InMemoryRefreshTokenRepository:
 
     async def create(self, user_id: int, token_hash: str, expires_at: datetime) -> RefreshToken:
         self._seq += 1
-        token = RefreshToken(
-            user_id=user_id, token_hash=token_hash, expires_at=expires_at
-        )
+        token = RefreshToken(user_id=user_id, token_hash=token_hash, expires_at=expires_at)
         token.id = self._seq
         self._by_hash[token_hash] = token
         return token
@@ -51,7 +49,7 @@ class InMemorySessionRepository:
         self._seq += 1
         session.id = self._seq
         if session.started_at is None:
-            session.started_at = datetime.now(timezone.utc)
+            session.started_at = datetime.now(UTC)
         self._by_id[session.id] = session
         return session
 

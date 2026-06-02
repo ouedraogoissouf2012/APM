@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -14,14 +14,14 @@ from tests.unit.fakes import InMemorySessionRepository, InMemoryUserRepository
 
 async def _service_with_user(**user_kw) -> tuple[SessionService, User]:
     users = InMemoryUserRepository()
-    defaults = dict(
-        email="s@b.com",
-        hashed_password="x",
-        native_language="fr",
-        tier="free",
-        quota_date=date.today(),
-        minutes_used_today=0.0,
-    )
+    defaults = {
+        "email": "s@b.com",
+        "hashed_password": "x",
+        "native_language": "fr",
+        "tier": "free",
+        "quota_date": date.today(),
+        "minutes_used_today": 0.0,
+    }
     defaults.update(user_kw)
     user = await users.create(User(**defaults))
     service = SessionService(InMemorySessionRepository(), users, free_daily_minutes=10)
@@ -65,7 +65,7 @@ async def test_end_computes_server_side_duration_and_records_usage():
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
     # Force a known start time 3 minutes in the past (server computes the duration).
-    started.session.started_at = datetime.now(timezone.utc) - timedelta(minutes=3)
+    started.session.started_at = datetime.now(UTC) - timedelta(minutes=3)
 
     ended = await service.end(started.session.id, user.id)
 
@@ -78,7 +78,7 @@ async def test_end_computes_server_side_duration_and_records_usage():
 async def test_end_is_idempotent_and_does_not_double_count():
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
-    started.session.started_at = datetime.now(timezone.utc) - timedelta(minutes=2)
+    started.session.started_at = datetime.now(UTC) - timedelta(minutes=2)
 
     first = await service.end(started.session.id, user.id)
     used_after_first = user.minutes_used_today

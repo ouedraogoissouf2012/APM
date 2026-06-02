@@ -6,7 +6,7 @@ new one). Depends only on repository interfaces and pure security helpers.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.core.security import (
     InvalidTokenError,
@@ -48,7 +48,7 @@ class AuthService:
 
     async def _issue_tokens(self, user: User) -> AuthResult:
         raw_refresh = generate_refresh_token()
-        expires_at = datetime.now(timezone.utc) + timedelta(days=self._refresh_ttl_days)
+        expires_at = datetime.now(UTC) + timedelta(days=self._refresh_ttl_days)
         await self._refresh.create(
             user_id=user.id, token_hash=hash_token(raw_refresh), expires_at=expires_at
         )
@@ -77,12 +77,12 @@ class AuthService:
 
     async def refresh(self, raw_refresh_token: str) -> AuthResult:
         record = await self._refresh.get_by_hash(hash_token(raw_refresh_token))
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if record is None or record.revoked_at is not None:
             raise InvalidRefreshTokenError("Invalid refresh token")
         expires_at = record.expires_at
         if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+            expires_at = expires_at.replace(tzinfo=UTC)
         if expires_at <= now:
             raise InvalidRefreshTokenError("Refresh token expired")
         # Rotation: the presented refresh token is single-use.
@@ -95,7 +95,7 @@ class AuthService:
     async def logout(self, raw_refresh_token: str) -> None:
         record = await self._refresh.get_by_hash(hash_token(raw_refresh_token))
         if record is not None and record.revoked_at is None:
-            await self._refresh.revoke(record, revoked_at=datetime.now(timezone.utc))
+            await self._refresh.revoke(record, revoked_at=datetime.now(UTC))
 
     async def get_authenticated_user(self, token: str) -> User:
         try:

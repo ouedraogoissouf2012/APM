@@ -12,7 +12,11 @@ from tests.unit.fakes import InMemoryRefreshTokenRepository, InMemoryUserReposit
 
 
 def _service() -> AuthService:
-    return AuthService(InMemoryUserRepository(), InMemoryRefreshTokenRepository(), refresh_ttl_days=30)
+    return AuthService(
+        InMemoryUserRepository(),
+        InMemoryRefreshTokenRepository(),
+        refresh_ttl_days=30,
+    )
 
 
 @pytest.mark.asyncio

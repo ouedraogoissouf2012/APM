@@ -10,7 +10,7 @@ Fixes the MVP flaws:
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from app.core import quota
@@ -32,7 +32,7 @@ class StartedSession:
 
 
 def _as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 class SessionService:
@@ -75,7 +75,7 @@ class SessionService:
         if session.ended_at is not None:
             return session  # idempotent: ending an already-ended session is a no-op
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         duration = max(0.0, (now - _as_utc(session.started_at)).total_seconds() / 60.0)
         session.ended_at = now
         session.duration_minutes = duration
