@@ -1,0 +1,26 @@
+from pydantic import BaseModel, Field
+
+
+class SessionStartIn(BaseModel):
+    mode: str = Field(pattern="^(scenario|free)$")
+    scenario_id: str | None = None
+
+
+class SessionStartOut(BaseModel):
+    session_id: int
+    room_name: str
+    livekit_token: str
+    livekit_url: str
+
+
+class SessionEndIn(BaseModel):
+    duration_minutes: float = Field(ge=0)
+
+
+class SessionOut(BaseModel):
+    id: int
+    mode: str
+    scenario_id: str | None
+    duration_minutes: float | None
+
+    model_config = {"from_attributes": True}
