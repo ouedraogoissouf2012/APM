@@ -4,7 +4,7 @@ import logging
 import time
 import uuid
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -20,7 +20,7 @@ _SECURITY_HEADERS = {
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Assigns a request id, logs one structured line per request, sets headers."""
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
         start = time.monotonic()
         response = await call_next(request)

@@ -7,9 +7,7 @@ attached via `logger.info(..., extra={...})` (e.g. request metadata) are merged 
 import json
 import logging
 
-_RESERVED = set(
-    logging.makeLogRecord({}).__dict__.keys()
-) | {"message", "asctime", "taskName"}
+_RESERVED = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "taskName"}
 
 
 class JsonFormatter(logging.Formatter):

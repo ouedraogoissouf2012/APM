@@ -6,7 +6,7 @@ from app.models.user import User
 
 
 def _make_user(**kw) -> User:
-    defaults = dict(id=1, email="q@b.com", hashed_password="x", tier="free")
+    defaults = {"id": 1, "email": "q@b.com", "hashed_password": "x", "tier": "free"}
     defaults.update(kw)
     return User(**defaults)
 
