@@ -5,8 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.domain.exceptions import AuthenticationError
 from app.models.user import User
+from app.repositories.profile_repository import ProfileRepository, SqlAlchemyProfileRepository
 from app.repositories.user_repository import SqlAlchemyUserRepository, UserRepository
 from app.services.auth_service import AuthService
+from app.services.profile_service import ProfileService
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -17,6 +19,16 @@ def get_user_repository(db: AsyncSession = Depends(get_db)) -> UserRepository:
 
 def get_auth_service(users: UserRepository = Depends(get_user_repository)) -> AuthService:
     return AuthService(users)
+
+
+def get_profile_repository(db: AsyncSession = Depends(get_db)) -> ProfileRepository:
+    return SqlAlchemyProfileRepository(db)
+
+
+def get_profile_service(
+    profiles: ProfileRepository = Depends(get_profile_repository),
+) -> ProfileService:
+    return ProfileService(profiles)
 
 
 async def get_current_user(
