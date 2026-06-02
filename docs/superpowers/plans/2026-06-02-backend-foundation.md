@@ -13,7 +13,7 @@
 ## File Structure
 
 ```
-docker-compose.yml            # (repo root) PostgreSQL 17 service on host port 5433
+docker-compose.yml            # (repo root) PostgreSQL 17 service on host port 5434
 docker/postgres/init/
   01-create-test-db.sql       # (repo root) creates the apm_test database
 backend/
@@ -60,7 +60,7 @@ backend/
     test_sessions.py
 ```
 
-**Conventions:** All paths below are relative to `backend/` unless noted. Run all commands from `backend/` unless noted. PostgreSQL runs in **Docker** (`docker-compose.yml` at the repo root) exposing port **5433** on the host; it auto-creates two databases `apm` (dev) and `apm_test` (tests).
+**Conventions:** All paths below are relative to `backend/` unless noted. Run all commands from `backend/` unless noted. PostgreSQL runs in **Docker** (`docker-compose.yml` at the repo root) exposing port **5434** on the host; it auto-creates two databases `apm` (dev) and `apm_test` (tests).
 
 ---
 
@@ -114,9 +114,9 @@ package = false
 
 ```bash
 # PostgreSQL via Docker (voir docker-compose.yml à la racine du repo).
-# Port hôte 5433 pour ne pas entrer en conflit avec un PostgreSQL local sur 5432.
-DATABASE_URL=postgresql+asyncpg://apm:apm_dev_password@localhost:5433/apm
-DATABASE_URL_TEST=postgresql+asyncpg://apm:apm_dev_password@localhost:5433/apm_test
+# Port hôte 5434 pour ne pas entrer en conflit avec un PostgreSQL local sur 5432.
+DATABASE_URL=postgresql+asyncpg://apm:apm_dev_password@localhost:5434/apm
+DATABASE_URL_TEST=postgresql+asyncpg://apm:apm_dev_password@localhost:5434/apm_test
 
 # JWT
 JWT_SECRET=change-me-in-production-use-a-long-random-string
@@ -191,7 +191,7 @@ services:
       POSTGRES_PASSWORD: apm_dev_password
       POSTGRES_DB: apm
     ports:
-      - "5433:5432"  # host 5433 -> container 5432 (avoids clash with a local PostgreSQL on 5432)
+      - "5434:5432"  # host 5434 -> container 5432 (avoids clash with a local PostgreSQL on 5432)
     volumes:
       - apm_pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -222,14 +222,14 @@ Verify it is healthy:
 ```bash
 docker compose ps
 ```
-Expected: `apm-postgres` is `running (healthy)` and listening on `0.0.0.0:5433->5432`.
+Expected: `apm-postgres` is `running (healthy)` and listening on `0.0.0.0:5434->5432`.
 
 - [ ] **Step 9: Create `backend/.env` from the example**
 
 ```bash
 cp .env.example .env
 ```
-Expected: `backend/.env` exists with the Docker connection string (port 5433, user `apm`).
+Expected: `backend/.env` exists with the Docker connection string (port 5434, user `apm`).
 
 - [ ] **Step 10: Commit**
 
