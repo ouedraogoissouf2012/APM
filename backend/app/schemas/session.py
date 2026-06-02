@@ -13,10 +13,6 @@ class SessionStartOut(BaseModel):
     livekit_url: str
 
 
-class SessionEndIn(BaseModel):
-    duration_minutes: float = Field(ge=0)
-
-
 class SessionOut(BaseModel):
     id: int
     mode: str

@@ -4,8 +4,37 @@ These are substitutable for the SQLAlchemy implementations (Liskov), letting us
 unit-test services with no database.
 """
 
+from datetime import datetime, timezone
+
 from app.models.learner_profile import LearnerProfile
+from app.models.session import ConversationSession
 from app.models.user import User
+
+
+class InMemorySessionRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[int, ConversationSession] = {}
+        self._seq = 0
+
+    async def get(self, session_id: int) -> ConversationSession | None:
+        return self._by_id.get(session_id)
+
+    async def get_active_for_user(self, user_id: int) -> ConversationSession | None:
+        return next(
+            (s for s in self._by_id.values() if s.user_id == user_id and s.ended_at is None),
+            None,
+        )
+
+    async def add(self, session: ConversationSession) -> ConversationSession:
+        self._seq += 1
+        session.id = self._seq
+        if session.started_at is None:
+            session.started_at = datetime.now(timezone.utc)
+        self._by_id[session.id] = session
+        return session
+
+    async def commit(self) -> None:
+        pass
 
 
 class InMemoryProfileRepository:
@@ -40,3 +69,7 @@ class InMemoryUserRepository:
         user.id = self._seq
         self._by_id[user.id] = user
         return user
+
+    async def lock(self, user_id: int) -> User | None:
+        # No real locking in memory; behaves like get_by_id.
+        return self._by_id.get(user_id)

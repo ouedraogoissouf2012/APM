@@ -21,6 +21,10 @@ class UserRepository(Protocol):
 
     async def create(self, user: User) -> User: ...
 
+    async def lock(self, user_id: int) -> User | None:
+        """Fetch the user with a row lock (SELECT ... FOR UPDATE) for atomic updates."""
+        ...
+
 
 class SqlAlchemyUserRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -28,6 +32,12 @@ class SqlAlchemyUserRepository:
 
     async def get_by_id(self, user_id: int) -> User | None:
         return await self._session.get(User, user_id)
+
+    async def lock(self, user_id: int) -> User | None:
+        result = await self._session.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )
+        return result.scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> User | None:
         return await self._session.scalar(select(User).where(User.email == email))

@@ -2,13 +2,16 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.domain.exceptions import AuthenticationError
 from app.models.user import User
 from app.repositories.profile_repository import ProfileRepository, SqlAlchemyProfileRepository
+from app.repositories.session_repository import SessionRepository, SqlAlchemySessionRepository
 from app.repositories.user_repository import SqlAlchemyUserRepository, UserRepository
 from app.services.auth_service import AuthService
 from app.services.profile_service import ProfileService
+from app.services.session_service import SessionService
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -29,6 +32,17 @@ def get_profile_service(
     profiles: ProfileRepository = Depends(get_profile_repository),
 ) -> ProfileService:
     return ProfileService(profiles)
+
+
+def get_session_repository(db: AsyncSession = Depends(get_db)) -> SessionRepository:
+    return SqlAlchemySessionRepository(db)
+
+
+def get_session_service(
+    sessions: SessionRepository = Depends(get_session_repository),
+    users: UserRepository = Depends(get_user_repository),
+) -> SessionService:
+    return SessionService(sessions, users, get_settings().free_tier_daily_minutes)
 
 
 async def get_current_user(
