@@ -30,6 +30,9 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://apm:apm_dev_password@localhost:5434/apm
       DATABASE_URL_TEST: postgresql+asyncpg://apm:apm_dev_password@localhost:5434/apm_test
       JWT_SECRET: ci-secret-not-for-production
+      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: devsecret-not-for-production
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
