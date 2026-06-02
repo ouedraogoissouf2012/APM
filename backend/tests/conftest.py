@@ -7,8 +7,11 @@ from app.database import Base, get_db
 from app.main import app
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def _engine():
+    # Function-scoped: each test gets its own engine in its own event loop.
+    # asyncpg connections are loop-bound, so a session-scoped engine breaks
+    # across pytest-asyncio's per-test loops ("another operation is in progress").
     settings = get_settings()
     assert settings.database_url_test, "DATABASE_URL_TEST must be set for tests"
     engine = create_async_engine(settings.database_url_test, future=True)
