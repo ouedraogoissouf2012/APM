@@ -32,3 +32,11 @@ class InvalidCredentialsError(DomainError):
 
 class AuthenticationError(DomainError):
     """The caller is not authenticated (missing/invalid token, unknown user)."""
+
+
+class QuotaExhaustedError(DomainError):
+    """The user's daily free quota is exhausted."""
+
+
+class ActiveSessionExistsError(ConflictError):
+    """The user already has a session in progress (one at a time)."""
