@@ -13,6 +13,9 @@
 ## File Structure
 
 ```
+docker-compose.yml            # (repo root) PostgreSQL 17 service on host port 5433
+docker/postgres/init/
+  01-create-test-db.sql       # (repo root) creates the apm_test database
 backend/
   pyproject.toml              # deps + tooling config
   .env.example                # documented env vars
@@ -57,7 +60,7 @@ backend/
     test_sessions.py
 ```
 
-**Conventions:** All paths below are relative to `backend/`. Run all commands from `backend/`. Tests require a local PostgreSQL with two databases: `apm` (dev) and `apm_test` (tests).
+**Conventions:** All paths below are relative to `backend/` unless noted. Run all commands from `backend/` unless noted. PostgreSQL runs in **Docker** (`docker-compose.yml` at the repo root) exposing port **5433** on the host; it auto-creates two databases `apm` (dev) and `apm_test` (tests).
 
 ---
 
@@ -110,9 +113,10 @@ package = false
 - [ ] **Step 2: Create `backend/.env.example`**
 
 ```bash
-# PostgreSQL (async driver)
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/apm
-DATABASE_URL_TEST=postgresql+asyncpg://postgres:postgres@localhost:5432/apm_test
+# PostgreSQL via Docker (voir docker-compose.yml à la racine du repo).
+# Port hôte 5433 pour ne pas entrer en conflit avec un PostgreSQL local sur 5432.
+DATABASE_URL=postgresql+asyncpg://apm:apm_dev_password@localhost:5433/apm
+DATABASE_URL_TEST=postgresql+asyncpg://apm:apm_dev_password@localhost:5433/apm_test
 
 # JWT
 JWT_SECRET=change-me-in-production-use-a-long-random-string
@@ -174,23 +178,64 @@ uv sync
 ```
 Expected: a `.venv` is created and all dependencies install without error.
 
-- [ ] **Step 6: Create `backend/.env` from the example and set real-ish dev values**
+- [ ] **Step 6: Create `docker-compose.yml` at the REPO ROOT** (not in `backend/`)
+
+```yaml
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: apm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apm
+      POSTGRES_PASSWORD: apm_dev_password
+      POSTGRES_DB: apm
+    ports:
+      - "5433:5432"  # host 5433 -> container 5432 (avoids clash with a local PostgreSQL on 5432)
+    volumes:
+      - apm_pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apm -d apm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  apm_pgdata:
+```
+
+- [ ] **Step 7: Create the test-DB init script `docker/postgres/init/01-create-test-db.sql`** (at repo root)
+
+```sql
+CREATE DATABASE apm_test;
+```
+(The `apm` database is created by `POSTGRES_DB`; this adds the test database. Scripts in `/docker-entrypoint-initdb.d` run once on first volume creation.)
+
+- [ ] **Step 8: Start the database container**
+
+Run (from the repo root):
+```bash
+docker compose up -d postgres
+```
+Verify it is healthy:
+```bash
+docker compose ps
+```
+Expected: `apm-postgres` is `running (healthy)` and listening on `0.0.0.0:5433->5432`.
+
+- [ ] **Step 9: Create `backend/.env` from the example**
 
 ```bash
 cp .env.example .env
 ```
-Then ensure PostgreSQL has both databases:
-```bash
-psql -U postgres -c "CREATE DATABASE apm;"
-psql -U postgres -c "CREATE DATABASE apm_test;"
-```
-Expected: both databases exist (ignore "already exists" errors).
+Expected: `backend/.env` exists with the Docker connection string (port 5433, user `apm`).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add backend/pyproject.toml backend/uv.lock backend/.env.example backend/app/__init__.py backend/app/config.py backend/tests/__init__.py
-git commit -m "chore(backend): scaffold project, config, dependencies"
+git add docker-compose.yml docker/postgres/init/01-create-test-db.sql backend/pyproject.toml backend/uv.lock backend/.env.example backend/app/__init__.py backend/app/config.py backend/tests/__init__.py
+git commit -m "chore(backend): scaffold project, config, deps, dockerized postgres"
 ```
 
 ---
@@ -226,18 +271,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 ```
 
-- [ ] **Step 2: Create `backend/app/models/__init__.py`** (re-exports so Alembic sees all tables)
+- [ ] **Step 2: Create `backend/app/models/__init__.py`** (only `Base` for now)
 
 ```python
 from app.database import Base
-from app.models.learner_profile import LearnerProfile
-from app.models.session import ConversationSession
-from app.models.user import User
 
-__all__ = ["Base", "User", "LearnerProfile", "ConversationSession"]
+__all__ = ["Base"]
 ```
 
-> Note: the imported model files are created in Tasks 3, 10, and 12. This file will not import cleanly until those exist — that is expected; it is wired now so later migrations pick up every model.
+> Each model task (3, 10, 12) appends its own import here so Alembic's autogenerate sees the new table. Importing a model module is what registers its table on `Base.metadata`. We build this up incrementally to avoid importing models that don't exist yet.
 
 - [ ] **Step 3: Commit**
 
@@ -283,18 +325,28 @@ class User(Base):
     )
 ```
 
-- [ ] **Step 2: Verify it imports**
+- [ ] **Step 2: Register the model in `backend/app/models/__init__.py`**
+
+Replace the file contents with:
+```python
+from app.database import Base
+from app.models.user import User
+
+__all__ = ["Base", "User"]
+```
+
+- [ ] **Step 3: Verify it imports**
 
 Run:
 ```bash
-uv run python -c "from app.models.user import User; print(User.__tablename__)"
+uv run python -c "from app.models import User; print(User.__tablename__)"
 ```
 Expected: prints `users`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add backend/app/models/user.py
+git add backend/app/models/user.py backend/app/models/__init__.py
 git commit -m "feat(backend): User model with quota fields"
 ```
 
@@ -931,7 +983,18 @@ class LearnerProfile(Base):
     accent: Mapped[str] = mapped_column(String(8), default="us", nullable=False)
 ```
 
-- [ ] **Step 2: Generate the migration**
+- [ ] **Step 2: Register the model in `backend/app/models/__init__.py`**
+
+Replace the file contents with:
+```python
+from app.database import Base
+from app.models.learner_profile import LearnerProfile
+from app.models.user import User
+
+__all__ = ["Base", "User", "LearnerProfile"]
+```
+
+- [ ] **Step 3: Generate the migration**
 
 Run:
 ```bash
@@ -939,7 +1002,7 @@ uv run alembic revision --autogenerate -m "learner_profiles"
 ```
 Expected: a new version file with `op.create_table("learner_profiles", ...)`.
 
-- [ ] **Step 3: Apply it**
+- [ ] **Step 4: Apply it**
 
 Run:
 ```bash
@@ -947,10 +1010,10 @@ uv run alembic upgrade head
 ```
 Expected: completes; `learner_profiles` table exists.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add backend/app/models/learner_profile.py backend/migrations/versions
+git add backend/app/models/learner_profile.py backend/app/models/__init__.py backend/migrations/versions
 git commit -m "feat(backend): LearnerProfile model + migration"
 ```
 
@@ -1148,7 +1211,19 @@ class ConversationSession(Base):
     duration_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
 ```
 
-- [ ] **Step 2: Generate and apply the migration**
+- [ ] **Step 2: Register the model in `backend/app/models/__init__.py`**
+
+Replace the file contents with:
+```python
+from app.database import Base
+from app.models.learner_profile import LearnerProfile
+from app.models.session import ConversationSession
+from app.models.user import User
+
+__all__ = ["Base", "User", "LearnerProfile", "ConversationSession"]
+```
+
+- [ ] **Step 3: Generate and apply the migration**
 
 Run:
 ```bash
@@ -1157,10 +1232,10 @@ uv run alembic upgrade head
 ```
 Expected: a version file with `op.create_table("sessions", ...)`; upgrade succeeds.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add backend/app/models/session.py backend/migrations/versions
+git add backend/app/models/session.py backend/app/models/__init__.py backend/migrations/versions
 git commit -m "feat(backend): ConversationSession model + migration"
 ```
 
