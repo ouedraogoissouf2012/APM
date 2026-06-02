@@ -1,0 +1,26 @@
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    database_url: str
+    database_url_test: str = ""
+
+    jwt_secret: str
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 10080
+
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
+    livekit_token_ttl_seconds: int = 120
+
+    free_tier_daily_minutes: int = 10
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
