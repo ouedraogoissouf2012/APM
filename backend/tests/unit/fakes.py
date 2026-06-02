@@ -4,7 +4,24 @@ These are substitutable for the SQLAlchemy implementations (Liskov), letting us
 unit-test services with no database.
 """
 
+from app.models.learner_profile import LearnerProfile
 from app.models.user import User
+
+
+class InMemoryProfileRepository:
+    def __init__(self) -> None:
+        self._by_user_id: dict[int, LearnerProfile] = {}
+
+    async def get_by_user_id(self, user_id: int) -> LearnerProfile | None:
+        return self._by_user_id.get(user_id)
+
+    async def create(self, profile: LearnerProfile) -> LearnerProfile:
+        self._by_user_id[profile.user_id] = profile
+        return profile
+
+    async def save(self, profile: LearnerProfile) -> LearnerProfile:
+        self._by_user_id[profile.user_id] = profile
+        return profile
 
 
 class InMemoryUserRepository:
