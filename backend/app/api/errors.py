@@ -16,6 +16,7 @@ from app.domain.exceptions import (
     InvalidCredentialsError,
     NotFoundError,
     QuotaExhaustedError,
+    RateLimitedError,
 )
 
 # Most specific first; a base DomainError fallback catches anything unmapped.
@@ -24,6 +25,7 @@ _STATUS_BY_EXCEPTION: list[tuple[type[DomainError], int]] = [
     (InvalidCredentialsError, status.HTTP_401_UNAUTHORIZED),
     (NotFoundError, status.HTTP_404_NOT_FOUND),
     (QuotaExhaustedError, status.HTTP_402_PAYMENT_REQUIRED),
+    (RateLimitedError, status.HTTP_429_TOO_MANY_REQUESTS),
     (ConflictError, status.HTTP_409_CONFLICT),
     (DomainError, status.HTTP_400_BAD_REQUEST),
 ]
