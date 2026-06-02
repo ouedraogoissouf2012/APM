@@ -24,6 +24,14 @@ class Settings(BaseSettings):
 
     free_tier_daily_minutes: int = 10
 
+    log_level: str = "INFO"
+    # Comma-separated list of allowed CORS origins ("*" = all, dev only).
+    cors_allow_origins: str = "*"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:
