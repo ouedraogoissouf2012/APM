@@ -1,10 +1,21 @@
 from fastapi import APIRouter, Depends, Request, status
 
-from app.api.deps import get_auth_service, get_current_user, get_login_rate_limiter
 from app.core.rate_limit import RateLimiter
-from app.models.user import User
-from app.schemas.auth import LoginIn, LogoutIn, RefreshIn, RegisterIn, TokenOut, UserOut
-from app.services.auth_service import AuthResult, AuthService
+from app.features.auth.dependencies import (
+    get_auth_service,
+    get_current_user,
+    get_login_rate_limiter,
+)
+from app.features.auth.models import User
+from app.features.auth.schemas import (
+    LoginIn,
+    LogoutIn,
+    RefreshIn,
+    RegisterIn,
+    TokenOut,
+    UserOut,
+)
+from app.features.auth.service import AuthResult, AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

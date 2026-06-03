@@ -1,7 +1,7 @@
 import pytest
 
-from app.api.deps import get_login_rate_limiter
 from app.core.rate_limit import InMemoryRateLimiter
+from app.features.auth.dependencies import get_login_rate_limiter
 from app.main import app
 
 

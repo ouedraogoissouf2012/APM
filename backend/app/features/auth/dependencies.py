@@ -6,17 +6,14 @@ from app.config import get_settings
 from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
 from app.database import get_db
 from app.domain.exceptions import AuthenticationError
-from app.models.user import User
-from app.repositories.profile_repository import ProfileRepository, SqlAlchemyProfileRepository
-from app.repositories.refresh_token_repository import (
+from app.features.auth.models import User
+from app.features.auth.repository import (
     RefreshTokenRepository,
     SqlAlchemyRefreshTokenRepository,
+    SqlAlchemyUserRepository,
+    UserRepository,
 )
-from app.repositories.session_repository import SessionRepository, SqlAlchemySessionRepository
-from app.repositories.user_repository import SqlAlchemyUserRepository, UserRepository
-from app.services.auth_service import AuthService
-from app.services.profile_service import ProfileService
-from app.services.session_service import SessionService
+from app.features.auth.service import AuthService
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -36,9 +33,7 @@ def get_user_repository(db: AsyncSession = Depends(get_db)) -> UserRepository:
     return SqlAlchemyUserRepository(db)
 
 
-def get_refresh_token_repository(
-    db: AsyncSession = Depends(get_db),
-) -> RefreshTokenRepository:
+def get_refresh_token_repository(db: AsyncSession = Depends(get_db)) -> RefreshTokenRepository:
     return SqlAlchemyRefreshTokenRepository(db)
 
 
@@ -47,27 +42,6 @@ def get_auth_service(
     refresh_tokens: RefreshTokenRepository = Depends(get_refresh_token_repository),
 ) -> AuthService:
     return AuthService(users, refresh_tokens, get_settings().refresh_token_expire_days)
-
-
-def get_profile_repository(db: AsyncSession = Depends(get_db)) -> ProfileRepository:
-    return SqlAlchemyProfileRepository(db)
-
-
-def get_profile_service(
-    profiles: ProfileRepository = Depends(get_profile_repository),
-) -> ProfileService:
-    return ProfileService(profiles)
-
-
-def get_session_repository(db: AsyncSession = Depends(get_db)) -> SessionRepository:
-    return SqlAlchemySessionRepository(db)
-
-
-def get_session_service(
-    sessions: SessionRepository = Depends(get_session_repository),
-    users: UserRepository = Depends(get_user_repository),
-) -> SessionService:
-    return SessionService(sessions, users, get_settings().free_tier_daily_minutes)
 
 
 async def get_current_user(

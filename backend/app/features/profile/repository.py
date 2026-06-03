@@ -4,7 +4,7 @@ from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.learner_profile import LearnerProfile
+from app.features.profile.models import LearnerProfile
 
 
 class ProfileRepository(Protocol):

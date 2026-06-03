@@ -1,12 +1,9 @@
 """Conversation-session business logic, with production-grade safeguards.
 
-Fixes the MVP flaws:
-- **Server-side duration**: computed from started_at -> now, never trusted from
-  the client.
-- **Quota anti-race**: the user row is locked (SELECT FOR UPDATE) for the whole
-  start use case, and only ONE active session per user is allowed, so concurrent
-  or never-ended sessions can't bypass the daily quota.
-- **room_name** uses a UUID (no per-second collision).
+- Server-side duration (started_at -> now), never trusted from the client.
+- Quota anti-race: the user row is locked (SELECT FOR UPDATE) for the whole start
+  use case, and only ONE active session per user is allowed.
+- room_name uses a UUID (no per-second collision).
 """
 
 from dataclasses import dataclass
@@ -20,9 +17,9 @@ from app.domain.exceptions import (
     NotFoundError,
     QuotaExhaustedError,
 )
-from app.models.session import ConversationSession
-from app.repositories.session_repository import SessionRepository
-from app.repositories.user_repository import UserRepository
+from app.features.auth.repository import UserRepository
+from app.features.sessions.models import ConversationSession
+from app.features.sessions.repository import SessionRepository
 
 
 @dataclass

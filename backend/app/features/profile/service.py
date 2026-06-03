@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from app.models.learner_profile import LearnerProfile
-from app.repositories.profile_repository import ProfileRepository
+from app.features.profile.models import LearnerProfile
+from app.features.profile.repository import ProfileRepository
 
 
 class ProfileService:

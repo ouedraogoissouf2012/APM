@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends
 
-from app.api.deps import get_current_user, get_profile_service
-from app.models.user import User
-from app.schemas.profile import ProfileOut, ProfileUpdate
-from app.services.profile_service import ProfileService
+from app.features.auth.dependencies import get_current_user
+from app.features.auth.models import User
+from app.features.profile.dependencies import get_profile_service
+from app.features.profile.schemas import ProfileOut, ProfileUpdate
+from app.features.profile.service import ProfileService
 
 router = APIRouter(prefix="/me/profile", tags=["profile"])
 

@@ -6,7 +6,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import get_settings
-from app.models import Base  # imports registered models for autogenerate
+from app.registry import Base  # imports every model so autogenerate sees all tables
 
 config = context.config
 if config.config_file_name is not None:

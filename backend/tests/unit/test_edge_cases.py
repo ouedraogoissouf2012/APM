@@ -7,7 +7,7 @@ from app.config import get_settings
 from app.core import security
 from app.core.security import InvalidTokenError
 from app.domain.exceptions import AuthenticationError, InvalidRefreshTokenError
-from app.services.auth_service import AuthService
+from app.features.auth.service import AuthService
 from tests.unit.fakes import InMemoryRefreshTokenRepository, InMemoryUserRepository
 
 
