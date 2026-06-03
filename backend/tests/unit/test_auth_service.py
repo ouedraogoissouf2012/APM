@@ -7,7 +7,7 @@ from app.domain.exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
 )
-from app.services.auth_service import AuthService
+from app.features.auth.service import AuthService
 from tests.unit.fakes import InMemoryRefreshTokenRepository, InMemoryUserRepository
 
 

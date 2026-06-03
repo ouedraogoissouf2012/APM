@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.models.user import User
+from app.features.auth.models import User
 
 
 def remaining_minutes(user: User, free_daily: int, today: date) -> float:

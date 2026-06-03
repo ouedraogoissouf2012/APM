@@ -9,7 +9,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.session import ConversationSession
+from app.features.sessions.models import ConversationSession
 
 
 class SessionRepository(Protocol):

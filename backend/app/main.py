@@ -3,9 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_exception_handlers
 from app.api.middleware import RequestContextMiddleware
-from app.api.routes import auth, profile, sessions
 from app.config import get_settings
 from app.core.logging import configure_logging
+from app.features.auth.router import router as auth_router
+from app.features.profile.router import router as profile_router
+from app.features.sessions.router import router as sessions_router
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -23,9 +25,9 @@ app.add_middleware(
 
 register_exception_handlers(app)
 
-app.include_router(auth.router)
-app.include_router(profile.router)
-app.include_router(sessions.router)
+app.include_router(auth_router)
+app.include_router(profile_router)
+app.include_router(sessions_router)
 
 
 @app.get("/health", tags=["meta"])

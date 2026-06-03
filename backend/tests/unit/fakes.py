@@ -6,10 +6,9 @@ unit-test services with no database.
 
 from datetime import UTC, datetime
 
-from app.models.learner_profile import LearnerProfile
-from app.models.refresh_token import RefreshToken
-from app.models.session import ConversationSession
-from app.models.user import User
+from app.features.auth.models import RefreshToken, User
+from app.features.profile.models import LearnerProfile
+from app.features.sessions.models import ConversationSession
 
 
 class InMemoryRefreshTokenRepository:

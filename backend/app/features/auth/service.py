@@ -23,9 +23,8 @@ from app.domain.exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
 )
-from app.models.user import User
-from app.repositories.refresh_token_repository import RefreshTokenRepository
-from app.repositories.user_repository import UserRepository
+from app.features.auth.models import User
+from app.features.auth.repository import RefreshTokenRepository, UserRepository
 
 
 @dataclass

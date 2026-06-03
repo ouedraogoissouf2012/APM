@@ -2,10 +2,10 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.api.deps import get_login_rate_limiter
 from app.config import get_settings
 from app.core.rate_limit import NoOpRateLimiter
 from app.database import Base, get_db
+from app.features.auth.dependencies import get_login_rate_limiter
 from app.main import app
 
 

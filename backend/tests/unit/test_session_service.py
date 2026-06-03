@@ -7,8 +7,8 @@ from app.domain.exceptions import (
     NotFoundError,
     QuotaExhaustedError,
 )
-from app.models.user import User
-from app.services.session_service import SessionService
+from app.features.auth.models import User
+from app.features.sessions.service import SessionService
 from tests.unit.fakes import InMemorySessionRepository, InMemoryUserRepository
 
 

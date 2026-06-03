@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.profile_service import ProfileService
+from app.features.profile.service import ProfileService
 from tests.unit.fakes import InMemoryProfileRepository
 
 

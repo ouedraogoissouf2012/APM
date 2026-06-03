@@ -4,7 +4,7 @@ import pytest
 
 from app.core import quota
 from app.core.livekit import build_room_token
-from app.models.user import User
+from app.features.auth.models import User
 
 
 def _make_user(**kw) -> User:

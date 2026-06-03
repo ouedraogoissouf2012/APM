@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, status
 
-from app.api.deps import get_current_user, get_session_service
 from app.config import get_settings
-from app.models.user import User
-from app.schemas.session import SessionOut, SessionStartIn, SessionStartOut
-from app.services.session_service import SessionService
+from app.features.auth.dependencies import get_current_user
+from app.features.auth.models import User
+from app.features.sessions.dependencies import get_session_service
+from app.features.sessions.schemas import SessionOut, SessionStartIn, SessionStartOut
+from app.features.sessions.service import SessionService
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
