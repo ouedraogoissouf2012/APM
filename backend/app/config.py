@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed CORS origins ("*" = all, dev only).
     cors_allow_origins: str = "*"
 
+    # Conversation / voice
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"  # V3, low-latency; NOT the slow "reasoner"
+    voice_engine: str = "fake"  # "fake" (default, no keys) | "deepseek" | "livekit"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

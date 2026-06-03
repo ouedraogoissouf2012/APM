@@ -48,3 +48,10 @@ async def client(_engine, _setup_db) -> AsyncClient:
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def db_session(_engine, _setup_db):
+    maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as session:
+        yield session
