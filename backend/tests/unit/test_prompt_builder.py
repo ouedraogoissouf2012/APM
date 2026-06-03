@@ -29,3 +29,16 @@ def test_prompt_weaves_in_memory_summary():
         )
     )
     assert "Italy" in prompt
+
+
+def test_prompt_lists_interests_when_provided():
+    prompt = build_system_prompt(
+        PromptContext(
+            cefr_level="B1",
+            scenario_id=None,
+            interests=["football", "cooking"],
+            memory_summary="",
+        )
+    )
+    assert "football" in prompt
+    assert "cooking" in prompt

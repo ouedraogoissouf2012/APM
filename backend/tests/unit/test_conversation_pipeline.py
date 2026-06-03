@@ -62,3 +62,30 @@ async def test_pipeline_passes_system_prompt_and_history_to_llm():
     await pipeline.handle_user_audio(b"\x00")
     assert captured["system_prompt"] == "THE-PROMPT"
     assert captured["history_len"] == 1  # the user message, before the assistant reply
+
+
+@pytest.mark.asyncio
+async def test_fake_stt_repeats_last_transcript_when_exhausted():
+    stt = FakeStt(transcripts=["one", "two"])
+    assert await stt.transcribe(b"\x00") == "one"
+    assert await stt.transcribe(b"\x00") == "two"
+    assert await stt.transcribe(b"\x00") == "two"  # clamps to the last one
+
+
+@pytest.mark.asyncio
+async def test_pipeline_history_grows_across_turns():
+    pipeline = ConversationPipeline(
+        stt=FakeStt(transcripts=["first", "second"]),
+        llm=FakeLlm(),
+        tts=FakeTts(),
+        system_prompt="system",
+    )
+    await pipeline.handle_user_audio(b"\x00")
+    await pipeline.handle_user_audio(b"\x00")
+
+    assert pipeline.transcript.to_dicts() == [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "You said: first"},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "You said: second"},
+    ]
