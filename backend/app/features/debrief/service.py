@@ -1,16 +1,18 @@
-from typing import Any
-
 from app.domain.exceptions import NotFoundError
 from app.features.auth.models import User
+from app.features.conversation.repository import TranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
+from app.features.debrief.models import Debrief
+from app.features.debrief.repository import DebriefRepository
+from app.features.sessions.repository import SessionRepository
 
 
 class DebriefService:
     def __init__(
         self,
-        sessions: Any,
-        transcripts: Any,
-        debriefs: Any,
+        sessions: SessionRepository,
+        transcripts: TranscriptRepository,
+        debriefs: DebriefRepository,
         analyzer: DebriefAnalyzer,
     ) -> None:
         self._sessions = sessions
@@ -23,7 +25,7 @@ class DebriefService:
         if session is None or session.user_id != user.id:
             raise NotFoundError("Session not found")
 
-    async def generate(self, session_id: int, user: User) -> Any:
+    async def generate(self, session_id: int, user: User) -> Debrief:
         await self._owned_session(session_id, user)
         transcript = await self._transcripts.get_by_session(session_id)
         if transcript is None:
@@ -42,7 +44,7 @@ class DebriefService:
         ]
         return await self._debriefs.save(session_id, result.cefr_estimate, result.summary, errors)
 
-    async def get(self, session_id: int, user: User) -> Any:
+    async def get(self, session_id: int, user: User) -> Debrief:
         await self._owned_session(session_id, user)
         debrief = await self._debriefs.get_by_session(session_id)
         if debrief is None:
