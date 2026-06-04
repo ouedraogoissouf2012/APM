@@ -48,3 +48,7 @@ class InvalidRefreshTokenError(AuthenticationError):
 
 class RateLimitedError(DomainError):
     """The caller made too many requests in the allowed window."""
+
+
+class DebriefAnalysisError(DomainError):
+    """The debrief LLM returned output that could not be parsed."""
