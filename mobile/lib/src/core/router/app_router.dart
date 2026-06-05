@@ -1,0 +1,36 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../ui/auth/view_model/auth_view_model.dart';
+import '../../ui/auth/widgets/login_screen.dart';
+import '../../ui/auth/widgets/register_screen.dart';
+import '../../ui/home/widgets/home_screen.dart';
+
+/// The app router. Built once; a [ValueNotifier] tied to the auth state drives
+/// go_router's redirect re-evaluation on login/logout (no codegen).
+final appRouterProvider = Provider<GoRouter>((ref) {
+  final refresh = ValueNotifier<int>(0);
+  ref.listen(authViewModelProvider, (_, _) => refresh.value++);
+  ref.onDispose(refresh.dispose);
+
+  return GoRouter(
+    initialLocation: '/login',
+    refreshListenable: refresh,
+    redirect: (context, state) {
+      final auth = ref.read(authViewModelProvider);
+      if (auth.isLoading) return null;
+      final signedIn = auth.value != null;
+      final atAuth =
+          state.matchedLocation == '/login' || state.matchedLocation == '/register';
+      if (!signedIn && !atAuth) return '/login';
+      if (signedIn && atAuth) return '/home';
+      return null;
+    },
+    routes: [
+      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+      GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
+      GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
+    ],
+  );
+});
