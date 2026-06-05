@@ -15,6 +15,11 @@ class HomeScreen extends ConsumerWidget {
         title: const Text('APM'),
         actions: [
           IconButton(
+            key: const Key('profile_button'),
+            icon: const Icon(Icons.person),
+            onPressed: () => context.go('/profile'),
+          ),
+          IconButton(
             key: const Key('logout_button'),
             icon: const Icon(Icons.logout),
             onPressed: () => ref.read(authViewModelProvider.notifier).logout(),

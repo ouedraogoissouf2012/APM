@@ -1,0 +1,66 @@
+import 'package:apm/src/core/network/api_client.dart';
+import 'package:apm/src/core/storage/token_storage.dart';
+import 'package:apm/src/data/repositories/profile_repository.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+class _MockApiClient extends Mock implements ApiClient {}
+
+class _Storage implements TokenStorage {
+  @override
+  Future<void> save({required String accessToken, required String refreshToken}) async {}
+  @override
+  Future<String?> readAccessToken() async => 'tok';
+  @override
+  Future<String?> readRefreshToken() async => 'r';
+  @override
+  Future<void> clear() async {}
+}
+
+void main() {
+  late _MockApiClient api;
+  late ProfileRepository repo;
+
+  setUp(() {
+    api = _MockApiClient();
+    repo = ProfileRepository(api, _Storage());
+  });
+
+  test('getProfile fetches and parses the profile', () async {
+    when(() => api.getJson('/me/profile', bearer: any(named: 'bearer'))).thenAnswer(
+      (_) async => {
+        'interests': ['football'],
+        'goal': 'job interview',
+        'correction_intensity': 'gentle',
+        'accent': 'uk',
+      },
+    );
+
+    final profile = await repo.getProfile();
+
+    expect(profile.interests, ['football']);
+    expect(profile.goal, 'job interview');
+    expect(profile.accent, 'uk');
+  });
+
+  test('updateProfile puts the changes and parses the result', () async {
+    when(() => api.putJson('/me/profile', body: any(named: 'body'), bearer: any(named: 'bearer')))
+        .thenAnswer(
+      (_) async => {
+        'interests': ['cooking'],
+        'goal': null,
+        'correction_intensity': 'detailed',
+        'accent': 'us',
+      },
+    );
+
+    final profile = await repo.updateProfile(
+      interests: ['cooking'],
+      correctionIntensity: 'detailed',
+      accent: 'us',
+    );
+
+    expect(profile.correctionIntensity, 'detailed');
+    expect(profile.goal, isNull);
+  });
+}

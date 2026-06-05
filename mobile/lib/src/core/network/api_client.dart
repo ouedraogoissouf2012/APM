@@ -37,6 +37,23 @@ class ApiClient {
     }
   }
 
+  Future<Map<String, dynamic>> putJson(
+    String path, {
+    Map<String, dynamic>? body,
+    String? bearer,
+  }) async {
+    try {
+      final response = await _dio.put<Map<String, dynamic>>(
+        path,
+        data: body,
+        options: _options(bearer),
+      );
+      return response.data ?? <String, dynamic>{};
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+  }
+
   Options _options(String? bearer) => Options(
         headers: bearer == null ? null : {'Authorization': 'Bearer $bearer'},
       );
