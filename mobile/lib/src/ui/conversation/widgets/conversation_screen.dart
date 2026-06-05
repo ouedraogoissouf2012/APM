@@ -17,7 +17,12 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(conversationViewModelProvider.notifier).start();
+      if (!mounted) return;
+      final params = GoRouterState.of(context).uri.queryParameters;
+      ref.read(conversationViewModelProvider.notifier).start(
+            mode: params['mode'] ?? 'free',
+            scenarioId: params['scenario'],
+          );
     });
   }
 

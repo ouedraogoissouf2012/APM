@@ -36,7 +36,7 @@ class HomeScreen extends ConsumerWidget {
             const SizedBox(height: 24),
             FilledButton.icon(
               key: const Key('start_conversation_button'),
-              onPressed: () => context.go('/conversation'),
+              onPressed: () => context.go('/scenarios'),
               icon: const Icon(Icons.mic),
               label: const Text('Start a conversation'),
             ),
