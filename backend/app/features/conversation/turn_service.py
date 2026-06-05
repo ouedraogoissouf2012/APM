@@ -22,9 +22,10 @@ class TurnResult:
 
 
 class ConversationTurnService:
-    def __init__(self, sessions: Any, transcripts: Any, llm: LlmProvider) -> None:
+    def __init__(self, sessions: Any, transcripts: Any, profiles: Any, llm: LlmProvider) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
+        self._profiles = profiles
         self._llm = llm
 
     async def take_turn(self, session_id: int, user: User, text: str) -> TurnResult:
@@ -37,12 +38,18 @@ class ConversationTurnService:
         existing = await self._transcripts.get_by_session(session_id)
         turns: list[dict] = list(existing.turns) if existing is not None else []
 
+        # Personalize from the learner's profile (interests + goal), if any.
+        profile = await self._profiles.get_by_user_id(user.id)
+        interests = list(profile.interests) if profile is not None else []
+        goal = profile.goal if profile is not None and profile.goal else ""
+        memory_summary = f"The learner's goal is: {goal}." if goal else ""
+
         system_prompt = build_system_prompt(
             PromptContext(
                 cefr_level=user.cefr_level,
                 scenario_id=session.scenario_id,
-                interests=[],
-                memory_summary="",
+                interests=interests,
+                memory_summary=memory_summary,
             )
         )
         history = [Message(role=t["role"], content=t["content"]) for t in turns]

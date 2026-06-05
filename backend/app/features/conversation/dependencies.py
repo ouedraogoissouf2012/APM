@@ -6,6 +6,7 @@ from app.database import get_db
 from app.features.conversation.factory import build_llm_provider
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
+from app.features.profile.repository import SqlAlchemyProfileRepository
 from app.features.sessions.repository import SqlAlchemySessionRepository
 
 
@@ -22,5 +23,6 @@ def get_conversation_turn_service(
     return ConversationTurnService(
         sessions=SqlAlchemySessionRepository(db),
         transcripts=SqlAlchemyTranscriptRepository(db),
+        profiles=SqlAlchemyProfileRepository(db),
         llm=llm,
     )
