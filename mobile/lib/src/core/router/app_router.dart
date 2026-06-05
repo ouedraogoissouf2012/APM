@@ -9,6 +9,7 @@ import '../../ui/conversation/widgets/conversation_screen.dart';
 import '../../ui/debrief/widgets/debrief_screen.dart';
 import '../../ui/home/widgets/home_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
+import '../../ui/scenarios/widgets/scenarios_screen.dart';
 
 /// The app router. Built once; a [ValueNotifier] tied to the auth state drives
 /// go_router's redirect re-evaluation on login/logout (no codegen).
@@ -41,6 +42,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             DebriefScreen(sessionId: int.parse(state.pathParameters['sessionId']!)),
       ),
       GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen()),
+      GoRoute(path: '/scenarios', builder: (_, _) => const ScenariosScreen()),
     ],
   );
 });
