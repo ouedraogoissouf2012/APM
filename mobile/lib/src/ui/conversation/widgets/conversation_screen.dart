@@ -32,8 +32,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             key: const Key('end_button'),
             icon: const Icon(Icons.call_end),
             onPressed: () async {
+              final sessionId = ref.read(conversationViewModelProvider).sessionId;
               await ref.read(conversationViewModelProvider.notifier).end();
-              if (context.mounted) context.go('/home');
+              if (!context.mounted) return;
+              context.go(sessionId != null ? '/debrief/$sessionId' : '/home');
             },
           ),
         ],

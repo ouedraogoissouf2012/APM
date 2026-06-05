@@ -6,6 +6,7 @@ import '../../ui/auth/view_model/auth_view_model.dart';
 import '../../ui/auth/widgets/login_screen.dart';
 import '../../ui/auth/widgets/register_screen.dart';
 import '../../ui/conversation/widgets/conversation_screen.dart';
+import '../../ui/debrief/widgets/debrief_screen.dart';
 import '../../ui/home/widgets/home_screen.dart';
 
 /// The app router. Built once; a [ValueNotifier] tied to the auth state drives
@@ -33,6 +34,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
       GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
       GoRoute(path: '/conversation', builder: (_, _) => const ConversationScreen()),
+      GoRoute(
+        path: '/debrief/:sessionId',
+        builder: (_, state) =>
+            DebriefScreen(sessionId: int.parse(state.pathParameters['sessionId']!)),
+      ),
     ],
   );
 });
