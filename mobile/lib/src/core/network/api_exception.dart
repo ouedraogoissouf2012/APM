@@ -11,5 +11,20 @@ class ApiException implements Exception {
   final String message;
 
   @override
-  String toString() => 'ApiException($statusCode, $code): $message';
+  String toString() => 'ApiException($statusCode, $code): ${_redact(message)}';
+}
+
+String _redact(String value) {
+  var redacted = value.replaceAll(
+    RegExp(r'Bearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false),
+    'Bearer [redacted]',
+  );
+  redacted = redacted.replaceAll(
+    RegExp(
+      r'(access[_ -]?token|refresh[_ -]?token)\s*[:=]\s*[A-Za-z0-9._~+/=-]+',
+      caseSensitive: false,
+    ),
+    r'$1=[redacted]',
+  );
+  return redacted;
 }
