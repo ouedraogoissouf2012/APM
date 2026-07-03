@@ -1,10 +1,19 @@
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+EXAMPLE_JWT_SECRET = "change-me-in-production-use-a-long-random-string"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+
+    app_env: Literal["dev", "test", "staging", "production"] = Field(
+        default="dev",
+        validation_alias=AliasChoices("APP_ENV", "ENV"),
+    )
 
     database_url: str
     database_url_test: str = ""
@@ -27,6 +36,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # Comma-separated list of allowed CORS origins ("*" = all, dev only).
     cors_allow_origins: str = "*"
+    cors_allow_credentials: bool = True
 
     # Conversation / voice
     deepseek_api_key: str = ""
@@ -38,6 +48,24 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def validate_production_safety(self) -> "Settings":
+        if self.app_env != "production":
+            return self
+
+        if len(self.jwt_secret.encode("utf-8")) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 bytes in production")
+        if self.jwt_secret == EXAMPLE_JWT_SECRET:
+            raise ValueError("JWT_SECRET must not use the example value in production")
+        if "*" in self.cors_origins_list and self.cors_allow_credentials:
+            raise ValueError("CORS_ALLOW_ORIGINS=* cannot be used with credentials in production")
+        if (
+            self.voice_engine == "deepseek" or self.debrief_engine == "deepseek"
+        ) and not self.deepseek_api_key:
+            raise ValueError("DEEPSEEK_API_KEY is required when DeepSeek is enabled")
+
+        return self
 
 
 @lru_cache
