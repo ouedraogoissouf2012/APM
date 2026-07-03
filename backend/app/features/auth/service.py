@@ -45,11 +45,14 @@ class AuthService:
         self._refresh = refresh_tokens
         self._refresh_ttl_days = refresh_ttl_days
 
-    async def _issue_tokens(self, user: User) -> AuthResult:
+    async def _issue_tokens(self, user: User, *, commit: bool = True) -> AuthResult:
         raw_refresh = generate_refresh_token()
         expires_at = datetime.now(UTC) + timedelta(days=self._refresh_ttl_days)
         await self._refresh.create(
-            user_id=user.id, token_hash=hash_token(raw_refresh), expires_at=expires_at
+            user_id=user.id,
+            token_hash=hash_token(raw_refresh),
+            expires_at=expires_at,
+            commit=commit,
         )
         return AuthResult(
             user=user,
@@ -75,21 +78,28 @@ class AuthService:
         return await self._issue_tokens(user)
 
     async def refresh(self, raw_refresh_token: str) -> AuthResult:
-        record = await self._refresh.get_by_hash(hash_token(raw_refresh_token))
-        now = datetime.now(UTC)
-        if record is None or record.revoked_at is not None:
-            raise InvalidRefreshTokenError("Invalid refresh token")
-        expires_at = record.expires_at
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=UTC)
-        if expires_at <= now:
-            raise InvalidRefreshTokenError("Refresh token expired")
-        # Rotation: the presented refresh token is single-use.
-        await self._refresh.revoke(record, revoked_at=now)
-        user = await self._users.get_by_id(record.user_id)
-        if user is None:
-            raise InvalidRefreshTokenError("Invalid refresh token")
-        return await self._issue_tokens(user)
+        try:
+            record = await self._refresh.lock_by_hash(hash_token(raw_refresh_token))
+            now = datetime.now(UTC)
+            if record is None or record.revoked_at is not None:
+                raise InvalidRefreshTokenError("Invalid refresh token")
+            expires_at = record.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at <= now:
+                raise InvalidRefreshTokenError("Refresh token expired")
+            user = await self._users.get_by_id(record.user_id)
+            if user is None:
+                raise InvalidRefreshTokenError("Invalid refresh token")
+
+            # Single transaction: lock old token, revoke it, create replacement, commit.
+            await self._refresh.revoke(record, revoked_at=now, commit=False)
+            result = await self._issue_tokens(user, commit=False)
+            await self._refresh.commit()
+            return result
+        except Exception:
+            await self._refresh.rollback()
+            raise
 
     async def logout(self, raw_refresh_token: str) -> None:
         record = await self._refresh.get_by_hash(hash_token(raw_refresh_token))
