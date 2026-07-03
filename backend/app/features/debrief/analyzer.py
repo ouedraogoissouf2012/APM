@@ -1,6 +1,7 @@
 from app.features.conversation.messages import Message
 from app.features.conversation.providers.interfaces import LlmProvider
 from app.features.debrief.domain import VALID_CEFR, DebriefError, DebriefResult
+from app.features.debrief.error_taxonomy import normalize_error_type
 from app.features.debrief.parsing import parse_debrief_json
 
 
@@ -14,7 +15,9 @@ def _build_system_prompt(native_language: str, max_errors: int) -> str:
         '{"cefr_estimate": "<A1|A2|B1|B2|C1|C2>", "summary": "<short overall feedback>", '
         '"errors": [{"original": "<exact substring of the learner text>", '
         '"correction": "<fixed version>", "rule": "<grammar rule>", '
-        '"error_type": "<short category>"}]}. '
+        '"error_type": "<grammar|verb_tense|verb_form|subject_verb_agreement|'
+        "word_order|article|preposition|pronoun|plural|spelling|punctuation|"
+        'capitalization|vocabulary|word_choice|fluency|other>"}]}. '
         f"Report at most {max_errors} of the most useful errors. "
         "Each 'original' MUST be copied verbatim from the learner's text."
     )
@@ -62,7 +65,7 @@ class DebriefAnalyzer:
                         original=original,
                         correction=str(item.get("correction", "")),
                         rule=str(item.get("rule", "")),
-                        error_type=str(item.get("error_type", "")),
+                        error_type=normalize_error_type(str(item.get("error_type", ""))),
                     )
                 )
 
