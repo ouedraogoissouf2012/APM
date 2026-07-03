@@ -19,6 +19,9 @@ def get_conversation_turn_service(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
         model=settings.deepseek_model,
+        timeout_seconds=settings.deepseek_timeout_seconds,
+        max_retries=settings.deepseek_max_retries,
+        max_tokens=settings.deepseek_conversation_max_tokens,
     )
     return ConversationTurnService(
         sessions=SqlAlchemySessionRepository(db),

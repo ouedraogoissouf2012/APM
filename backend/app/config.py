@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-chat"  # V3, low-latency; NOT the slow "reasoner"
+    deepseek_timeout_seconds: float = 20.0
+    deepseek_max_retries: int = 1
+    deepseek_conversation_max_tokens: int = 400
+    deepseek_debrief_max_tokens: int = 900
     voice_engine: str = "fake"  # "fake" (default, no keys) | "deepseek" | "livekit"
     debrief_engine: str = "fake"  # "fake" (default, no keys) | "deepseek"
 
