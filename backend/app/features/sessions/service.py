@@ -28,6 +28,16 @@ class StartedSession:
     livekit_token: str
 
 
+@dataclass(frozen=True)
+class SessionHistoryItem:
+    id: int
+    mode: str
+    scenario_id: str | None
+    started_at: datetime
+    duration_minutes: float | None
+    cefr_estimate: str | None
+
+
 def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
@@ -82,3 +92,17 @@ class SessionService:
             quota.record_usage(user, duration, date.today())
         await self._sessions.commit()
         return session
+
+    async def history(self, user_id: int, limit: int = 20) -> list[SessionHistoryItem]:
+        rows = await self._sessions.list_recent_for_user(user_id=user_id, limit=limit)
+        return [
+            SessionHistoryItem(
+                id=session.id,
+                mode=session.mode,
+                scenario_id=session.scenario_id,
+                started_at=session.started_at,
+                duration_minutes=session.duration_minutes,
+                cefr_estimate=cefr,
+            )
+            for session, cefr in rows
+        ]

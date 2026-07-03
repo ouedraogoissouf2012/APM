@@ -42,7 +42,12 @@ class ConversationTurnService:
         profile = await self._profiles.get_by_user_id(user.id)
         interests = list(profile.interests) if profile is not None else []
         goal = profile.goal if profile is not None and profile.goal else ""
-        memory_summary = f"The learner's goal is: {goal}." if goal else ""
+        memory_parts = []
+        if profile is not None and profile.memory_summary:
+            memory_parts.append(profile.memory_summary)
+        if goal:
+            memory_parts.append(f"The learner's goal is: {goal}.")
+        memory_summary = " ".join(memory_parts)
 
         system_prompt = build_system_prompt(
             PromptContext(

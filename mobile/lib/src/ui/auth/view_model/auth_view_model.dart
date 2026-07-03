@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/network/authenticated_api_client.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/storage/token_storage.dart';
 import '../../../data/models/app_user.dart';
@@ -8,16 +9,32 @@ import '../../../data/repositories/auth_repository.dart';
 
 // Plain Riverpod providers (no codegen) — fewer moving parts, simple to maintain.
 
-final apiClientProvider = Provider<ApiClient>((ref) => ApiClient(AppConfig.dev));
+final apiClientProvider = Provider<ApiClient>(
+  (ref) => ApiClient(AppConfig.dev),
+);
 
-final tokenStorageProvider = Provider<TokenStorage>((ref) => SecureTokenStorage());
+final tokenStorageProvider = Provider<TokenStorage>(
+  (ref) => SecureTokenStorage(),
+);
+
+final authenticatedApiClientProvider = Provider<AuthenticatedApiClient>(
+  (ref) => AuthenticatedApiClient(
+    ref.watch(apiClientProvider),
+    ref.watch(tokenStorageProvider),
+  ),
+);
 
 final authRepositoryProvider = Provider<AuthRepository>(
-  (ref) => AuthRepository(ref.watch(apiClientProvider), ref.watch(tokenStorageProvider)),
+  (ref) => AuthRepository(
+    ref.watch(apiClientProvider),
+    ref.watch(tokenStorageProvider),
+  ),
 );
 
 /// Holds the current authenticated user (null = signed out). Loads on startup.
-final authViewModelProvider = AsyncNotifierProvider<AuthViewModel, AppUser?>(AuthViewModel.new);
+final authViewModelProvider = AsyncNotifierProvider<AuthViewModel, AppUser?>(
+  AuthViewModel.new,
+);
 
 class AuthViewModel extends AsyncNotifier<AppUser?> {
   @override
@@ -26,7 +43,9 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
   Future<void> login({required String email, required String password}) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-      () => ref.read(authRepositoryProvider).login(email: email, password: password),
+      () => ref
+          .read(authRepositoryProvider)
+          .login(email: email, password: password),
     );
   }
 
@@ -39,7 +58,11 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
     state = await AsyncValue.guard(
       () => ref
           .read(authRepositoryProvider)
-          .register(email: email, password: password, nativeLanguage: nativeLanguage),
+          .register(
+            email: email,
+            password: password,
+            nativeLanguage: nativeLanguage,
+          ),
     );
   }
 

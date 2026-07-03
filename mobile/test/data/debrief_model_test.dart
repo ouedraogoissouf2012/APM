@@ -8,7 +8,12 @@ void main() {
       'cefr_estimate': 'A2',
       'summary': 'Nice work',
       'errors': [
-        {'original': 'i is', 'correction': 'I am', 'rule': 'verb to be', 'error_type': 'grammar'},
+        {
+          'original': 'i is',
+          'correction': 'I am',
+          'rule': 'verb to be',
+          'error_type': 'grammar',
+        },
       ],
     });
 

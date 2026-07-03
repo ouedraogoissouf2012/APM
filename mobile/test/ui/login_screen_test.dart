@@ -10,17 +10,25 @@ import 'package:mocktail/mocktail.dart';
 class _MockAuthRepository extends Mock implements AuthRepository {}
 
 void main() {
-  testWidgets('entering credentials and tapping log in calls the repository', (tester) async {
+  testWidgets('entering credentials and tapping log in calls the repository', (
+    tester,
+  ) async {
     final repo = _MockAuthRepository();
     when(repo.currentUser).thenAnswer((_) async => null);
-    when(() => repo.login(email: any(named: 'email'), password: any(named: 'password')))
-        .thenAnswer((_) async => const AppUser(
-              id: 1,
-              email: 'a@b.com',
-              nativeLanguage: 'fr',
-              cefrLevel: 'A1',
-              tier: 'free',
-            ));
+    when(
+      () => repo.login(
+        email: any(named: 'email'),
+        password: any(named: 'password'),
+      ),
+    ).thenAnswer(
+      (_) async => const AppUser(
+        id: 1,
+        email: 'a@b.com',
+        nativeLanguage: 'fr',
+        cefrLevel: 'A1',
+        tier: 'free',
+      ),
+    );
 
     await tester.pumpWidget(
       ProviderScope(

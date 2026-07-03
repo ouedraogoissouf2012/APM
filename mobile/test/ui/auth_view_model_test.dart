@@ -36,12 +36,18 @@ void main() {
   test('login sets the authenticated user', () async {
     final repo = _MockAuthRepository();
     when(repo.currentUser).thenAnswer((_) async => null);
-    when(() => repo.login(email: any(named: 'email'), password: any(named: 'password')))
-        .thenAnswer((_) async => _user);
+    when(
+      () => repo.login(
+        email: any(named: 'email'),
+        password: any(named: 'password'),
+      ),
+    ).thenAnswer((_) async => _user);
     final c = _containerWith(repo);
 
     await c.read(authViewModelProvider.future); // initial build
-    await c.read(authViewModelProvider.notifier).login(email: 'a@b.com', password: 's3cret!');
+    await c
+        .read(authViewModelProvider.notifier)
+        .login(email: 'a@b.com', password: 's3cret!');
 
     expect(c.read(authViewModelProvider).value, _user);
   });

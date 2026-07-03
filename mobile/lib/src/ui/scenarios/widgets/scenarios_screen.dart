@@ -27,10 +27,15 @@ class ScenariosScreen extends StatelessWidget {
             Card(
               key: Key('scenario_${scenario.id}'),
               child: ListTile(
-                leading: Text(scenario.emoji, style: const TextStyle(fontSize: 28)),
+                leading: Text(
+                  scenario.emoji,
+                  style: const TextStyle(fontSize: 28),
+                ),
                 title: Text(scenario.title),
                 subtitle: Text(scenario.description),
-                onTap: () => context.go('/conversation?mode=scenario&scenario=${scenario.id}'),
+                onTap: () => context.go(
+                  '/conversation?mode=scenario&scenario=${scenario.id}',
+                ),
               ),
             ),
         ],

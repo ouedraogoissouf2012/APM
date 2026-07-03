@@ -16,12 +16,12 @@ class AppUser {
   final String tier;
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
-        id: json['id'] as int,
-        email: json['email'] as String,
-        nativeLanguage: json['native_language'] as String,
-        cefrLevel: json['cefr_level'] as String,
-        tier: json['tier'] as String,
-      );
+    id: json['id'] as int,
+    email: json['email'] as String,
+    nativeLanguage: json['native_language'] as String,
+    cefrLevel: json['cefr_level'] as String,
+    tier: json['tier'] as String,
+  );
 
   @override
   bool operator ==(Object other) =>

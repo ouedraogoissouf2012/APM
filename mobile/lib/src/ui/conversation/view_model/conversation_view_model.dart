@@ -5,14 +5,18 @@ import '../../../data/repositories/conversation_repository.dart';
 import '../../auth/view_model/auth_view_model.dart';
 import 'conversation_state.dart';
 
-final speechServiceProvider = Provider<SpeechService>((ref) => DeviceSpeechService());
+final speechServiceProvider = Provider<SpeechService>(
+  (ref) => DeviceSpeechService(),
+);
 
 final conversationRepositoryProvider = Provider<ConversationRepository>(
-  (ref) => ConversationRepository(ref.watch(apiClientProvider), ref.watch(tokenStorageProvider)),
+  (ref) => ConversationRepository(ref.watch(authenticatedApiClientProvider)),
 );
 
 final conversationViewModelProvider =
-    NotifierProvider<ConversationViewModel, ConversationState>(ConversationViewModel.new);
+    NotifierProvider<ConversationViewModel, ConversationState>(
+      ConversationViewModel.new,
+    );
 
 /// Drives one turn at a time: listen (device STT) -> send to backend (DeepSeek)
 /// -> speak the reply (device TTS). Turn-based, no real-time audio streaming.
@@ -24,15 +28,22 @@ class ConversationViewModel extends Notifier<ConversationState> {
     final id = await ref
         .read(conversationRepositoryProvider)
         .startSession(mode: mode, scenarioId: scenarioId);
-    await ref.read(speechServiceProvider).initialize();
-    state = ConversationState(sessionId: id);
+    final speechReady = await ref.read(speechServiceProvider).initialize();
+    state = ConversationState(
+      sessionId: id,
+      turns: [ConversationTurn('assistant', _openingMessage(mode, scenarioId))],
+      error: speechReady ? null : 'Microphone is not available',
+    );
   }
 
   Future<void> listenAndRespond() async {
     final sessionId = state.sessionId;
     if (sessionId == null || state.status != ConversationStatus.idle) return;
 
-    state = state.copyWith(status: ConversationStatus.listening, clearError: true);
+    state = state.copyWith(
+      status: ConversationStatus.listening,
+      clearError: true,
+    );
     final speech = ref.read(speechServiceProvider);
     final text = (await speech.listenOnce()).trim();
     if (text.isEmpty) {
@@ -46,7 +57,9 @@ class ConversationViewModel extends Notifier<ConversationState> {
     );
 
     try {
-      final reply = await ref.read(conversationRepositoryProvider).sendTurn(sessionId, text);
+      final reply = await ref
+          .read(conversationRepositoryProvider)
+          .sendTurn(sessionId, text);
       state = state.copyWith(
         turns: [...state.turns, ConversationTurn('assistant', reply)],
         status: ConversationStatus.speaking,
@@ -54,7 +67,10 @@ class ConversationViewModel extends Notifier<ConversationState> {
       await speech.speak(reply);
       state = state.copyWith(status: ConversationStatus.idle);
     } catch (_) {
-      state = state.copyWith(status: ConversationStatus.idle, error: 'Could not get a reply');
+      state = state.copyWith(
+        status: ConversationStatus.idle,
+        error: 'Could not get a reply',
+      );
     }
   }
 
@@ -65,4 +81,12 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
     state = const ConversationState();
   }
+}
+
+String _openingMessage(String mode, String? scenarioId) {
+  if (mode == 'scenario' && scenarioId != null) {
+    final scenario = scenarioId.replaceAll('_', ' ');
+    return "Let's practise $scenario. I will keep it simple and ask you questions.";
+  }
+  return "Hi, let's practise English. What would you like to talk about today?";
 }

@@ -1,15 +1,13 @@
-import '../../core/network/api_client.dart';
-import '../../core/storage/token_storage.dart';
+import '../../core/network/authenticated_api_client.dart';
 import '../models/profile.dart';
 
 class ProfileRepository {
-  ProfileRepository(this._api, this._storage);
+  ProfileRepository(this._api);
 
-  final ApiClient _api;
-  final TokenStorage _storage;
+  final AuthenticatedApiClient _api;
 
   Future<Profile> getProfile() async {
-    final json = await _api.getJson('/me/profile', bearer: await _storage.readAccessToken());
+    final json = await _api.getJson('/me/profile');
     return Profile.fromJson(json);
   }
 
@@ -27,7 +25,6 @@ class ProfileRepository {
         'correction_intensity': ?correctionIntensity,
         'accent': ?accent,
       },
-      bearer: await _storage.readAccessToken(),
     );
     return Profile.fromJson(json);
   }

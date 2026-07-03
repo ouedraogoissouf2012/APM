@@ -1,5 +1,6 @@
 from typing import Any
 
+from app.domain.exceptions import LlmProviderError
 from app.features.conversation.messages import Message
 
 
@@ -17,7 +18,12 @@ class DeepSeekLlmProvider:
     async def complete(self, system_prompt: str, history: list[Message]) -> str:
         messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         messages += [{"role": m.role, "content": m.content} for m in history]
-        response = await self._client.chat.completions.create(model=self._model, messages=messages)
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._model, messages=messages
+            )
+        except Exception as exc:
+            raise LlmProviderError("LLM provider failed") from exc
         return response.choices[0].message.content or ""
 
 

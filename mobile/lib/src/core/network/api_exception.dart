@@ -1,6 +1,10 @@
 /// A normalized API error. The backend returns `{ "error": { "code", "message" } }`.
 class ApiException implements Exception {
-  const ApiException({required this.statusCode, required this.code, required this.message});
+  const ApiException({
+    required this.statusCode,
+    required this.code,
+    required this.message,
+  });
 
   final int statusCode;
   final String code;

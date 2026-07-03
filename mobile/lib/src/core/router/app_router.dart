@@ -7,6 +7,7 @@ import '../../ui/auth/widgets/login_screen.dart';
 import '../../ui/auth/widgets/register_screen.dart';
 import '../../ui/conversation/widgets/conversation_screen.dart';
 import '../../ui/debrief/widgets/debrief_screen.dart';
+import '../../ui/history/widgets/session_history_screen.dart';
 import '../../ui/home/widgets/home_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
 import '../../ui/scenarios/widgets/scenarios_screen.dart';
@@ -26,7 +27,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (auth.isLoading) return null;
       final signedIn = auth.value != null;
       final atAuth =
-          state.matchedLocation == '/login' || state.matchedLocation == '/register';
+          state.matchedLocation == '/login' ||
+          state.matchedLocation == '/register';
       if (!signedIn && !atAuth) return '/login';
       if (signedIn && atAuth) return '/home';
       return null;
@@ -35,11 +37,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
       GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
-      GoRoute(path: '/conversation', builder: (_, _) => const ConversationScreen()),
+      GoRoute(
+        path: '/history',
+        builder: (_, _) => const SessionHistoryScreen(),
+      ),
+      GoRoute(
+        path: '/conversation',
+        builder: (_, _) => const ConversationScreen(),
+      ),
       GoRoute(
         path: '/debrief/:sessionId',
-        builder: (_, state) =>
-            DebriefScreen(sessionId: int.parse(state.pathParameters['sessionId']!)),
+        builder: (_, state) => DebriefScreen(
+          sessionId: int.parse(state.pathParameters['sessionId']!),
+        ),
       ),
       GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen()),
       GoRoute(path: '/scenarios', builder: (_, _) => const ScenariosScreen()),

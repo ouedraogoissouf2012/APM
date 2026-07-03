@@ -29,7 +29,10 @@ class DebriefScreen extends ConsumerWidget {
         error: (_, _) => const Center(
           child: Padding(
             padding: EdgeInsets.all(24),
-            child: Text('Could not load your debrief.', key: Key('debrief_error')),
+            child: Text(
+              'Could not load your debrief.',
+              key: Key('debrief_error'),
+            ),
           ),
         ),
         data: (debrief) => _DebriefBody(debrief: debrief),
@@ -82,11 +85,15 @@ class _DebriefBody extends StatelessWidget {
                   children: [
                     Text(
                       e.original,
-                      style: const TextStyle(decoration: TextDecoration.lineThrough),
+                      style: const TextStyle(
+                        decoration: TextDecoration.lineThrough,
+                      ),
                     ),
                     Text(
                       e.correction,
-                      style: TextStyle(color: Theme.of(context).colorScheme.primary),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(e.rule, style: Theme.of(context).textTheme.bodySmall),
