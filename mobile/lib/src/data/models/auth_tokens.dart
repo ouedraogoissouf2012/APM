@@ -9,4 +9,8 @@ class AuthTokens {
     accessToken: json['access_token'] as String,
     refreshToken: json['refresh_token'] as String,
   );
+
+  @override
+  String toString() =>
+      'AuthTokens(accessToken: [redacted], refreshToken: [redacted])';
 }

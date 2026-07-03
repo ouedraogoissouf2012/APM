@@ -160,4 +160,22 @@ void main() {
     expect(storage.access, isNull);
     expect(storage.refresh, isNull);
   });
+
+  test('logout clears stored tokens even when backend logout fails', () async {
+    storage.access = 'acc';
+    storage.refresh = 'ref';
+    when(
+      () => api.postJson('/auth/logout', body: any(named: 'body')),
+    ).thenThrow(
+      const ApiException(
+        statusCode: 500,
+        code: 'ServerError',
+        message: 'temporary failure',
+      ),
+    );
+
+    await expectLater(repo.logout(), throwsA(isA<ApiException>()));
+    expect(storage.access, isNull);
+    expect(storage.refresh, isNull);
+  });
 }

@@ -78,10 +78,13 @@ class AuthRepository {
 
   Future<void> logout() async {
     final refresh = await _storage.readRefreshToken();
-    if (refresh != null) {
-      await _api.postJson('/auth/logout', body: {'refresh_token': refresh});
+    try {
+      if (refresh != null) {
+        await _api.postJson('/auth/logout', body: {'refresh_token': refresh});
+      }
+    } finally {
+      await _storage.clear();
     }
-    await _storage.clear();
   }
 
   Future<AppUser> _persistAndExtractUser(Map<String, dynamic> json) async {
