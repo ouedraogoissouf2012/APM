@@ -5,7 +5,7 @@ import 'api_exception.dart';
 
 class ApiClient {
   ApiClient(AppConfig config, {Dio? dio})
-      : _dio = dio ?? Dio(BaseOptions(baseUrl: config.apiBaseUrl));
+    : _dio = dio ?? Dio(BaseOptions(baseUrl: config.apiBaseUrl));
 
   final Dio _dio;
 
@@ -30,8 +30,23 @@ class ApiClient {
 
   Future<Map<String, dynamic>> getJson(String path, {String? bearer}) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(path, options: _options(bearer));
+      final response = await _dio.get<Map<String, dynamic>>(
+        path,
+        options: _options(bearer),
+      );
       return response.data ?? <String, dynamic>{};
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+  }
+
+  Future<List<dynamic>> getList(String path, {String? bearer}) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        path,
+        options: _options(bearer),
+      );
+      return response.data ?? <dynamic>[];
     } on DioException catch (e) {
       throw _toApiException(e);
     }
@@ -55,8 +70,8 @@ class ApiClient {
   }
 
   Options _options(String? bearer) => Options(
-        headers: bearer == null ? null : {'Authorization': 'Bearer $bearer'},
-      );
+    headers: bearer == null ? null : {'Authorization': 'Bearer $bearer'},
+  );
 
   ApiException _toApiException(DioException e) {
     final status = e.response?.statusCode ?? 0;
@@ -69,6 +84,10 @@ class ApiClient {
         message: (err['message'] ?? 'Request failed').toString(),
       );
     }
-    return ApiException(statusCode: status, code: 'network', message: e.message ?? 'Network error');
+    return ApiException(
+      statusCode: status,
+      code: 'network',
+      message: e.message ?? 'Network error',
+    );
   }
 }

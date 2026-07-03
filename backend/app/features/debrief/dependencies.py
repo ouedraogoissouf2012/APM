@@ -10,6 +10,7 @@ from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.fake_llm import FakeDebriefLlm
 from app.features.debrief.repository import SqlAlchemyDebriefRepository
 from app.features.debrief.service import DebriefService
+from app.features.profile.repository import SqlAlchemyProfileRepository
 from app.features.sessions.repository import SqlAlchemySessionRepository
 
 
@@ -31,4 +32,5 @@ def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
         transcripts=SqlAlchemyTranscriptRepository(db),
         debriefs=SqlAlchemyDebriefRepository(db),
         analyzer=DebriefAnalyzer(llm),
+        profiles=SqlAlchemyProfileRepository(db),
     )

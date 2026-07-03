@@ -72,6 +72,8 @@ Backend :
 - endpoint de conversation tour-par-tour ;
 - transcript persistant ;
 - generation et lecture de bilan ;
+- historique des sessions recentes ;
+- memoire apprenant simple alimentee par les bilans ;
 - erreurs domaine centralisees ;
 - migrations Alembic ;
 - tests unitaires et integration.
@@ -80,22 +82,22 @@ Mobile :
 
 - login/register ;
 - stockage securise des tokens ;
+- refresh automatique des access tokens expires ;
 - home ;
 - profil ;
 - choix de scenario ;
 - conversation tour-par-tour par micro ;
 - text-to-speech de la reponse ;
 - ecran de bilan ;
+- historique des sessions ;
 - tests repositories, view models et widgets.
 
 ## Limites actuelles
 
 - Pas encore de LiveKit Agent temps reel.
 - Pas encore de scoring de prononciation Azure.
-- Pas encore d'historique mobile complet.
-- Pas encore de memoire apprenant long terme.
+- Pas encore de memoire apprenant vectorielle ou long terme avancee.
 - Le mode par defaut utilise des moteurs fake pour pouvoir developper sans cle API.
-- Le refresh automatique cote mobile reste a finaliser.
 
 ## Variables d'environnement backend
 
@@ -177,9 +179,9 @@ flutter pub get
 flutter run
 ```
 
-En developpement web/desktop, l'API pointe aujourd'hui vers
-`http://localhost:8000`. L'issue MVP 02 traite la configuration Android emulator
-(`10.0.2.2`).
+En developpement web/desktop/iOS simulator, l'API pointe vers
+`http://localhost:8000`. Sur Android emulator, l'app utilise
+`http://10.0.2.2:8000` pour joindre la machine hote.
 
 ## Verification
 
@@ -200,6 +202,49 @@ Mobile :
 cd mobile
 flutter test
 ```
+
+## Demo MVP locale
+
+Checklist avant demo :
+
+1. Demarrer PostgreSQL :
+
+```bash
+docker compose up -d postgres
+```
+
+2. Preparer et lancer le backend :
+
+```bash
+cd backend
+copy .env.example .env
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
+```
+
+3. Verifier le backend :
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+4. Lancer le mobile :
+
+```bash
+cd mobile
+flutter run
+```
+
+Parcours a montrer :
+
+- creer un compte ou se connecter ;
+- ouvrir le profil, saisir quelques interets et un objectif ;
+- choisir un scenario ;
+- demarrer une conversation, parler, ecouter la reponse ;
+- terminer la session ;
+- consulter le bilan ;
+- revenir a l'accueil et ouvrir l'historique ;
+- ouvrir un ancien bilan depuis l'historique quand un CEFR est disponible.
 
 ## Documentation projet
 

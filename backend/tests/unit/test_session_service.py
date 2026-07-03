@@ -101,3 +101,16 @@ async def test_end_other_users_session_raises():
     started = await service.start(user.id, "free", None)
     with pytest.raises(NotFoundError):
         await service.end(started.session.id, user_id=user.id + 999)
+
+
+@pytest.mark.asyncio
+async def test_history_returns_recent_sessions_for_user_only():
+    service, user = await _service_with_user()
+    older = await service.start(user.id, "free", None)
+    await service.end(older.session.id, user.id)
+    newer = await service.start(user.id, "scenario", "restaurant")
+
+    history = await service.history(user.id)
+
+    assert [item.id for item in history] == [newer.session.id, older.session.id]
+    assert history[0].scenario_id == "restaurant"

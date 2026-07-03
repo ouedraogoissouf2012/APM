@@ -20,6 +20,11 @@ class HomeScreen extends ConsumerWidget {
             onPressed: () => context.go('/profile'),
           ),
           IconButton(
+            key: const Key('history_button'),
+            icon: const Icon(Icons.history),
+            onPressed: () => context.go('/history'),
+          ),
+          IconButton(
             key: const Key('logout_button'),
             icon: const Icon(Icons.logout),
             onPressed: () => ref.read(authViewModelProvider.notifier).logout(),
@@ -31,7 +36,9 @@ class HomeScreen extends ConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              user == null ? 'Welcome' : 'Hello, ${user.email} (${user.cefrLevel})',
+              user == null
+                  ? 'Welcome'
+                  : 'Hello, ${user.email} (${user.cefrLevel})',
             ),
             const SizedBox(height: 24),
             FilledButton.icon(

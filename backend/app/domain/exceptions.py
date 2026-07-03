@@ -52,3 +52,7 @@ class RateLimitedError(DomainError):
 
 class DebriefAnalysisError(DomainError):
     """The debrief LLM returned output that could not be parsed."""
+
+
+class LlmProviderError(DomainError):
+    """The configured LLM provider failed or is unavailable."""

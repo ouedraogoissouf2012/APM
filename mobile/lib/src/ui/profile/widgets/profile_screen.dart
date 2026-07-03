@@ -39,16 +39,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
         .toList();
-    await ref.read(profileViewModelProvider.notifier).save(
+    await ref
+        .read(profileViewModelProvider.notifier)
+        .save(
           interests: interests,
           goal: _goal.text.trim(),
           correctionIntensity: _intensity,
           accent: _accent,
         );
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile saved')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profile saved')));
     }
   }
 
@@ -60,7 +62,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
-          child: Text('Could not load your profile.', key: Key('profile_error')),
+          child: Text(
+            'Could not load your profile.',
+            key: Key('profile_error'),
+          ),
         ),
         data: (profile) {
           if (!_initialized) _initFrom(profile);
@@ -90,8 +95,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     key: const Key('accent_dropdown'),
                     value: _accent,
                     items: const [
-                      DropdownMenuItem(value: 'us', child: Text('American (US)')),
-                      DropdownMenuItem(value: 'uk', child: Text('British (UK)')),
+                      DropdownMenuItem(
+                        value: 'us',
+                        child: Text('American (US)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'uk',
+                        child: Text('British (UK)'),
+                      ),
                     ],
                     onChanged: (v) => setState(() => _accent = v ?? _accent),
                   ),
@@ -106,9 +117,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     value: _intensity,
                     items: const [
                       DropdownMenuItem(value: 'gentle', child: Text('Gentle')),
-                      DropdownMenuItem(value: 'detailed', child: Text('Detailed')),
+                      DropdownMenuItem(
+                        value: 'detailed',
+                        child: Text('Detailed'),
+                      ),
                     ],
-                    onChanged: (v) => setState(() => _intensity = v ?? _intensity),
+                    onChanged: (v) =>
+                        setState(() => _intensity = v ?? _intensity),
                   ),
                 ],
               ),

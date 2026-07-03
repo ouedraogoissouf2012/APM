@@ -19,7 +19,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final params = GoRouterState.of(context).uri.queryParameters;
-      ref.read(conversationViewModelProvider.notifier).start(
+      ref
+          .read(conversationViewModelProvider.notifier)
+          .start(
             mode: params['mode'] ?? 'free',
             scenarioId: params['scenario'],
           );
@@ -37,7 +39,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             key: const Key('end_button'),
             icon: const Icon(Icons.call_end),
             onPressed: () async {
-              final sessionId = ref.read(conversationViewModelProvider).sessionId;
+              final sessionId = ref
+                  .read(conversationViewModelProvider)
+                  .sessionId;
               await ref.read(conversationViewModelProvider.notifier).end();
               if (!context.mounted) return;
               context.go(sessionId != null ? '/debrief/$sessionId' : '/home');
@@ -55,14 +59,18 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 final turn = state.turns[i];
                 final isUser = turn.role == 'user';
                 return Align(
-                  alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                  alignment: isUser
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 4),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: isUser
                           ? Theme.of(context).colorScheme.primaryContainer
-                          : Theme.of(context).colorScheme.surfaceContainerHighest,
+                          : Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(turn.content),
@@ -109,8 +117,11 @@ class _MicButton extends ConsumerWidget {
       children: [
         FloatingActionButton.large(
           key: const Key('mic_button'),
-          onPressed:
-              busy ? null : () => ref.read(conversationViewModelProvider.notifier).listenAndRespond(),
+          onPressed: busy
+              ? null
+              : () => ref
+                    .read(conversationViewModelProvider.notifier)
+                    .listenAndRespond(),
           child: Icon(busy ? Icons.hourglass_empty : Icons.mic),
         ),
         const SizedBox(height: 8),

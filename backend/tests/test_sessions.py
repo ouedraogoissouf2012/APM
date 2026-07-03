@@ -60,3 +60,26 @@ async def test_end_is_idempotent(client):
     second = await client.post(f"/sessions/{session_id}/end", headers=headers)
     assert first.status_code == 200
     assert second.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_returns_only_current_users_sessions(client):
+    headers_a = await _auth_header(client, email="history-a@b.com")
+    headers_b = await _auth_header(client, email="history-b@b.com")
+
+    own = await client.post(
+        "/sessions/start",
+        headers=headers_a,
+        json={"mode": "scenario", "scenario_id": "restaurant"},
+    )
+    other = await client.post("/sessions/start", headers=headers_b, json={"mode": "free"})
+
+    resp = await client.get("/sessions", headers=headers_a)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [item["id"] for item in body] == [own.json()["session_id"]]
+    assert other.json()["session_id"] not in [item["id"] for item in body]
+    assert body[0]["scenario_id"] == "restaurant"
+    assert "started_at" in body[0]
+    assert "cefr_estimate" in body[0]

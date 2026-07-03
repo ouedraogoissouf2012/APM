@@ -57,10 +57,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               key: const Key('register_button'),
               onPressed: auth.isLoading
                   ? null
-                  : () => ref.read(authViewModelProvider.notifier).register(
-                        email: _email.text,
-                        password: _password.text,
-                      ),
+                  : () => ref
+                        .read(authViewModelProvider.notifier)
+                        .register(email: _email.text, password: _password.text),
               child: const Text('Create account'),
             ),
             TextButton(

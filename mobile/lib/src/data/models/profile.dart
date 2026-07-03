@@ -13,9 +13,11 @@ class Profile {
   final String accent; // "us" | "uk"
 
   factory Profile.fromJson(Map<String, dynamic> json) => Profile(
-        interests: ((json['interests'] as List?) ?? const []).map((e) => e as String).toList(),
-        goal: json['goal'] as String?,
-        correctionIntensity: json['correction_intensity'] as String,
-        accent: json['accent'] as String,
-      );
+    interests: ((json['interests'] as List?) ?? const [])
+        .map((e) => e as String)
+        .toList(),
+    goal: json['goal'] as String?,
+    correctionIntensity: json['correction_intensity'] as String,
+    accent: json['accent'] as String,
+  );
 }

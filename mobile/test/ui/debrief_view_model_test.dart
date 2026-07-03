@@ -8,20 +8,24 @@ import 'package:mocktail/mocktail.dart';
 class _MockDebriefRepository extends Mock implements DebriefRepository {}
 
 void main() {
-  test('debriefProvider generates and exposes the debrief for a session', () async {
-    final repo = _MockDebriefRepository();
-    when(() => repo.generate(1)).thenAnswer(
-      (_) async => const Debrief(cefrEstimate: 'B1', summary: 'good', errors: []),
-    );
-    final c = ProviderContainer(
-      overrides: [debriefRepositoryProvider.overrideWithValue(repo)],
-    );
-    addTearDown(c.dispose);
+  test(
+    'debriefProvider generates and exposes the debrief for a session',
+    () async {
+      final repo = _MockDebriefRepository();
+      when(() => repo.getOrGenerate(1)).thenAnswer(
+        (_) async =>
+            const Debrief(cefrEstimate: 'B1', summary: 'good', errors: []),
+      );
+      final c = ProviderContainer(
+        overrides: [debriefRepositoryProvider.overrideWithValue(repo)],
+      );
+      addTearDown(c.dispose);
 
-    final debrief = await c.read(debriefProvider(1).future);
+      final debrief = await c.read(debriefProvider(1).future);
 
-    expect(debrief.cefrEstimate, 'B1');
-    expect(debrief.summary, 'good');
-    verify(() => repo.generate(1)).called(1);
-  });
+      expect(debrief.cefrEstimate, 'B1');
+      expect(debrief.summary, 'good');
+      verify(() => repo.getOrGenerate(1)).called(1);
+    },
+  );
 }

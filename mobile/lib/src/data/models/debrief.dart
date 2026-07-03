@@ -13,11 +13,11 @@ class DebriefError {
   final String errorType;
 
   factory DebriefError.fromJson(Map<String, dynamic> json) => DebriefError(
-        original: json['original'] as String,
-        correction: json['correction'] as String,
-        rule: json['rule'] as String,
-        errorType: json['error_type'] as String,
-      );
+    original: json['original'] as String,
+    correction: json['correction'] as String,
+    rule: json['rule'] as String,
+    errorType: json['error_type'] as String,
+  );
 }
 
 /// The end-of-session debrief: CEFR estimate, a short summary, and corrections.
@@ -33,10 +33,10 @@ class Debrief {
   final List<DebriefError> errors;
 
   factory Debrief.fromJson(Map<String, dynamic> json) => Debrief(
-        cefrEstimate: json['cefr_estimate'] as String,
-        summary: json['summary'] as String,
-        errors: ((json['errors'] as List?) ?? const [])
-            .map((e) => DebriefError.fromJson(e as Map<String, dynamic>))
-            .toList(),
-      );
+    cefrEstimate: json['cefr_estimate'] as String,
+    summary: json['summary'] as String,
+    errors: ((json['errors'] as List?) ?? const [])
+        .map((e) => DebriefError.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
 }

@@ -9,6 +9,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.features.debrief.models import Debrief
 from app.features.sessions.models import ConversationSession
 
 
@@ -16,6 +17,10 @@ class SessionRepository(Protocol):
     async def get(self, session_id: int) -> ConversationSession | None: ...
 
     async def get_active_for_user(self, user_id: int) -> ConversationSession | None: ...
+
+    async def list_recent_for_user(
+        self, user_id: int, limit: int
+    ) -> list[tuple[ConversationSession, str | None]]: ...
 
     async def add(self, session: ConversationSession) -> ConversationSession: ...
 
@@ -36,6 +41,18 @@ class SqlAlchemySessionRepository:
                 ConversationSession.ended_at.is_(None),
             )
         )
+
+    async def list_recent_for_user(
+        self, user_id: int, limit: int
+    ) -> list[tuple[ConversationSession, str | None]]:
+        result = await self._session.execute(
+            select(ConversationSession, Debrief.cefr_estimate)
+            .outerjoin(Debrief, Debrief.session_id == ConversationSession.id)
+            .where(ConversationSession.user_id == user_id)
+            .order_by(ConversationSession.started_at.desc(), ConversationSession.id.desc())
+            .limit(limit)
+        )
+        return [(session, cefr) for session, cefr in result.all()]
 
     async def add(self, session: ConversationSession) -> ConversationSession:
         self._session.add(session)

@@ -5,7 +5,7 @@ import '../../../data/repositories/profile_repository.dart';
 import '../../auth/view_model/auth_view_model.dart';
 
 final profileRepositoryProvider = Provider<ProfileRepository>(
-  (ref) => ProfileRepository(ref.watch(apiClientProvider), ref.watch(tokenStorageProvider)),
+  (ref) => ProfileRepository(ref.watch(authenticatedApiClientProvider)),
 );
 
 final profileViewModelProvider =
@@ -23,7 +23,9 @@ class ProfileViewModel extends AsyncNotifier<Profile> {
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-      () => ref.read(profileRepositoryProvider).updateProfile(
+      () => ref
+          .read(profileRepositoryProvider)
+          .updateProfile(
             interests: interests,
             goal: goal,
             correctionIntensity: correctionIntensity,

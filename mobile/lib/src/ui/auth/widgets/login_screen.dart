@@ -57,10 +57,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               key: const Key('login_button'),
               onPressed: auth.isLoading
                   ? null
-                  : () => ref.read(authViewModelProvider.notifier).login(
-                        email: _email.text,
-                        password: _password.text,
-                      ),
+                  : () => ref
+                        .read(authViewModelProvider.notifier)
+                        .login(email: _email.text, password: _password.text),
               child: auth.isLoading
                   ? const CircularProgressIndicator()
                   : const Text('Log in'),

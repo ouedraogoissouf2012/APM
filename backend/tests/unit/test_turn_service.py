@@ -48,17 +48,19 @@ class _FakeTranscripts:
 
 
 class _FakeProfiles:
-    def __init__(self, interests=None, goal=None) -> None:
+    def __init__(self, interests=None, goal=None, memory_summary="") -> None:
         self._interests = interests
         self._goal = goal
+        self._memory_summary = memory_summary
 
     async def get_by_user_id(self, user_id):
-        if self._interests is None and self._goal is None:
+        if self._interests is None and self._goal is None and not self._memory_summary:
             return None
 
         class _P:
             interests = self._interests or []
             goal = self._goal
+            memory_summary = self._memory_summary
 
         return _P()
 
@@ -130,6 +132,21 @@ async def test_take_turn_personalizes_prompt_from_profile():
     assert "football" in llm.seen_system
     assert "cooking" in llm.seen_system
     assert "travel to the UK" in llm.seen_system
+
+
+@pytest.mark.asyncio
+async def test_take_turn_injects_learner_memory_into_prompt():
+    llm = _CannedLlm()
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        llm,
+        profiles=_FakeProfiles(memory_summary="Last session: user struggled with past tense."),
+    )
+
+    await service.take_turn(1, _user(), "hello")
+
+    assert "past tense" in llm.seen_system
 
 
 @pytest.mark.asyncio

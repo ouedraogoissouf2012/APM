@@ -1,21 +1,9 @@
-import 'package:apm/src/core/network/api_client.dart';
-import 'package:apm/src/core/storage/token_storage.dart';
+import 'package:apm/src/core/network/authenticated_api_client.dart';
 import 'package:apm/src/data/repositories/profile_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-class _MockApiClient extends Mock implements ApiClient {}
-
-class _Storage implements TokenStorage {
-  @override
-  Future<void> save({required String accessToken, required String refreshToken}) async {}
-  @override
-  Future<String?> readAccessToken() async => 'tok';
-  @override
-  Future<String?> readRefreshToken() async => 'r';
-  @override
-  Future<void> clear() async {}
-}
+class _MockApiClient extends Mock implements AuthenticatedApiClient {}
 
 void main() {
   late _MockApiClient api;
@@ -23,11 +11,11 @@ void main() {
 
   setUp(() {
     api = _MockApiClient();
-    repo = ProfileRepository(api, _Storage());
+    repo = ProfileRepository(api);
   });
 
   test('getProfile fetches and parses the profile', () async {
-    when(() => api.getJson('/me/profile', bearer: any(named: 'bearer'))).thenAnswer(
+    when(() => api.getJson('/me/profile')).thenAnswer(
       (_) async => {
         'interests': ['football'],
         'goal': 'job interview',
@@ -44,8 +32,7 @@ void main() {
   });
 
   test('updateProfile puts the changes and parses the result', () async {
-    when(() => api.putJson('/me/profile', body: any(named: 'body'), bearer: any(named: 'bearer')))
-        .thenAnswer(
+    when(() => api.putJson('/me/profile', body: any(named: 'body'))).thenAnswer(
       (_) async => {
         'interests': ['cooking'],
         'goal': null,

@@ -15,6 +15,7 @@ from app.domain.exceptions import (
     DebriefAnalysisError,
     DomainError,
     InvalidCredentialsError,
+    LlmProviderError,
     NotFoundError,
     QuotaExhaustedError,
     RateLimitedError,
@@ -29,6 +30,7 @@ _STATUS_BY_EXCEPTION: list[tuple[type[DomainError], int]] = [
     (RateLimitedError, status.HTTP_429_TOO_MANY_REQUESTS),
     (ConflictError, status.HTTP_409_CONFLICT),
     (DebriefAnalysisError, status.HTTP_502_BAD_GATEWAY),
+    (LlmProviderError, status.HTTP_502_BAD_GATEWAY),
     (DomainError, status.HTTP_400_BAD_REQUEST),
 ]
 

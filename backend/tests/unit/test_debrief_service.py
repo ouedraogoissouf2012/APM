@@ -35,7 +35,8 @@ class _FakeTranscripts:
 
 
 class _FakeDebriefs:
-    def __init__(self) -> None:
+    def __init__(self, existing=None) -> None:
+        self._existing = existing
         self.saved = None
 
     async def save(self, session_id, cefr_estimate, summary, errors):
@@ -54,12 +55,34 @@ class _FakeDebriefs:
         return d
 
     async def get_by_session(self, session_id):
-        return None
+        return self._existing
+
+
+class _FakeProfile:
+    memory_summary = ""
+
+
+class _FakeProfiles:
+    def __init__(self) -> None:
+        self.profile = _FakeProfile()
+        self.saved = None
+
+    async def get_by_user_id(self, user_id):
+        return self.profile
+
+    async def save(self, profile):
+        self.saved = profile
+        return profile
 
 
 class _CannedLlm:
     async def complete(self, system_prompt, history):
         return '{"cefr_estimate": "B1", "summary": "ok", "errors": []}'
+
+
+class _ExplodingAnalyzer:
+    async def analyze(self, turns, native_language, fallback_cefr="A1"):
+        raise AssertionError("analyzer should not run when debrief already exists")
 
 
 def _user() -> User:
@@ -86,6 +109,45 @@ async def test_generate_analyzes_and_persists():
     result = await service.generate(session_id=1, user=_user())
     assert result.cefr_estimate == "B1"
     assert debriefs.saved is not None
+
+
+@pytest.mark.asyncio
+async def test_generate_updates_learner_memory_when_profile_repository_is_available():
+    profiles = _FakeProfiles()
+    service = DebriefService(
+        sessions=_FakeSessions(owner_id=7),
+        transcripts=_FakeTranscripts(turns=[{"role": "user", "content": "i is happy"}]),
+        debriefs=_FakeDebriefs(),
+        analyzer=DebriefAnalyzer(_CannedLlm()),
+        profiles=profiles,
+    )
+
+    await service.generate(session_id=1, user=_user())
+
+    assert profiles.saved is profiles.profile
+    assert profiles.profile.memory_summary == "ok"
+
+
+@pytest.mark.asyncio
+async def test_generate_returns_existing_debrief_without_regenerating():
+    class _ExistingDebrief:
+        session_id = 1
+        cefr_estimate = "A2"
+        summary = "cached"
+        errors = []
+
+    debriefs = _FakeDebriefs(existing=_ExistingDebrief())
+    service = DebriefService(
+        sessions=_FakeSessions(owner_id=7),
+        transcripts=_FakeTranscripts(turns=[{"role": "user", "content": "ignored"}]),
+        debriefs=debriefs,
+        analyzer=_ExplodingAnalyzer(),
+    )
+
+    result = await service.generate(session_id=1, user=_user())
+
+    assert result.summary == "cached"
+    assert debriefs.saved is None
 
 
 @pytest.mark.asyncio

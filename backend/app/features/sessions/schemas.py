@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -18,5 +20,16 @@ class SessionOut(BaseModel):
     mode: str
     scenario_id: str | None
     duration_minutes: float | None
+
+    model_config = {"from_attributes": True}
+
+
+class SessionHistoryItemOut(BaseModel):
+    id: int
+    mode: str
+    scenario_id: str | None
+    started_at: datetime
+    duration_minutes: float | None
+    cefr_estimate: str | None
 
     model_config = {"from_attributes": True}

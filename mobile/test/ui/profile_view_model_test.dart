@@ -55,7 +55,9 @@ void main() {
     final c = _containerWith(repo);
 
     await c.read(profileViewModelProvider.future);
-    await c.read(profileViewModelProvider.notifier).save(interests: ['cooking'], accent: 'uk');
+    await c
+        .read(profileViewModelProvider.notifier)
+        .save(interests: ['cooking'], accent: 'uk');
 
     expect(c.read(profileViewModelProvider).value!.accent, 'uk');
     expect(c.read(profileViewModelProvider).value!.interests, ['cooking']);

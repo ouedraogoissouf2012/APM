@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,5 +13,6 @@ class LearnerProfile(Base):
     )
     interests: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     goal: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    memory_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
     correction_intensity: Mapped[str] = mapped_column(String(16), default="gentle", nullable=False)
     accent: Mapped[str] = mapped_column(String(8), default="us", nullable=False)
