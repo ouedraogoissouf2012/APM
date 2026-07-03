@@ -16,7 +16,7 @@ configure_logging(settings.log_level)
 
 app = FastAPI(title="APM Backend")
 
-app.add_middleware(RequestContextMiddleware)
+app.add_middleware(RequestContextMiddleware, enable_hsts=settings.app_env == "production")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
