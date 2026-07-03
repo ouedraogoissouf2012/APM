@@ -14,5 +14,8 @@ def test_factory_returns_deepseek_when_engine_is_deepseek():
         api_key="sk-test",
         base_url="https://api.deepseek.com",
         model="deepseek-chat",
+        timeout_seconds=3.0,
+        max_retries=0,
+        max_tokens=200,
     )
     assert isinstance(provider, DeepSeekLlmProvider)

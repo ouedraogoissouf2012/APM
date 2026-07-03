@@ -24,6 +24,9 @@ def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
             model=settings.deepseek_model,
+            timeout_seconds=settings.deepseek_timeout_seconds,
+            max_retries=settings.deepseek_max_retries,
+            max_tokens=settings.deepseek_debrief_max_tokens,
         )
     else:
         llm = FakeDebriefLlm()
