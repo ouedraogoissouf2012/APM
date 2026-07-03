@@ -41,6 +41,21 @@ async def test_analyze_returns_errors_and_cefr():
 
 
 @pytest.mark.asyncio
+async def test_analyze_normalizes_error_type_to_canonical_taxonomy():
+    reply = (
+        '{"cefr_estimate": "A2", "summary": "Good effort!",'
+        ' "errors": ['
+        '  {"original": "i eats lunch", "correction": "I eat lunch",'
+        '   "rule": "Subject-verb agreement", "error_type": "Subject-verb agreement"}'
+        " ]}"
+    )
+    analyzer = DebriefAnalyzer(_CannedLlm(reply))
+    result = await analyzer.analyze(_TURNS, native_language="fr")
+
+    assert result.errors[0].error_type == "subject_verb_agreement"
+
+
+@pytest.mark.asyncio
 async def test_analyze_drops_hallucinated_errors_not_in_learner_text():
     reply = (
         '{"cefr_estimate": "B1", "summary": "s",'
