@@ -1,5 +1,6 @@
 from app.domain.exceptions import NotFoundError
 from app.features.auth.models import User
+from app.features.conversation.prompt import strip_persistent_instructions
 from app.features.conversation.repository import TranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.models import Debrief
@@ -70,11 +71,11 @@ class DebriefService:
 
         error_types = [str(error.get("error_type", "")) for error in errors]
         error_types = [error_type for error_type in error_types if error_type]
-        details = summary.strip()
+        details = strip_persistent_instructions(summary)
         if error_types:
             details = f"{details} Recurring focus: {', '.join(error_types[:3])}.".strip()
         if not details:
             return
 
-        profile.memory_summary = details[:500]
+        profile.memory_summary = strip_persistent_instructions(details)
         await self._profiles.save(profile)
