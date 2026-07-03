@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from app.core.rate_limit import InMemoryRateLimiter
@@ -71,6 +73,22 @@ async def test_refresh_rotates_token_and_old_one_is_rejected(client):
 
     reused = await client.post("/auth/refresh", json={"refresh_token": old_refresh})
     assert reused.status_code == 401  # rotated -> old token revoked
+
+
+@pytest.mark.asyncio
+async def test_concurrent_refresh_allows_only_one_rotation(client):
+    reg = await client.post("/auth/register", json={"email": "race@b.com", "password": "s3cret!"})
+    refresh = reg.json()["refresh_token"]
+
+    first, second = await asyncio.gather(
+        client.post("/auth/refresh", json={"refresh_token": refresh}),
+        client.post("/auth/refresh", json={"refresh_token": refresh}),
+    )
+
+    statuses = sorted([first.status_code, second.status_code])
+    assert statuses == [200, 401]
+    success = first if first.status_code == 200 else second
+    assert success.json()["refresh_token"] != refresh
 
 
 @pytest.mark.asyncio

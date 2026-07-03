@@ -49,22 +49,47 @@ class SqlAlchemyUserRepository:
 
 
 class RefreshTokenRepository(Protocol):
-    async def create(self, user_id: int, token_hash: str, expires_at: datetime) -> RefreshToken: ...
+    async def create(
+        self,
+        user_id: int,
+        token_hash: str,
+        expires_at: datetime,
+        *,
+        commit: bool = True,
+    ) -> RefreshToken: ...
 
     async def get_by_hash(self, token_hash: str) -> RefreshToken | None: ...
 
-    async def revoke(self, token: RefreshToken, revoked_at: datetime) -> None: ...
+    async def lock_by_hash(self, token_hash: str) -> RefreshToken | None: ...
+
+    async def revoke(
+        self, token: RefreshToken, revoked_at: datetime, *, commit: bool = True
+    ) -> None: ...
+
+    async def commit(self) -> None: ...
+
+    async def rollback(self) -> None: ...
 
 
 class SqlAlchemyRefreshTokenRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, user_id: int, token_hash: str, expires_at: datetime) -> RefreshToken:
+    async def create(
+        self,
+        user_id: int,
+        token_hash: str,
+        expires_at: datetime,
+        *,
+        commit: bool = True,
+    ) -> RefreshToken:
         token = RefreshToken(user_id=user_id, token_hash=token_hash, expires_at=expires_at)
         self._session.add(token)
-        await self._session.commit()
-        await self._session.refresh(token)
+        if commit:
+            await self._session.commit()
+            await self._session.refresh(token)
+        else:
+            await self._session.flush()
         return token
 
     async def get_by_hash(self, token_hash: str) -> RefreshToken | None:
@@ -72,6 +97,23 @@ class SqlAlchemyRefreshTokenRepository:
             select(RefreshToken).where(RefreshToken.token_hash == token_hash)
         )
 
-    async def revoke(self, token: RefreshToken, revoked_at: datetime) -> None:
+    async def lock_by_hash(self, token_hash: str) -> RefreshToken | None:
+        result = await self._session.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == token_hash).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def revoke(
+        self, token: RefreshToken, revoked_at: datetime, *, commit: bool = True
+    ) -> None:
         token.revoked_at = revoked_at
+        if commit:
+            await self._session.commit()
+        else:
+            await self._session.flush()
+
+    async def commit(self) -> None:
         await self._session.commit()
+
+    async def rollback(self) -> None:
+        await self._session.rollback()
