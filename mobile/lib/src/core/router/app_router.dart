@@ -9,6 +9,7 @@ import '../../ui/conversation/widgets/conversation_screen.dart';
 import '../../ui/debrief/widgets/debrief_screen.dart';
 import '../../ui/history/widgets/session_history_screen.dart';
 import '../../ui/home/widgets/home_screen.dart';
+import '../../ui/onboarding/widgets/onboarding_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
 import '../../ui/scenarios/widgets/scenarios_screen.dart';
 
@@ -20,20 +21,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   ref.onDispose(refresh.dispose);
 
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/onboarding',
     refreshListenable: refresh,
     redirect: (context, state) {
       final auth = ref.read(authViewModelProvider);
       if (auth.isLoading) return null;
       final signedIn = auth.value != null;
-      final atAuth =
+      final atPublicEntry =
+          state.matchedLocation == '/onboarding' ||
           state.matchedLocation == '/login' ||
           state.matchedLocation == '/register';
-      if (!signedIn && !atAuth) return '/login';
-      if (signedIn && atAuth) return '/home';
+      if (!signedIn && !atPublicEntry) return '/onboarding';
+      if (signedIn && atPublicEntry) return '/home';
       return null;
     },
     routes: [
+      GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingScreen()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
       GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
