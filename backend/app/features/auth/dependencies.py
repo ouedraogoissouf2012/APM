@@ -17,16 +17,50 @@ from app.features.auth.service import AuthService
 
 _bearer = HTTPBearer(auto_error=False)
 
-# Process-wide login limiter. Swap for a Redis-backed RateLimiter to scale across
-# instances; the interface (and callers) stay unchanged.
-_login_rate_limiter = InMemoryRateLimiter(
-    max_hits=get_settings().login_rate_limit_max,
-    window_seconds=get_settings().login_rate_limit_window_seconds,
+_settings = get_settings()
+
+# Process-wide limiters. Swap any of these for RedisRateLimiter to scale across
+# instances; the RateLimiter interface and route callers stay unchanged.
+_register_rate_limiter = InMemoryRateLimiter(
+    max_hits=_settings.register_rate_limit_max,
+    window_seconds=_settings.register_rate_limit_window_seconds,
 )
+_login_rate_limiter = InMemoryRateLimiter(
+    max_hits=_settings.login_rate_limit_max,
+    window_seconds=_settings.login_rate_limit_window_seconds,
+)
+_refresh_rate_limiter = InMemoryRateLimiter(
+    max_hits=_settings.refresh_rate_limit_max,
+    window_seconds=_settings.refresh_rate_limit_window_seconds,
+)
+_conversation_rate_limiter = InMemoryRateLimiter(
+    max_hits=_settings.conversation_rate_limit_max,
+    window_seconds=_settings.conversation_rate_limit_window_seconds,
+)
+_debrief_rate_limiter = InMemoryRateLimiter(
+    max_hits=_settings.debrief_rate_limit_max,
+    window_seconds=_settings.debrief_rate_limit_window_seconds,
+)
+
+
+def get_register_rate_limiter() -> RateLimiter:
+    return _register_rate_limiter
 
 
 def get_login_rate_limiter() -> RateLimiter:
     return _login_rate_limiter
+
+
+def get_refresh_rate_limiter() -> RateLimiter:
+    return _refresh_rate_limiter
+
+
+def get_conversation_rate_limiter() -> RateLimiter:
+    return _conversation_rate_limiter
+
+
+def get_debrief_rate_limiter() -> RateLimiter:
+    return _debrief_rate_limiter
 
 
 def get_user_repository(db: AsyncSession = Depends(get_db)) -> UserRepository:

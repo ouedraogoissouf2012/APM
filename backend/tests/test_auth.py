@@ -3,7 +3,11 @@ import asyncio
 import pytest
 
 from app.core.rate_limit import InMemoryRateLimiter
-from app.features.auth.dependencies import get_login_rate_limiter
+from app.features.auth.dependencies import (
+    get_login_rate_limiter,
+    get_refresh_rate_limiter,
+    get_register_rate_limiter,
+)
 from app.main import app
 
 
@@ -104,6 +108,31 @@ async def test_logout_revokes_refresh_token(client):
 
 
 @pytest.mark.asyncio
+async def test_register_is_rate_limited_by_ip_and_email(client):
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_register_rate_limiter] = lambda: limiter
+    payload = {"email": "limited-register@b.com", "password": "s3cret!"}
+
+    assert (await client.post("/auth/register", json=payload)).status_code == 201
+    blocked = await client.post("/auth/register", json=payload)
+    assert blocked.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_refresh_is_rate_limited(client):
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_refresh_rate_limiter] = lambda: limiter
+    reg = await client.post(
+        "/auth/register", json={"email": "limited-refresh@b.com", "password": "s3cret!"}
+    )
+    refresh = reg.json()["refresh_token"]
+
+    assert (await client.post("/auth/refresh", json={"refresh_token": refresh})).status_code == 200
+    blocked = await client.post("/auth/refresh", json={"refresh_token": refresh})
+    assert blocked.status_code == 429
+
+
+@pytest.mark.asyncio
 async def test_login_is_rate_limited(client):
     # Override the no-op limiter (set in conftest) with a real low-limit one.
     # Must reuse the SAME instance across requests so its state accumulates.
@@ -116,3 +145,20 @@ async def test_login_is_rate_limited(client):
     assert (await client.post("/auth/login", json=creds)).status_code == 200
     blocked = await client.post("/auth/login", json=creds)
     assert blocked.status_code == 429  # too many attempts
+
+
+@pytest.mark.asyncio
+async def test_login_rate_limit_keys_are_independent_by_email(client):
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
+    await client.post("/auth/register", json={"email": "one@b.com", "password": "s3cret!"})
+    await client.post("/auth/register", json={"email": "two@b.com", "password": "s3cret!"})
+
+    assert (
+        await client.post("/auth/login", json={"email": "one@b.com", "password": "s3cret!"})
+    ).status_code == 200
+    assert (
+        await client.post("/auth/login", json={"email": "two@b.com", "password": "s3cret!"})
+    ).status_code == 200
+    blocked = await client.post("/auth/login", json={"email": "one@b.com", "password": "s3cret!"})
+    assert blocked.status_code == 429

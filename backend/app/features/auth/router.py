@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, Request, status
 
 from app.core.rate_limit import RateLimiter
+from app.core.security import hash_token
 from app.features.auth.dependencies import (
     get_auth_service,
     get_current_user,
     get_login_rate_limiter,
+    get_refresh_rate_limiter,
+    get_register_rate_limiter,
 )
 from app.features.auth.models import User
 from app.features.auth.schemas import (
@@ -28,11 +31,18 @@ def _to_token_out(result: AuthResult) -> TokenOut:
     )
 
 
+def _client_host(request: Request) -> str:
+    return request.client.host if request.client else "anonymous"
+
+
 @router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 async def register(
     payload: RegisterIn,
+    request: Request,
     service: AuthService = Depends(get_auth_service),
+    limiter: RateLimiter = Depends(get_register_rate_limiter),
 ) -> TokenOut:
+    await limiter.check(f"register:{_client_host(request)}:{str(payload.email).lower()}")
     result = await service.register(payload.email, payload.password, payload.native_language)
     return _to_token_out(result)
 
@@ -44,8 +54,7 @@ async def login(
     service: AuthService = Depends(get_auth_service),
     limiter: RateLimiter = Depends(get_login_rate_limiter),
 ) -> TokenOut:
-    client_host = request.client.host if request.client else "anonymous"
-    await limiter.check(f"login:{client_host}")
+    await limiter.check(f"login:{_client_host(request)}:{str(payload.email).lower()}")
     result = await service.login(payload.email, payload.password)
     return _to_token_out(result)
 
@@ -53,8 +62,11 @@ async def login(
 @router.post("/refresh", response_model=TokenOut)
 async def refresh(
     payload: RefreshIn,
+    request: Request,
     service: AuthService = Depends(get_auth_service),
+    limiter: RateLimiter = Depends(get_refresh_rate_limiter),
 ) -> TokenOut:
+    await limiter.check(f"refresh:{_client_host(request)}:{hash_token(payload.refresh_token)}")
     result = await service.refresh(payload.refresh_token)
     return _to_token_out(result)
 

@@ -1,5 +1,7 @@
 import pytest
 
+from app.core.rate_limit import InMemoryRateLimiter
+from app.features.auth.dependencies import get_debrief_rate_limiter
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.dependencies import get_debrief_service
@@ -94,6 +96,36 @@ async def test_generate_returns_502_when_llm_output_unparseable(client, db_sessi
     try:
         resp = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
         assert resp.status_code == 502, resp.text
+    finally:
+        app.dependency_overrides.pop(get_debrief_service, None)
+
+
+@pytest.mark.asyncio
+async def test_generate_debrief_is_rate_limited_per_user(client, db_session):
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_debrief_rate_limiter] = lambda: limiter
+    token = await _register(client, email="limited-debrief@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+    await SqlAlchemyTranscriptRepository(db_session).save(
+        session_id, [{"role": "user", "content": "i is happy"}]
+    )
+
+    def _override():
+        return DebriefService(
+            sessions=SqlAlchemySessionRepository(db_session),
+            transcripts=SqlAlchemyTranscriptRepository(db_session),
+            debriefs=SqlAlchemyDebriefRepository(db_session),
+            analyzer=DebriefAnalyzer(_CannedLlm()),
+        )
+
+    app.dependency_overrides[get_debrief_service] = _override
+    try:
+        first = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
+        assert first.status_code == 201, first.text
+        blocked = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
+        assert blocked.status_code == 429
     finally:
         app.dependency_overrides.pop(get_debrief_service, None)
 
