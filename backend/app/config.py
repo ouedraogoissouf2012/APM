@@ -25,6 +25,14 @@ class Settings(BaseSettings):
 
     login_rate_limit_max: int = 5  # attempts
     login_rate_limit_window_seconds: int = 60
+    register_rate_limit_max: int = 5
+    register_rate_limit_window_seconds: int = 60
+    refresh_rate_limit_max: int = 10
+    refresh_rate_limit_window_seconds: int = 60
+    conversation_rate_limit_max: int = 20
+    conversation_rate_limit_window_seconds: int = 60
+    debrief_rate_limit_max: int = 5
+    debrief_rate_limit_window_seconds: int = 60
 
     livekit_url: str = ""
     livekit_api_key: str = ""

@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import get_settings
 from app.core.rate_limit import NoOpRateLimiter
 from app.database import Base, get_db
-from app.features.auth.dependencies import get_login_rate_limiter
+from app.features.auth.dependencies import (
+    get_conversation_rate_limiter,
+    get_debrief_rate_limiter,
+    get_login_rate_limiter,
+    get_refresh_rate_limiter,
+    get_register_rate_limiter,
+)
 from app.main import app
 
 
@@ -41,9 +47,13 @@ async def client(_engine, _setup_db) -> AsyncClient:
             yield session
 
     app.dependency_overrides[get_db] = _override_get_db
-    # Disable login rate limiting by default so it doesn't leak across tests;
-    # the dedicated rate-limit test overrides this with a real limiter.
+    # Disable rate limiting by default so it doesn't leak across tests;
+    # dedicated rate-limit tests override these with real limiters.
+    app.dependency_overrides[get_register_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_login_rate_limiter] = lambda: NoOpRateLimiter()
+    app.dependency_overrides[get_refresh_rate_limiter] = lambda: NoOpRateLimiter()
+    app.dependency_overrides[get_conversation_rate_limiter] = lambda: NoOpRateLimiter()
+    app.dependency_overrides[get_debrief_rate_limiter] = lambda: NoOpRateLimiter()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
