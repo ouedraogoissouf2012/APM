@@ -3,6 +3,7 @@ from app.features.auth.models import User
 from app.features.conversation.prompt import strip_persistent_instructions
 from app.features.conversation.repository import TranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
+from app.features.debrief.cefr import next_cefr_level
 from app.features.debrief.models import Debrief
 from app.features.debrief.repository import DebriefRepository
 from app.features.profile.repository import ProfileRepository
@@ -40,6 +41,10 @@ class DebriefService:
         result = await self._analyzer.analyze(
             transcript.turns, native_language=user.native_language
         )
+        # Adaptive difficulty: nudge the learner's level one step toward the
+        # session estimate. `user` shares the request's DB session, so the
+        # debrief save below persists this change.
+        user.cefr_level = next_cefr_level(user.cefr_level, result.cefr_estimate)
         errors = [
             {
                 "original": e.original,

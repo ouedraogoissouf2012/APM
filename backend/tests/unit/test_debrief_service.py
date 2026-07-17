@@ -192,3 +192,17 @@ async def test_generate_rejects_when_no_transcript():
     service = _service(owner_id=7, turns=None, debriefs=_FakeDebriefs())
     with pytest.raises(NotFoundError):
         await service.generate(session_id=1, user=_user())
+
+
+@pytest.mark.asyncio
+async def test_generate_nudges_user_cefr_level_toward_the_estimate():
+    # The canned analyzer estimates B1; an A1 learner moves one step up to A2.
+    user = _user()
+    user.cefr_level = "A1"
+    service = _service(
+        owner_id=7, turns=[{"role": "user", "content": "i is happy"}], debriefs=_FakeDebriefs()
+    )
+
+    await service.generate(session_id=1, user=user)
+
+    assert user.cefr_level == "A2"
