@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../data/models/debrief.dart';
 import '../view_model/debrief_view_model.dart';
+import 'pronunciation_map.dart';
 
 class DebriefScreen extends ConsumerWidget {
   const DebriefScreen({super.key, required this.sessionId});
@@ -67,6 +68,8 @@ class _DebriefBody extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: Text(debrief.summary),
           ),
+        PronunciationMap(scores: debrief.pronunciationScores),
+        const SizedBox(height: 16),
         const SizedBox(height: 8),
         Text(
           'Corrections (${debrief.errors.length})',
