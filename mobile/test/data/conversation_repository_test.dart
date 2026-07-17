@@ -1,3 +1,4 @@
+import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/network/authenticated_api_client.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -43,5 +44,38 @@ void main() {
     await repo.endSession(5);
 
     verify(() => api.postJson('/sessions/5/end')).called(1);
+  });
+
+  test('getActiveSession returns the session with its transcript', () async {
+    when(() => api.getJson('/sessions/active')).thenAnswer(
+      (_) async => {
+        'session_id': 7,
+        'mode': 'scenario',
+        'scenario_id': 'restaurant',
+        'turns': [
+          {'role': 'user', 'content': 'hi'},
+          {'role': 'assistant', 'content': 'Hello!'},
+        ],
+      },
+    );
+
+    final active = await repo.getActiveSession();
+
+    expect(active!.sessionId, 7);
+    expect(active.mode, 'scenario');
+    expect(active.scenarioId, 'restaurant');
+    expect(active.turns.map((t) => t.content).toList(), ['hi', 'Hello!']);
+  });
+
+  test('getActiveSession returns null when none is active (404)', () async {
+    when(() => api.getJson('/sessions/active')).thenThrow(
+      const ApiException(
+        statusCode: 404,
+        code: 'NotFoundError',
+        message: 'No active session',
+      ),
+    );
+
+    expect(await repo.getActiveSession(), isNull);
   });
 }

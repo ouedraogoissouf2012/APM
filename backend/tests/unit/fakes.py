@@ -7,6 +7,7 @@ unit-test services with no database.
 from datetime import UTC, datetime
 
 from app.features.auth.models import RefreshToken, User
+from app.features.conversation.models import Transcript
 from app.features.profile.models import LearnerProfile
 from app.features.sessions.models import ConversationSession
 
@@ -82,6 +83,23 @@ class InMemorySessionRepository:
 
     async def commit(self) -> None:
         pass
+
+
+class InMemoryTranscriptRepository:
+    def __init__(self) -> None:
+        self._by_session: dict[int, Transcript] = {}
+
+    async def save(self, session_id: int, turns: list[dict]) -> Transcript:
+        transcript = self._by_session.get(session_id)
+        if transcript is None:
+            transcript = Transcript(session_id=session_id, turns=turns)
+            self._by_session[session_id] = transcript
+        else:
+            transcript.turns = turns
+        return transcript
+
+    async def get_by_session(self, session_id: int) -> Transcript | None:
+        return self._by_session.get(session_id)
 
 
 class InMemoryProfileRepository:

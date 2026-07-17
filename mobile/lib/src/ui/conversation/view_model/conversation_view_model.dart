@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../../../core/speech/speech_service.dart';
 import '../../../data/repositories/conversation_repository.dart';
 import '../../auth/view_model/auth_view_model.dart';
@@ -25,13 +26,36 @@ class ConversationViewModel extends Notifier<ConversationState> {
   ConversationState build() => const ConversationState();
 
   Future<void> start({String mode = 'free', String? scenarioId}) async {
-    final id = await ref
-        .read(conversationRepositoryProvider)
-        .startSession(mode: mode, scenarioId: scenarioId);
+    final repo = ref.read(conversationRepositoryProvider);
+
+    int sessionId;
+    List<ConversationTurn> turns;
+    try {
+      sessionId = await repo.startSession(mode: mode, scenarioId: scenarioId);
+      turns = [ConversationTurn('assistant', _openingMessage(mode, scenarioId))];
+    } on ApiException catch (e) {
+      // A session is already in progress (409): resume it instead of leaving
+      // the user stuck. The backend allows only one active session per user.
+      if (e.statusCode != 409) rethrow;
+      final active = await repo.getActiveSession();
+      if (active == null) rethrow;
+      sessionId = active.sessionId;
+      turns = active.turns.isEmpty
+          ? [
+              ConversationTurn(
+                'assistant',
+                _openingMessage(active.mode, active.scenarioId),
+              ),
+            ]
+          : [
+              for (final t in active.turns) ConversationTurn(t.role, t.content),
+            ];
+    }
+
     final speechReady = await ref.read(speechServiceProvider).initialize();
     state = ConversationState(
-      sessionId: id,
-      turns: [ConversationTurn('assistant', _openingMessage(mode, scenarioId))],
+      sessionId: sessionId,
+      turns: turns,
       error: speechReady ? null : 'Microphone is not available',
     );
   }
