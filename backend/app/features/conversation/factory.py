@@ -1,3 +1,6 @@
+from functools import lru_cache
+
+from app.core.engines import ENGINE_DEEPSEEK, ENGINE_FAKE
 from app.domain.exceptions import LlmProviderError
 from app.features.conversation.providers.deepseek import (
     DeepSeekLlmProvider,
@@ -16,8 +19,14 @@ def build_llm_provider(
     max_retries: int = 1,
     max_tokens: int = 400,
 ) -> LlmProvider:
-    """Select the LLM provider from config. Defaults to the fake (no keys needed)."""
-    if engine == "deepseek":
+    """Select the LLM provider from config.
+
+    Unknown engines raise instead of silently degrading to the fake provider —
+    settings validate the engine names (Literal), this is defense in depth.
+    """
+    if engine == ENGINE_FAKE:
+        return FakeLlm()
+    if engine == ENGINE_DEEPSEEK:
         if not api_key.strip():
             # Fail cleanly (mapped to 502) instead of letting AsyncOpenAI("")
             # raise a raw error in the DI layer -> generic 500.
@@ -29,4 +38,10 @@ def build_llm_provider(
             max_retries=max_retries,
         )
         return DeepSeekLlmProvider(client=client, model=model, max_tokens=max_tokens)
-    return FakeLlm()
+    raise LlmProviderError(f"Unsupported LLM engine: {engine!r}")
+
+
+# Process-wide provider cache: one AsyncOpenAI client (one connection pool) per
+# configuration, instead of a new client per HTTP request. Errors (e.g. missing
+# API key) are not cached — lru_cache only stores successful results.
+shared_llm_provider = lru_cache(maxsize=8)(build_llm_provider)

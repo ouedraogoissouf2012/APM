@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Request, status
 
 from app.core.rate_limit import RateLimiter
-from app.features.auth.dependencies import get_current_user, get_debrief_rate_limiter
+from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
-from app.features.debrief.dependencies import get_debrief_service
+from app.features.debrief.dependencies import get_debrief_rate_limiter, get_debrief_service
 from app.features.debrief.schemas import DebriefOut
 from app.features.debrief.service import DebriefService
 

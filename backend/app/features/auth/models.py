@@ -5,6 +5,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
+# User tiers. Single source for the quota logic and the model default; a paid
+# tier can be added here without hunting string literals across features.
+TIER_FREE = "free"
+
 
 class User(Base):
     __tablename__ = "users"
@@ -14,7 +18,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     native_language: Mapped[str] = mapped_column(String(8), default="fr", nullable=False)
     cefr_level: Mapped[str] = mapped_column(String(2), default="A1", nullable=False)
-    tier: Mapped[str] = mapped_column(String(16), default="free", nullable=False)
+    tier: Mapped[str] = mapped_column(String(16), default=TIER_FREE, nullable=False)
 
     # Daily quota tracking (reset when quota_date rolls over)
     quota_date: Mapped[date | None] = mapped_column(Date, nullable=True)

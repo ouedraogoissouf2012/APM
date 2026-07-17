@@ -15,7 +15,7 @@ from app.main import app
 async def test_register_returns_tokens_and_user(client):
     resp = await client.post(
         "/auth/register",
-        json={"email": "a@b.com", "password": "s3cret!", "native_language": "fr"},
+        json={"email": "a@b.com", "password": "s3cret!pass", "native_language": "fr"},
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -28,7 +28,7 @@ async def test_register_returns_tokens_and_user(client):
 
 @pytest.mark.asyncio
 async def test_register_duplicate_email_rejected(client):
-    payload = {"email": "dup@b.com", "password": "s3cret!"}
+    payload = {"email": "dup@b.com", "password": "s3cret!pass"}
     first = await client.post("/auth/register", json=payload)
     assert first.status_code == 201
     second = await client.post("/auth/register", json=payload)
@@ -37,8 +37,8 @@ async def test_register_duplicate_email_rejected(client):
 
 @pytest.mark.asyncio
 async def test_login_succeeds_with_correct_password(client):
-    await client.post("/auth/register", json={"email": "log@b.com", "password": "s3cret!"})
-    resp = await client.post("/auth/login", json={"email": "log@b.com", "password": "s3cret!"})
+    await client.post("/auth/register", json={"email": "log@b.com", "password": "s3cret!pass"})
+    resp = await client.post("/auth/login", json={"email": "log@b.com", "password": "s3cret!pass"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["access_token"]
     assert resp.json()["refresh_token"]
@@ -46,14 +46,14 @@ async def test_login_succeeds_with_correct_password(client):
 
 @pytest.mark.asyncio
 async def test_login_fails_with_wrong_password(client):
-    await client.post("/auth/register", json={"email": "log2@b.com", "password": "s3cret!"})
+    await client.post("/auth/register", json={"email": "log2@b.com", "password": "s3cret!pass"})
     resp = await client.post("/auth/login", json={"email": "log2@b.com", "password": "nope"})
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_me_returns_current_user(client):
-    reg = await client.post("/auth/register", json={"email": "me@b.com", "password": "s3cret!"})
+    reg = await client.post("/auth/register", json={"email": "me@b.com", "password": "s3cret!pass"})
     token = reg.json()["access_token"]
     resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200, resp.text
@@ -68,7 +68,7 @@ async def test_me_rejects_missing_token(client):
 
 @pytest.mark.asyncio
 async def test_refresh_rotates_token_and_old_one_is_rejected(client):
-    reg = await client.post("/auth/register", json={"email": "r@b.com", "password": "s3cret!"})
+    reg = await client.post("/auth/register", json={"email": "r@b.com", "password": "s3cret!pass"})
     old_refresh = reg.json()["refresh_token"]
 
     refreshed = await client.post("/auth/refresh", json={"refresh_token": old_refresh})
@@ -81,7 +81,9 @@ async def test_refresh_rotates_token_and_old_one_is_rejected(client):
 
 @pytest.mark.asyncio
 async def test_concurrent_refresh_allows_only_one_rotation(client):
-    reg = await client.post("/auth/register", json={"email": "race@b.com", "password": "s3cret!"})
+    reg = await client.post(
+        "/auth/register", json={"email": "race@b.com", "password": "s3cret!pass"}
+    )
     refresh = reg.json()["refresh_token"]
 
     first, second = await asyncio.gather(
@@ -97,7 +99,7 @@ async def test_concurrent_refresh_allows_only_one_rotation(client):
 
 @pytest.mark.asyncio
 async def test_logout_revokes_refresh_token(client):
-    reg = await client.post("/auth/register", json={"email": "lo@b.com", "password": "s3cret!"})
+    reg = await client.post("/auth/register", json={"email": "lo@b.com", "password": "s3cret!pass"})
     refresh = reg.json()["refresh_token"]
 
     out = await client.post("/auth/logout", json={"refresh_token": refresh})
@@ -111,7 +113,7 @@ async def test_logout_revokes_refresh_token(client):
 async def test_register_is_rate_limited_by_ip_and_email(client):
     limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
     app.dependency_overrides[get_register_rate_limiter] = lambda: limiter
-    payload = {"email": "limited-register@b.com", "password": "s3cret!"}
+    payload = {"email": "limited-register@b.com", "password": "s3cret!pass"}
 
     assert (await client.post("/auth/register", json=payload)).status_code == 201
     blocked = await client.post("/auth/register", json=payload)
@@ -123,7 +125,7 @@ async def test_refresh_is_rate_limited(client):
     limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
     app.dependency_overrides[get_refresh_rate_limiter] = lambda: limiter
     reg = await client.post(
-        "/auth/register", json={"email": "limited-refresh@b.com", "password": "s3cret!"}
+        "/auth/register", json={"email": "limited-refresh@b.com", "password": "s3cret!pass"}
     )
     refresh = reg.json()["refresh_token"]
 
@@ -138,8 +140,8 @@ async def test_login_is_rate_limited(client):
     # Must reuse the SAME instance across requests so its state accumulates.
     limiter = InMemoryRateLimiter(max_hits=2, window_seconds=60)
     app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
-    await client.post("/auth/register", json={"email": "rl@b.com", "password": "s3cret!"})
-    creds = {"email": "rl@b.com", "password": "s3cret!"}
+    await client.post("/auth/register", json={"email": "rl@b.com", "password": "s3cret!pass"})
+    creds = {"email": "rl@b.com", "password": "s3cret!pass"}
 
     assert (await client.post("/auth/login", json=creds)).status_code == 200
     assert (await client.post("/auth/login", json=creds)).status_code == 200
@@ -151,14 +153,16 @@ async def test_login_is_rate_limited(client):
 async def test_login_rate_limit_keys_are_independent_by_email(client):
     limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
     app.dependency_overrides[get_login_rate_limiter] = lambda: limiter
-    await client.post("/auth/register", json={"email": "one@b.com", "password": "s3cret!"})
-    await client.post("/auth/register", json={"email": "two@b.com", "password": "s3cret!"})
+    await client.post("/auth/register", json={"email": "one@b.com", "password": "s3cret!pass"})
+    await client.post("/auth/register", json={"email": "two@b.com", "password": "s3cret!pass"})
 
     assert (
-        await client.post("/auth/login", json={"email": "one@b.com", "password": "s3cret!"})
+        await client.post("/auth/login", json={"email": "one@b.com", "password": "s3cret!pass"})
     ).status_code == 200
     assert (
-        await client.post("/auth/login", json={"email": "two@b.com", "password": "s3cret!"})
+        await client.post("/auth/login", json={"email": "two@b.com", "password": "s3cret!pass"})
     ).status_code == 200
-    blocked = await client.post("/auth/login", json={"email": "one@b.com", "password": "s3cret!"})
+    blocked = await client.post(
+        "/auth/login", json={"email": "one@b.com", "password": "s3cret!pass"}
+    )
     assert blocked.status_code == 429

@@ -206,3 +206,32 @@ async def test_generate_nudges_user_cefr_level_toward_the_estimate():
     await service.generate(session_id=1, user=user)
 
     assert user.cefr_level == "A2"
+
+
+class _RecordingUsers:
+    def __init__(self) -> None:
+        self.saved = None
+
+    async def save(self, user):
+        self.saved = user
+        return user
+
+
+@pytest.mark.asyncio
+async def test_generate_persists_the_cefr_change_through_the_user_repository():
+    # The nudge must go through the repository, not rely on a side-effect commit.
+    user = _user()
+    user.cefr_level = "A1"
+    users = _RecordingUsers()
+    service = DebriefService(
+        sessions=_FakeSessions(owner_id=7),
+        transcripts=_FakeTranscripts(turns=[{"role": "user", "content": "i is happy"}]),
+        debriefs=_FakeDebriefs(),
+        analyzer=DebriefAnalyzer(_CannedLlm()),
+        users=users,
+    )
+
+    await service.generate(session_id=1, user=user)
+
+    assert users.saved is user
+    assert users.saved.cefr_level == "A2"

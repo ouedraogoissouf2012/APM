@@ -7,7 +7,7 @@ import pytest
 
 
 async def _auth_header(client, email="s@b.com"):
-    reg = await client.post("/auth/register", json={"email": email, "password": "s3cret!"})
+    reg = await client.post("/auth/register", json={"email": email, "password": "s3cret!pass"})
     return {"Authorization": f"Bearer {reg.json()['access_token']}"}
 
 

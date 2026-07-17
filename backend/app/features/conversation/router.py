@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, Request
 
 from app.core.rate_limit import RateLimiter
-from app.features.auth.dependencies import get_conversation_rate_limiter, get_current_user
+from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
-from app.features.conversation.dependencies import get_conversation_turn_service
+from app.features.conversation.dependencies import (
+    get_conversation_rate_limiter,
+    get_conversation_turn_service,
+)
 from app.features.conversation.schemas import TurnIn, TurnOut
 from app.features.conversation.turn_service import ConversationTurnService
 

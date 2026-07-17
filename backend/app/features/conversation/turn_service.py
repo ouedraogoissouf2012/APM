@@ -6,13 +6,16 @@ with the LLM (DeepSeek), and keep the transcript. No audio, no LiveKit.
 """
 
 from dataclasses import dataclass
-from typing import Any
 
-from app.domain.exceptions import ConflictError, NotFoundError
+from app.domain.exceptions import ConflictError
 from app.features.auth.models import User
-from app.features.conversation.messages import Message
+from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER, Message
 from app.features.conversation.prompt import PromptContext, build_system_prompt
 from app.features.conversation.providers.interfaces import LlmProvider
+from app.features.conversation.repository import TranscriptRepository
+from app.features.profile.repository import ProfileRepository
+from app.features.sessions.ownership import get_owned_session
+from app.features.sessions.repository import SessionRepository
 
 
 @dataclass
@@ -22,16 +25,20 @@ class TurnResult:
 
 
 class ConversationTurnService:
-    def __init__(self, sessions: Any, transcripts: Any, profiles: Any, llm: LlmProvider) -> None:
+    def __init__(
+        self,
+        sessions: SessionRepository,
+        transcripts: TranscriptRepository,
+        profiles: ProfileRepository,
+        llm: LlmProvider,
+    ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
         self._profiles = profiles
         self._llm = llm
 
     async def take_turn(self, session_id: int, user: User, text: str) -> TurnResult:
-        session = await self._sessions.get(session_id)
-        if session is None or session.user_id != user.id:
-            raise NotFoundError("Session not found")
+        session = await get_owned_session(self._sessions, session_id, user.id)
         if session.ended_at is not None:
             raise ConflictError("Session already ended")
 
@@ -54,11 +61,11 @@ class ConversationTurnService:
             )
         )
         history = [Message(role=t["role"], content=t["content"]) for t in turns]
-        history.append(Message(role="user", content=text))
+        history.append(Message(role=ROLE_USER, content=text))
 
         reply = await self._llm.complete(system_prompt, history)
 
-        turns.append({"role": "user", "content": text})
-        turns.append({"role": "assistant", "content": reply})
+        turns.append({"role": ROLE_USER, "content": text})
+        turns.append({"role": ROLE_ASSISTANT, "content": reply})
         await self._transcripts.save(session_id, turns)
         return TurnResult(reply=reply, turns=turns)
