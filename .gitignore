@@ -34,3 +34,8 @@ android/local.properties
 Thumbs.db
 *.swp
 .vscode/
+
+# ---- Crash / build error artifacts ----
+hs_err_pid*.log
+replay_pid*.log
+*.err
