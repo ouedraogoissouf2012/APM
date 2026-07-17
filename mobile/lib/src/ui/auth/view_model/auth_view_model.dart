@@ -10,7 +10,7 @@ import '../../../data/repositories/auth_repository.dart';
 // Plain Riverpod providers (no codegen) — fewer moving parts, simple to maintain.
 
 final apiClientProvider = Provider<ApiClient>(
-  (ref) => ApiClient(AppConfig.dev),
+  (ref) => ApiClient(AppConfig.fromEnvironment),
 );
 
 final tokenStorageProvider = Provider<TokenStorage>(
