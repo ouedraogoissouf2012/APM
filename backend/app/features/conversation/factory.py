@@ -1,3 +1,4 @@
+from app.domain.exceptions import LlmProviderError
 from app.features.conversation.providers.deepseek import (
     DeepSeekLlmProvider,
     build_deepseek_client,
@@ -17,6 +18,10 @@ def build_llm_provider(
 ) -> LlmProvider:
     """Select the LLM provider from config. Defaults to the fake (no keys needed)."""
     if engine == "deepseek":
+        if not api_key.strip():
+            # Fail cleanly (mapped to 502) instead of letting AsyncOpenAI("")
+            # raise a raw error in the DI layer -> generic 500.
+            raise LlmProviderError("DeepSeek API key is not configured")
         client = build_deepseek_client(
             api_key=api_key,
             base_url=base_url,

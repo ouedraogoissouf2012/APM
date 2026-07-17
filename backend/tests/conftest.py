@@ -1,18 +1,31 @@
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import os
 
-from app.config import get_settings
-from app.core.rate_limit import NoOpRateLimiter
-from app.database import Base, get_db
-from app.features.auth.dependencies import (
+# Force the fake LLM engines for the whole test run BEFORE the app (and its
+# cached settings) are imported. Env vars take precedence over the .env file, so
+# tests never call the real (paid) DeepSeek API and stay independent of whatever
+# VOICE_ENGINE/DEBRIEF_ENGINE a developer has set locally.
+os.environ["VOICE_ENGINE"] = "fake"
+os.environ["DEBRIEF_ENGINE"] = "fake"
+
+import pytest_asyncio  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from app.config import get_settings  # noqa: E402
+from app.core.rate_limit import NoOpRateLimiter  # noqa: E402
+from app.database import Base, get_db  # noqa: E402
+from app.features.auth.dependencies import (  # noqa: E402
     get_conversation_rate_limiter,
     get_debrief_rate_limiter,
     get_login_rate_limiter,
     get_refresh_rate_limiter,
     get_register_rate_limiter,
 )
-from app.main import app
+from app.main import app  # noqa: E402
 
 
 @pytest_asyncio.fixture
