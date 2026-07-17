@@ -33,3 +33,21 @@ class SessionHistoryItemOut(BaseModel):
     cefr_estimate: str | None
 
     model_config = {"from_attributes": True}
+
+
+class TurnOut(BaseModel):
+    role: str
+    content: str
+
+
+class ActiveSessionOut(BaseModel):
+    """The user's in-progress session plus its transcript so far.
+
+    Lets the mobile app resume a conversation it lost track of (app closed
+    without ending, refresh, crash) instead of dead-ending on a 409.
+    """
+
+    session_id: int
+    mode: str
+    scenario_id: str | None
+    turns: list[TurnOut]

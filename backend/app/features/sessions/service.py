@@ -18,6 +18,7 @@ from app.domain.exceptions import (
     QuotaExhaustedError,
 )
 from app.features.auth.repository import UserRepository
+from app.features.conversation.repository import TranscriptRepository
 from app.features.sessions.models import ConversationSession
 from app.features.sessions.repository import SessionRepository
 
@@ -26,6 +27,12 @@ from app.features.sessions.repository import SessionRepository
 class StartedSession:
     session: ConversationSession
     livekit_token: str
+
+
+@dataclass(frozen=True)
+class ActiveSession:
+    session: ConversationSession
+    turns: list[dict]
 
 
 @dataclass(frozen=True)
@@ -48,10 +55,12 @@ class SessionService:
         sessions: SessionRepository,
         users: UserRepository,
         free_daily_minutes: int,
+        transcripts: TranscriptRepository | None = None,
     ) -> None:
         self._sessions = sessions
         self._users = users
         self._free_daily = free_daily_minutes
+        self._transcripts = transcripts
 
     async def start(self, user_id: int, mode: str, scenario_id: str | None) -> StartedSession:
         # Lock the user row for the whole use case -> serializes concurrent starts.
@@ -74,6 +83,22 @@ class SessionService:
 
         token = build_room_token(identity=f"user-{user_id}", room=session.room_name)
         return StartedSession(session=session, livekit_token=token)
+
+    async def active(self, user_id: int) -> ActiveSession | None:
+        """The user's in-progress session with its transcript so far, or None.
+
+        Enables resuming a conversation the client lost track of, instead of
+        being locked out by the one-active-session rule enforced in `start`.
+        """
+        session = await self._sessions.get_active_for_user(user_id)
+        if session is None:
+            return None
+        turns: list[dict] = []
+        if self._transcripts is not None:
+            transcript = await self._transcripts.get_by_session(session.id)
+            if transcript is not None:
+                turns = list(transcript.turns)
+        return ActiveSession(session=session, turns=turns)
 
     async def end(self, session_id: int, user_id: int) -> ConversationSession:
         session = await self._sessions.get(session_id)
