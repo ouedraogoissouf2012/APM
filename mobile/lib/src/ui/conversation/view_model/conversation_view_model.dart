@@ -1,14 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/providers.dart';
 import '../../../core/speech/speech_service.dart';
+import '../../../data/models/session_modes.dart';
 import '../../../data/repositories/conversation_repository.dart';
-import '../../auth/view_model/auth_view_model.dart';
+import '../../profile/view_model/profile_view_model.dart';
 import 'conversation_state.dart';
 
-final speechServiceProvider = Provider<SpeechService>(
-  (ref) => DeviceSpeechService(),
-);
+/// Speech pinned to the learner's chosen accent (profile: 'us' | 'uk').
+/// Selecting the derived language tag (not the raw profile) means the service
+/// is only rebuilt when the tag actually changes.
+final speechServiceProvider = Provider<SpeechService>((ref) {
+  final languageTag = ref.watch(
+    profileViewModelProvider.select(
+      (profile) => languageTagForAccent(profile.value?.accent),
+    ),
+  );
+  return DeviceSpeechService(languageTag: languageTag);
+});
 
 final conversationRepositoryProvider = Provider<ConversationRepository>(
   (ref) => ConversationRepository(ref.watch(authenticatedApiClientProvider)),
@@ -25,14 +35,19 @@ class ConversationViewModel extends Notifier<ConversationState> {
   @override
   ConversationState build() => const ConversationState();
 
-  Future<void> start({String mode = 'free', String? scenarioId}) async {
+  Future<void> start({
+    String mode = kSessionModeFree,
+    String? scenarioId,
+  }) async {
     final repo = ref.read(conversationRepositoryProvider);
 
     int sessionId;
     List<ConversationTurn> turns;
     try {
       sessionId = await repo.startSession(mode: mode, scenarioId: scenarioId);
-      turns = [ConversationTurn('assistant', _openingMessage(mode, scenarioId))];
+      turns = [
+        ConversationTurn(kRoleAssistant, _openingMessage(mode, scenarioId)),
+      ];
     } on ApiException catch (e) {
       // A session is already in progress (409): resume it instead of leaving
       // the user stuck. The backend allows only one active session per user.
@@ -43,7 +58,7 @@ class ConversationViewModel extends Notifier<ConversationState> {
       turns = active.turns.isEmpty
           ? [
               ConversationTurn(
-                'assistant',
+                kRoleAssistant,
                 _openingMessage(active.mode, active.scenarioId),
               ),
             ]
@@ -76,7 +91,7 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
 
     state = state.copyWith(
-      turns: [...state.turns, ConversationTurn('user', text)],
+      turns: [...state.turns, ConversationTurn(kRoleUser, text)],
       status: ConversationStatus.thinking,
     );
 
@@ -85,7 +100,7 @@ class ConversationViewModel extends Notifier<ConversationState> {
           .read(conversationRepositoryProvider)
           .sendTurn(sessionId, text);
       state = state.copyWith(
-        turns: [...state.turns, ConversationTurn('assistant', reply)],
+        turns: [...state.turns, ConversationTurn(kRoleAssistant, reply)],
         status: ConversationStatus.speaking,
       );
       await speech.speak(reply);
@@ -108,7 +123,7 @@ class ConversationViewModel extends Notifier<ConversationState> {
 }
 
 String _openingMessage(String mode, String? scenarioId) {
-  if (mode == 'scenario' && scenarioId != null) {
+  if (mode == kSessionModeScenario && scenarioId != null) {
     final scenario = scenarioId.replaceAll('_', ' ');
     return "Let's practise $scenario. I will keep it simple and ask you questions.";
   }

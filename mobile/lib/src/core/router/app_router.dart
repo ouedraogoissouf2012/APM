@@ -12,6 +12,7 @@ import '../../ui/home/widgets/home_screen.dart';
 import '../../ui/onboarding/widgets/onboarding_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
 import '../../ui/scenarios/widgets/scenarios_screen.dart';
+import 'routes.dart';
 
 /// The app router. Built once; a [ValueNotifier] tied to the auth state drives
 /// go_router's redirect re-evaluation on login/logout (no codegen).
@@ -21,41 +22,47 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   ref.onDispose(refresh.dispose);
 
   return GoRouter(
-    initialLocation: '/onboarding',
+    initialLocation: Routes.onboarding,
     refreshListenable: refresh,
     redirect: (context, state) {
       final auth = ref.read(authViewModelProvider);
       if (auth.isLoading) return null;
       final signedIn = auth.value != null;
       final atPublicEntry =
-          state.matchedLocation == '/onboarding' ||
-          state.matchedLocation == '/login' ||
-          state.matchedLocation == '/register';
-      if (!signedIn && !atPublicEntry) return '/onboarding';
-      if (signedIn && atPublicEntry) return '/home';
+          state.matchedLocation == Routes.onboarding ||
+          state.matchedLocation == Routes.login ||
+          state.matchedLocation == Routes.register;
+      if (!signedIn && !atPublicEntry) return Routes.onboarding;
+      if (signedIn && atPublicEntry) return Routes.home;
       return null;
     },
     routes: [
-      GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingScreen()),
-      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-      GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
-      GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
       GoRoute(
-        path: '/history',
+        path: Routes.onboarding,
+        builder: (_, _) => const OnboardingScreen(),
+      ),
+      GoRoute(path: Routes.login, builder: (_, _) => const LoginScreen()),
+      GoRoute(path: Routes.register, builder: (_, _) => const RegisterScreen()),
+      GoRoute(path: Routes.home, builder: (_, _) => const HomeScreen()),
+      GoRoute(
+        path: Routes.history,
         builder: (_, _) => const SessionHistoryScreen(),
       ),
       GoRoute(
-        path: '/conversation',
+        path: Routes.conversation,
         builder: (_, _) => const ConversationScreen(),
       ),
       GoRoute(
-        path: '/debrief/:sessionId',
+        path: Routes.debriefPattern,
         builder: (_, state) => DebriefScreen(
           sessionId: int.parse(state.pathParameters['sessionId']!),
         ),
       ),
-      GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen()),
-      GoRoute(path: '/scenarios', builder: (_, _) => const ScenariosScreen()),
+      GoRoute(path: Routes.profile, builder: (_, _) => const ProfileScreen()),
+      GoRoute(
+        path: Routes.scenarios,
+        builder: (_, _) => const ScenariosScreen(),
+      ),
     ],
   );
 });

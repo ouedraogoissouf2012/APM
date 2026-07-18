@@ -55,11 +55,44 @@ void main() {
     final c = _containerWith(repo);
 
     await c.read(profileViewModelProvider.future);
-    await c
+    final saved = await c
         .read(profileViewModelProvider.notifier)
-        .save(interests: ['cooking'], accent: 'uk');
+        .save(interestsText: 'cooking', accent: 'uk');
 
+    expect(saved, isTrue);
     expect(c.read(profileViewModelProvider).value!.accent, 'uk');
     expect(c.read(profileViewModelProvider).value!.interests, ['cooking']);
+  });
+
+  test('save reports failure and restores the previous profile', () async {
+    final repo = _MockProfileRepository();
+    when(repo.getProfile).thenAnswer((_) async => _profile);
+    when(
+      () => repo.updateProfile(
+        interests: any(named: 'interests'),
+        goal: any(named: 'goal'),
+        correctionIntensity: any(named: 'correctionIntensity'),
+        accent: any(named: 'accent'),
+      ),
+    ).thenThrow(Exception('network down'));
+    final c = _containerWith(repo);
+
+    await c.read(profileViewModelProvider.future);
+    final saved = await c
+        .read(profileViewModelProvider.notifier)
+        .save(interestsText: 'cooking', accent: 'uk');
+
+    // No false success, and the form data is still usable (previous profile).
+    expect(saved, isFalse);
+    expect(c.read(profileViewModelProvider).value!.accent, 'us');
+  });
+
+  test('parseInterests splits, trims and drops empties', () {
+    expect(parseInterests(' football,  cooking , ,travel '), [
+      'football',
+      'cooking',
+      'travel',
+    ]);
+    expect(parseInterests(''), isEmpty);
   });
 }

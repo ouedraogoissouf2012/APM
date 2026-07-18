@@ -3,6 +3,11 @@ import 'dart:async';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+/// Maps the learner's accent preference (profile: 'us' | 'uk') to the BCP-47
+/// tag used for both recognition and synthesis. Unknown/absent -> US English.
+String languageTagForAccent(String? accent) =>
+    accent == 'uk' ? 'en-GB' : 'en-US';
+
 /// On-device speech: recognition (STT) and synthesis (TTS). Free, no API keys —
 /// the device/browser engines do the work. Abstracted so the ViewModel is testable.
 abstract class SpeechService {
@@ -24,6 +29,9 @@ class DeviceSpeechService implements SpeechService {
   /// transcribed as garbage — fatal for an English-practice app.
   DeviceSpeechService({this.languageTag = 'en-US'});
 
+  /// TTS rate, slightly below default: a clearer model for a learner's ear.
+  static const double kLearnerSpeechRate = 0.45;
+
   final String languageTag;
 
   final stt.SpeechToText _stt = stt.SpeechToText();
@@ -43,8 +51,7 @@ class DeviceSpeechService implements SpeechService {
       _sttLocaleId = await _resolveRecognitionLocale();
     }
     await _tts.setLanguage(languageTag);
-    // A touch slower than default: clearer for a learner listening for a model.
-    await _tts.setSpeechRate(0.45);
+    await _tts.setSpeechRate(kLearnerSpeechRate);
     await _tts.awaitSpeakCompletion(true);
     return _ready;
   }
@@ -82,7 +89,12 @@ class DeviceSpeechService implements SpeechService {
 
   @override
   Future<String> listenOnce() async {
-    if (!_ready) return '';
+    // Lazy init: the service may be recreated (e.g. accent change) after the
+    // conversation already called initialize() on the previous instance.
+    if (!_ready) {
+      await initialize();
+      if (!_ready) return '';
+    }
     _captured = '';
     _turn = Completer<String>();
     await _stt.listen(

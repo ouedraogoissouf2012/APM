@@ -1,3 +1,4 @@
+import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/storage/token_storage.dart';
@@ -13,7 +14,7 @@ class AuthRepository {
   Future<AppUser> register({
     required String email,
     required String password,
-    String nativeLanguage = 'fr',
+    String nativeLanguage = AppConfig.defaultNativeLanguage,
   }) async {
     final json = await _api.postJson(
       '/auth/register',

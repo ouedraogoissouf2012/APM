@@ -6,6 +6,9 @@ class AppConfig {
   /// Base URL of the APM backend API.
   final String apiBaseUrl;
 
+  /// Product default for a new account's native language (francophone app).
+  static const String defaultNativeLanguage = 'fr';
+
   /// Compile-time override for production/staging builds:
   ///   flutter build appbundle --dart-define=API_BASE_URL=https://api.example.com
   /// Empty when not provided, in which case the dev defaults below apply.

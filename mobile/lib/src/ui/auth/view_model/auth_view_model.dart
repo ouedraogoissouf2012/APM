@@ -1,28 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
-import '../../../core/network/authenticated_api_client.dart';
-import '../../../core/network/api_client.dart';
-import '../../../core/storage/token_storage.dart';
+import '../../../core/network/providers.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/repositories/auth_repository.dart';
 
 // Plain Riverpod providers (no codegen) — fewer moving parts, simple to maintain.
-
-final apiClientProvider = Provider<ApiClient>(
-  (ref) => ApiClient(AppConfig.fromEnvironment),
-);
-
-final tokenStorageProvider = Provider<TokenStorage>(
-  (ref) => SecureTokenStorage(),
-);
-
-final authenticatedApiClientProvider = Provider<AuthenticatedApiClient>(
-  (ref) => AuthenticatedApiClient(
-    ref.watch(apiClientProvider),
-    ref.watch(tokenStorageProvider),
-  ),
-);
+// Infrastructure providers (HTTP clients, token storage) live in
+// core/network/providers.dart; this file only owns the auth feature.
 
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => AuthRepository(
@@ -52,7 +37,7 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
   Future<void> register({
     required String email,
     required String password,
-    String nativeLanguage = 'fr',
+    String nativeLanguage = AppConfig.defaultNativeLanguage,
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(

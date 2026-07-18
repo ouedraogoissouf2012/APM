@@ -46,3 +46,15 @@ const List<Scenario> kScenarios = [
     emoji: '🛍️',
   ),
 ];
+
+/// The canonical display title for a scenario id — falls back to a readable
+/// form of the id for values not (yet) in the catalog.
+String scenarioTitle(String id) {
+  for (final scenario in kScenarios) {
+    if (scenario.id == id) return scenario.title;
+  }
+  return id
+      .split('_')
+      .map((p) => p.isEmpty ? p : '${p[0].toUpperCase()}${p.substring(1)}')
+      .join(' ');
+}

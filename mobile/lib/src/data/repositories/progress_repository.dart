@@ -7,13 +7,20 @@ import '../models/session_summary.dart';
 class ProgressRepository {
   ProgressRepository(this._api);
 
+  /// How many recent completed sessions we fetch debriefs for (bounds the
+  /// number of network calls when computing recurring errors).
+  static const int kRecentDebriefsWindow = 5;
+
+  /// How many recurring error types are surfaced to the learner.
+  static const int kMaxRecurringErrors = 3;
+
   final AuthenticatedApiClient _api;
 
   Future<ProgressSnapshot> load() async {
     final sessions = await _loadSessions();
     final completedSessions = sessions
         .where((session) => session.cefrEstimate != null)
-        .take(5)
+        .take(kRecentDebriefsWindow)
         .toList();
     final debriefs = <Debrief>[];
 
@@ -92,6 +99,6 @@ class ProgressRepository {
             return a.errorType.compareTo(b.errorType);
           });
 
-    return recurring.take(3).toList();
+    return recurring.take(kMaxRecurringErrors).toList();
   }
 }

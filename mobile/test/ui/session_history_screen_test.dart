@@ -53,7 +53,7 @@ void main() {
     expect(find.byKey(const Key('cefr_point_1')), findsOneWidget);
     expect(find.text('grammar (2)'), findsOneWidget);
     expect(find.byKey(const Key('session_1')), findsOneWidget);
-    expect(find.text('Job Interview'), findsOneWidget);
+    expect(find.text('Job interview'), findsOneWidget);
     expect(find.text('A2'), findsWidgets);
   });
 

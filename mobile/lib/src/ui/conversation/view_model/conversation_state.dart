@@ -1,9 +1,13 @@
 enum ConversationStatus { idle, listening, thinking, speaking }
 
+/// Turn roles — protocol values shared with the backend transcript.
+const String kRoleUser = 'user';
+const String kRoleAssistant = 'assistant';
+
 class ConversationTurn {
   const ConversationTurn(this.role, this.content);
 
-  final String role; // 'user' | 'assistant'
+  final String role; // kRoleUser | kRoleAssistant
   final String content;
 }
 
