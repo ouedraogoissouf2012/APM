@@ -64,6 +64,28 @@ async def test_start_returns_session_with_token_and_uuid_room():
 
 
 @pytest.mark.asyncio
+async def test_start_records_the_configured_voice_engine():
+    users = InMemoryUserRepository()
+    user = await users.create(
+        User(
+            email="e@b.com",
+            hashed_password="x",
+            native_language="fr",
+            tier="free",
+            quota_date=date.today(),
+            minutes_used_today=0.0,
+        )
+    )
+    service = SessionService(
+        InMemorySessionRepository(), users, free_daily_minutes=10, voice_engine="deepseek"
+    )
+
+    started = await service.start(user.id, "free", None)
+
+    assert started.session.voice_engine == "deepseek"
+
+
+@pytest.mark.asyncio
 async def test_start_raises_when_quota_exhausted():
     service, user = await _service_with_user(minutes_used_today=10.0)
     with pytest.raises(QuotaExhaustedError):

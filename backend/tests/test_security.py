@@ -4,9 +4,9 @@ from app.core import security
 
 
 def test_password_hash_roundtrip():
-    hashed = security.hash_password("s3cret!")
-    assert hashed != "s3cret!"
-    assert security.verify_password("s3cret!", hashed) is True
+    hashed = security.hash_password("s3cret!pass")
+    assert hashed != "s3cret!pass"
+    assert security.verify_password("s3cret!pass", hashed) is True
     assert security.verify_password("wrong", hashed) is False
 
 

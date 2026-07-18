@@ -1,5 +1,6 @@
 from app.domain.exceptions import NotFoundError
 from app.features.auth.models import User
+from app.features.auth.repository import UserRepository
 from app.features.conversation.prompt import strip_persistent_instructions
 from app.features.conversation.repository import TranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
@@ -7,7 +8,11 @@ from app.features.debrief.cefr import next_cefr_level
 from app.features.debrief.models import Debrief
 from app.features.debrief.repository import DebriefRepository
 from app.features.profile.repository import ProfileRepository
+from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
+
+# How many recurring error types persist into the learner's memory summary.
+_MAX_RECURRING_FOCUS = 3
 
 
 class DebriefService:
@@ -18,20 +23,17 @@ class DebriefService:
         debriefs: DebriefRepository,
         analyzer: DebriefAnalyzer,
         profiles: ProfileRepository | None = None,
+        users: UserRepository | None = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
         self._debriefs = debriefs
         self._analyzer = analyzer
         self._profiles = profiles
-
-    async def _owned_session(self, session_id: int, user: User) -> None:
-        session = await self._sessions.get(session_id)
-        if session is None or session.user_id != user.id:
-            raise NotFoundError("Session not found")
+        self._users = users
 
     async def generate(self, session_id: int, user: User) -> Debrief:
-        await self._owned_session(session_id, user)
+        await get_owned_session(self._sessions, session_id, user.id)
         existing = await self._debriefs.get_by_session(session_id)
         if existing is not None:
             return existing
@@ -42,8 +44,7 @@ class DebriefService:
             transcript.turns, native_language=user.native_language
         )
         # Adaptive difficulty: nudge the learner's level one step toward the
-        # session estimate. `user` shares the request's DB session, so the
-        # debrief save below persists this change.
+        # session estimate.
         user.cefr_level = next_cefr_level(user.cefr_level, result.cefr_estimate)
         errors = [
             {
@@ -54,14 +55,21 @@ class DebriefService:
             }
             for e in result.errors
         ]
+        # Order matters for atomicity: the debrief commit persists the pending
+        # CEFR nudge in the SAME transaction (shared request session). If it
+        # fails, both roll back — a retry cannot double-promote. users.save
+        # afterwards makes the intent explicit and covers repository
+        # implementations that do not share the session.
         debrief = await self._debriefs.save(
             session_id, result.cefr_estimate, result.summary, errors
         )
+        if self._users is not None:
+            await self._users.save(user)
         await self._update_memory(user.id, result.summary, errors)
         return debrief
 
     async def get(self, session_id: int, user: User) -> Debrief:
-        await self._owned_session(session_id, user)
+        await get_owned_session(self._sessions, session_id, user.id)
         debrief = await self._debriefs.get_by_session(session_id)
         if debrief is None:
             raise NotFoundError("No debrief for this session")
@@ -78,7 +86,8 @@ class DebriefService:
         error_types = [error_type for error_type in error_types if error_type]
         details = strip_persistent_instructions(summary)
         if error_types:
-            details = f"{details} Recurring focus: {', '.join(error_types[:3])}.".strip()
+            focus = ", ".join(error_types[:_MAX_RECURRING_FOCUS])
+            details = f"{details} Recurring focus: {focus}.".strip()
         if not details:
             return
 

@@ -135,6 +135,10 @@ class InMemoryUserRepository:
         self._by_id[user.id] = user
         return user
 
+    async def save(self, user: User) -> User:
+        self._by_id[user.id] = user
+        return user
+
     async def lock(self, user_id: int) -> User | None:
         # No real locking in memory; behaves like get_by_id.
         return self._by_id.get(user_id)

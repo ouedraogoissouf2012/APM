@@ -1,10 +1,10 @@
 from datetime import date
 
-from app.features.auth.models import User
+from app.features.auth.models import TIER_FREE, User
 
 
 def remaining_minutes(user: User, free_daily: int, today: date) -> float:
-    if user.tier != "free":
+    if user.tier != TIER_FREE:
         return float("inf")
     used = user.minutes_used_today if user.quota_date == today else 0.0
     return max(0.0, free_daily - used)
