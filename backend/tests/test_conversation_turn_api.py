@@ -6,12 +6,12 @@ VOICE_ENGINE defaults to "fake", so the LLM is FakeLlm -> reply "You said: <text
 import pytest
 
 from app.core.rate_limit import InMemoryRateLimiter
-from app.features.auth.dependencies import get_conversation_rate_limiter
+from app.features.conversation.dependencies import get_conversation_rate_limiter
 from app.main import app
 
 
 async def _auth_header(client, email="conv@b.com"):
-    reg = await client.post("/auth/register", json={"email": email, "password": "s3cret!"})
+    reg = await client.post("/auth/register", json={"email": email, "password": "s3cret!pass"})
     return {"Authorization": f"Bearer {reg.json()['access_token']}"}
 
 

@@ -26,6 +26,19 @@ def test_dev_allows_fake_engines_and_example_style_config():
     assert settings.cors_origins_list == ["*"]
 
 
+def test_rejects_unknown_voice_engine_at_startup():
+    # A typo must fail at startup, not silently degrade to the fake engine.
+    with pytest.raises(ValidationError):
+        _settings(voice_engine="deepsek")
+
+
+def test_rejects_not_implemented_livekit_engine_at_startup():
+    # "livekit" is reserved for the realtime engine (#69). Until it exists,
+    # configuring it must fail at startup instead of 502-ing on every turn.
+    with pytest.raises(ValidationError):
+        _settings(voice_engine="livekit")
+
+
 def test_production_rejects_weak_jwt_secret():
     with pytest.raises(ValidationError, match="JWT_SECRET must be at least 32 bytes"):
         _settings(app_env="production", jwt_secret="too-short")

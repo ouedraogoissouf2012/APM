@@ -33,14 +33,6 @@ _refresh_rate_limiter = InMemoryRateLimiter(
     max_hits=_settings.refresh_rate_limit_max,
     window_seconds=_settings.refresh_rate_limit_window_seconds,
 )
-_conversation_rate_limiter = InMemoryRateLimiter(
-    max_hits=_settings.conversation_rate_limit_max,
-    window_seconds=_settings.conversation_rate_limit_window_seconds,
-)
-_debrief_rate_limiter = InMemoryRateLimiter(
-    max_hits=_settings.debrief_rate_limit_max,
-    window_seconds=_settings.debrief_rate_limit_window_seconds,
-)
 
 
 def get_register_rate_limiter() -> RateLimiter:
@@ -53,14 +45,6 @@ def get_login_rate_limiter() -> RateLimiter:
 
 def get_refresh_rate_limiter() -> RateLimiter:
     return _refresh_rate_limiter
-
-
-def get_conversation_rate_limiter() -> RateLimiter:
-    return _conversation_rate_limiter
-
-
-def get_debrief_rate_limiter() -> RateLimiter:
-    return _debrief_rate_limiter
 
 
 def get_user_repository(db: AsyncSession = Depends(get_db)) -> UserRepository:
