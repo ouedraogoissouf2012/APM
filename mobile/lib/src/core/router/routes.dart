@@ -12,6 +12,9 @@ abstract final class Routes {
   static const profile = '/profile';
   static const scenarios = '/scenarios';
 
+  /// Galerie du design system — enregistrée uniquement en debug.
+  static const devGallery = '/dev/gallery';
+
   /// Pattern registered in the router; use [debrief] to build a concrete path.
   static const debriefPattern = '/debrief/:sessionId';
 

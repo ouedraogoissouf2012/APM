@@ -1,10 +1,30 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/core/router/app_router.dart';
+import 'src/core/theme/app_theme.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  _registerFontLicenses();
   runApp(const ProviderScope(child: ApmApp()));
+}
+
+/// Fraunces et Inter sont bundlées (licence SIL OFL) : leurs licences
+/// doivent apparaître dans le LicenseRegistry de l'app.
+void _registerFontLicenses() {
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(
+      ['Fraunces'],
+      await rootBundle.loadString('assets/fonts/fraunces/OFL.txt'),
+    );
+    yield LicenseEntryWithLineBreaks(
+      ['Inter'],
+      await rootBundle.loadString('assets/fonts/inter/OFL.txt'),
+    );
+  });
 }
 
 class ApmApp extends ConsumerWidget {
@@ -15,7 +35,10 @@ class ApmApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
     return MaterialApp.router(
       title: 'APM',
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
+      // Sombre = défaut de toute l'app (DESIGN_SPEC : on parle le soir).
+      // Le mode cream s'applique localement (bilan, carnet) via
+      // `Theme(data: AppTheme.light(), ...)`.
+      theme: AppTheme.dark(),
       routerConfig: router,
     );
   }

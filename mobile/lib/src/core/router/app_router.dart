@@ -12,6 +12,7 @@ import '../../ui/home/widgets/home_screen.dart';
 import '../../ui/onboarding/widgets/onboarding_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
 import '../../ui/scenarios/widgets/scenarios_screen.dart';
+import '../../dev/gallery_page.dart';
 import 'routes.dart';
 
 /// The app router. Built once; a [ValueNotifier] tied to the auth state drives
@@ -32,6 +33,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           state.matchedLocation == Routes.onboarding ||
           state.matchedLocation == Routes.login ||
           state.matchedLocation == Routes.register;
+      // La galerie du design system est hors parcours auth (debug only).
+      if (kDebugMode && state.matchedLocation == Routes.devGallery) return null;
       if (!signedIn && !atPublicEntry) return Routes.onboarding;
       if (signedIn && atPublicEntry) return Routes.home;
       return null;
@@ -63,6 +66,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: Routes.scenarios,
         builder: (_, _) => const ScenariosScreen(),
       ),
+      if (kDebugMode)
+        GoRoute(
+          path: Routes.devGallery,
+          builder: (_, _) => const GalleryPage(),
+        ),
     ],
   );
 });
