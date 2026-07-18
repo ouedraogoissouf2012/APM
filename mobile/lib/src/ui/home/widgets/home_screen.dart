@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
 import '../../auth/view_model/auth_view_model.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -17,12 +18,12 @@ class HomeScreen extends ConsumerWidget {
           IconButton(
             key: const Key('profile_button'),
             icon: const Icon(Icons.person),
-            onPressed: () => context.go('/profile'),
+            onPressed: () => context.go(Routes.profile),
           ),
           IconButton(
             key: const Key('history_button'),
             icon: const Icon(Icons.history),
-            onPressed: () => context.go('/history'),
+            onPressed: () => context.go(Routes.history),
           ),
           IconButton(
             key: const Key('logout_button'),
@@ -43,7 +44,7 @@ class HomeScreen extends ConsumerWidget {
             const SizedBox(height: 24),
             FilledButton.icon(
               key: const Key('start_conversation_button'),
-              onPressed: () => context.go('/scenarios'),
+              onPressed: () => context.go(Routes.scenarios),
               icon: const Icon(Icons.mic),
               label: const Text('Start a conversation'),
             ),

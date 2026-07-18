@@ -1,4 +1,4 @@
-import 'package:apm/src/ui/scenarios/scenarios.dart';
+import 'package:apm/src/data/models/scenarios.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -15,5 +15,16 @@ void main() {
       expect(s.title, isNotEmpty);
       expect(s.description, isNotEmpty);
     }
+  });
+
+  test('scenarioTitle returns the canonical catalog title', () {
+    // The history screen used to re-derive "Job Interview" from the id,
+    // diverging from the catalog's "Job interview".
+    expect(scenarioTitle('job_interview'), 'Job interview');
+    expect(scenarioTitle('restaurant'), 'At a restaurant');
+  });
+
+  test('scenarioTitle falls back to a readable form for unknown ids', () {
+    expect(scenarioTitle('space_station'), 'Space Station');
   });
 }

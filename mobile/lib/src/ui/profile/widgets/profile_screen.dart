@@ -34,24 +34,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _save() async {
-    final interests = _interests.text
-        .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    await ref
+    final saved = await ref
         .read(profileViewModelProvider.notifier)
         .save(
-          interests: interests,
+          interestsText: _interests.text,
           goal: _goal.text.trim(),
           correctionIntensity: _intensity,
           accent: _accent,
         );
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Profile saved')));
-    }
+    if (!mounted) return;
+    // Honest feedback: only claim success when the save actually succeeded.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          saved ? 'Profile saved' : 'Could not save your profile — try again',
+        ),
+      ),
+    );
   }
 
   @override

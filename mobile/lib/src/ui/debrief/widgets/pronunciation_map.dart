@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../data/models/debrief.dart';
+import '../../../data/models/pronunciation_scoring.dart';
 
 class PronunciationMap extends StatelessWidget {
   const PronunciationMap({super.key, required this.scores});
@@ -97,7 +98,7 @@ class _PronunciationStatus {
   final Color foreground;
 
   static _PronunciationStatus fromScore(double score) {
-    if (score >= 0.8) {
+    if (score >= kPronunciationStrongThreshold) {
       return const _PronunciationStatus(
         label: 'strong',
         icon: Icons.check_circle_outline,
@@ -105,7 +106,7 @@ class _PronunciationStatus {
         foreground: Color(0xFF176B3A),
       );
     }
-    if (score >= 0.6) {
+    if (score >= kPronunciationReviewThreshold) {
       return const _PronunciationStatus(
         label: 'review',
         icon: Icons.error_outline,

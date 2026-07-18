@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
 class OnboardingScreen extends StatelessWidget {
   const OnboardingScreen({super.key});
 
@@ -63,14 +64,14 @@ class OnboardingScreen extends StatelessWidget {
                   const SizedBox(height: 32),
                   FilledButton.icon(
                     key: const Key('onboarding_register_button'),
-                    onPressed: () => context.go('/register'),
+                    onPressed: () => context.go(Routes.register),
                     icon: const Icon(Icons.person_add_alt),
                     label: const Text('Create account'),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     key: const Key('onboarding_login_button'),
-                    onPressed: () => context.go('/login'),
+                    onPressed: () => context.go(Routes.login),
                     icon: const Icon(Icons.login),
                     label: const Text('Log in'),
                   ),
