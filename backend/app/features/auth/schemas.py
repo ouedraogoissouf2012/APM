@@ -1,9 +1,13 @@
 from pydantic import BaseModel, EmailStr, Field
 
+# Password policy (NIST 800-63B: 8-character minimum for user-chosen secrets).
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+
 
 class RegisterIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
     native_language: str = "fr"
 
 

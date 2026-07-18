@@ -20,6 +20,10 @@ class UserRepository(Protocol):
 
     async def create(self, user: User) -> User: ...
 
+    async def save(self, user: User) -> User:
+        """Persist changes made to an already-loaded user aggregate."""
+        ...
+
     async def lock(self, user_id: int) -> User | None:
         """Fetch the user with a row lock (SELECT ... FOR UPDATE) for atomic updates."""
         ...
@@ -37,6 +41,11 @@ class SqlAlchemyUserRepository:
 
     async def create(self, user: User) -> User:
         self._session.add(user)
+        await self._session.commit()
+        await self._session.refresh(user)
+        return user
+
+    async def save(self, user: User) -> User:
         await self._session.commit()
         await self._session.refresh(user)
         return user

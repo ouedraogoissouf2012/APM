@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
 import '../../../data/models/debrief.dart';
 import '../view_model/debrief_view_model.dart';
 import 'pronunciation_map.dart';
@@ -21,7 +22,7 @@ class DebriefScreen extends ConsumerWidget {
           IconButton(
             key: const Key('debrief_home_button'),
             icon: const Icon(Icons.home),
-            onPressed: () => context.go('/home'),
+            onPressed: () => context.go(Routes.home),
           ),
         ],
       ),

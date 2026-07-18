@@ -1,8 +1,20 @@
 from datetime import timedelta
+from typing import Protocol
 
 from livekit import api
 
 from app.config import get_settings
+
+
+class RoomTokenIssuer(Protocol):
+    """Issues a join token for a conversation room (DIP seam for services)."""
+
+    def issue(self, identity: str, room: str) -> str: ...
+
+
+class LiveKitRoomTokenIssuer:
+    def issue(self, identity: str, room: str) -> str:
+        return build_room_token(identity=identity, room=room)
 
 
 def build_room_token(identity: str, room: str) -> str:

@@ -7,7 +7,7 @@ import pytest
 
 
 async def _auth_header(client, email="s@b.com"):
-    reg = await client.post("/auth/register", json={"email": email, "password": "s3cret!"})
+    reg = await client.post("/auth/register", json={"email": email, "password": "s3cret!pass"})
     return {"Authorization": f"Bearer {reg.json()['access_token']}"}
 
 
@@ -48,6 +48,52 @@ async def test_end_closes_session_and_allows_restart(client):
     # With the previous session ended, a new one can start.
     again = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
     assert again.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_active_returns_the_in_progress_session(client):
+    headers = await _auth_header(client, email="active-1@b.com")
+    start = await client.post(
+        "/sessions/start",
+        headers=headers,
+        json={"mode": "scenario", "scenario_id": "restaurant"},
+    )
+    session_id = start.json()["session_id"]
+
+    resp = await client.get("/sessions/active", headers=headers)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["session_id"] == session_id
+    assert body["mode"] == "scenario"
+    assert body["scenario_id"] == "restaurant"
+    assert body["turns"] == []
+
+
+@pytest.mark.asyncio
+async def test_active_returns_404_when_no_session_in_progress(client):
+    headers = await _auth_header(client, email="active-2@b.com")
+    resp = await client.get("/sessions/active", headers=headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_active_carries_the_transcript_so_the_client_can_resume(client):
+    headers = await _auth_header(client, email="active-3@b.com")
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    # One conversation turn (conftest forces the fake LLM engine -> no real DeepSeek).
+    turn = await client.post(
+        f"/sessions/{session_id}/turn", headers=headers, json={"text": "i is happy"}
+    )
+    assert turn.status_code == 200, turn.text
+
+    resp = await client.get("/sessions/active", headers=headers)
+    body = resp.json()
+    assert body["session_id"] == session_id
+    assert [t["role"] for t in body["turns"]] == ["user", "assistant"]
+    assert body["turns"][0]["content"] == "i is happy"
 
 
 @pytest.mark.asyncio

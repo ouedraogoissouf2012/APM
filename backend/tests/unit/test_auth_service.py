@@ -22,7 +22,7 @@ def _service() -> AuthService:
 @pytest.mark.asyncio
 async def test_register_creates_user_and_tokens():
     service = _service()
-    result = await service.register("a@b.com", "s3cret!", "fr")
+    result = await service.register("a@b.com", "s3cret!pass", "fr")
     assert result.user.email == "a@b.com"
     assert decode_access_token(result.access_token) == str(result.user.id)
     assert result.refresh_token  # opaque refresh token issued
@@ -31,7 +31,7 @@ async def test_register_creates_user_and_tokens():
 @pytest.mark.asyncio
 async def test_register_duplicate_email_raises():
     service = _service()
-    await service.register("dup@b.com", "s3cret!", "fr")
+    await service.register("dup@b.com", "s3cret!pass", "fr")
     with pytest.raises(EmailAlreadyExistsError):
         await service.register("dup@b.com", "other!", "fr")
 
@@ -39,15 +39,15 @@ async def test_register_duplicate_email_raises():
 @pytest.mark.asyncio
 async def test_login_succeeds_with_correct_password():
     service = _service()
-    await service.register("log@b.com", "s3cret!", "fr")
-    result = await service.login("log@b.com", "s3cret!")
+    await service.register("log@b.com", "s3cret!pass", "fr")
+    result = await service.login("log@b.com", "s3cret!pass")
     assert decode_access_token(result.access_token) == str(result.user.id)
 
 
 @pytest.mark.asyncio
 async def test_login_wrong_password_raises():
     service = _service()
-    await service.register("x@b.com", "s3cret!", "fr")
+    await service.register("x@b.com", "s3cret!pass", "fr")
     with pytest.raises(InvalidCredentialsError):
         await service.login("x@b.com", "nope")
 
@@ -62,7 +62,7 @@ async def test_login_unknown_email_raises():
 @pytest.mark.asyncio
 async def test_refresh_rotates_and_returns_new_tokens():
     service = _service()
-    reg = await service.register("r@b.com", "s3cret!", "fr")
+    reg = await service.register("r@b.com", "s3cret!pass", "fr")
     refreshed = await service.refresh(reg.refresh_token)
     assert refreshed.refresh_token != reg.refresh_token  # rotation
     assert decode_access_token(refreshed.access_token) == str(reg.user.id)
@@ -71,7 +71,7 @@ async def test_refresh_rotates_and_returns_new_tokens():
 @pytest.mark.asyncio
 async def test_refresh_with_used_token_is_rejected():
     service = _service()
-    reg = await service.register("r2@b.com", "s3cret!", "fr")
+    reg = await service.register("r2@b.com", "s3cret!pass", "fr")
     await service.refresh(reg.refresh_token)  # consumes/rotates it
     with pytest.raises(InvalidRefreshTokenError):
         await service.refresh(reg.refresh_token)  # reuse rejected
@@ -87,7 +87,7 @@ async def test_refresh_unknown_token_rejected():
 @pytest.mark.asyncio
 async def test_logout_revokes_refresh_token():
     service = _service()
-    reg = await service.register("lo@b.com", "s3cret!", "fr")
+    reg = await service.register("lo@b.com", "s3cret!pass", "fr")
     await service.logout(reg.refresh_token)
     with pytest.raises(InvalidRefreshTokenError):
         await service.refresh(reg.refresh_token)
@@ -96,7 +96,7 @@ async def test_logout_revokes_refresh_token():
 @pytest.mark.asyncio
 async def test_get_authenticated_user_returns_user():
     service = _service()
-    reg = await service.register("me@b.com", "s3cret!", "fr")
+    reg = await service.register("me@b.com", "s3cret!pass", "fr")
     user = await service.get_authenticated_user(reg.access_token)
     assert user.email == "me@b.com"
 

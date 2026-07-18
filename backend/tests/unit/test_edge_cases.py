@@ -50,6 +50,6 @@ async def test_get_authenticated_user_with_expired_token_raises():
 async def test_refresh_with_expired_token_raises():
     # Negative TTL -> the issued refresh token is already expired.
     service = _auth_service(refresh_ttl_days=-1)
-    reg = await service.register("e@b.com", "s3cret!", "fr")
+    reg = await service.register("e@b.com", "s3cret!pass", "fr")
     with pytest.raises(InvalidRefreshTokenError):
         await service.refresh(reg.refresh_token)

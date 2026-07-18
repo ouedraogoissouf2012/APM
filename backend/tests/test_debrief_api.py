@@ -1,10 +1,9 @@
 import pytest
 
 from app.core.rate_limit import InMemoryRateLimiter
-from app.features.auth.dependencies import get_debrief_rate_limiter
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
-from app.features.debrief.dependencies import get_debrief_service
+from app.features.debrief.dependencies import get_debrief_rate_limiter, get_debrief_service
 from app.features.debrief.repository import SqlAlchemyDebriefRepository
 from app.features.debrief.service import DebriefService
 from app.features.sessions.repository import SqlAlchemySessionRepository
@@ -21,7 +20,7 @@ class _CannedLlm:
 
 
 async def _register(client, email="dbg@b.com"):
-    resp = await client.post("/auth/register", json={"email": email, "password": "s3cret!"})
+    resp = await client.post("/auth/register", json={"email": email, "password": "s3cret!pass"})
     return resp.json()["access_token"]
 
 

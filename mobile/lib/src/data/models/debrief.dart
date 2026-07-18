@@ -1,3 +1,5 @@
+import 'pronunciation_scoring.dart';
+
 /// A single correction in the debrief: the learner's original, the fix, and why.
 class DebriefError {
   const DebriefError({
@@ -34,7 +36,8 @@ class PronunciationScore {
   final double? confidence;
 
   bool get hasReliableScore =>
-      score != null && (confidence == null || confidence! >= 0.5);
+      score != null &&
+      (confidence == null || confidence! >= kPronunciationReliableConfidence);
 
   factory PronunciationScore.fromJson(Map<String, dynamic> json) =>
       PronunciationScore(

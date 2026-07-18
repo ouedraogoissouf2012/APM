@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
 import '../view_model/auth_view_model.dart';
+import 'auth_fields.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -32,27 +34,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            TextField(
-              key: const Key('email_field'),
-              controller: _email,
-              decoration: const InputDecoration(labelText: 'Email'),
+            AuthFields(
+              email: _email,
+              password: _password,
+              hasError: auth.hasError,
+              errorLabel: 'Login failed',
+              errorKey: const Key('login_error'),
             ),
-            TextField(
-              key: const Key('password_field'),
-              controller: _password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Password'),
-            ),
-            const SizedBox(height: 16),
-            if (auth.hasError)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  'Login failed',
-                  key: const Key('login_error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
             FilledButton(
               key: const Key('login_button'),
               onPressed: auth.isLoading
@@ -66,7 +54,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
             TextButton(
               key: const Key('go_register'),
-              onPressed: () => context.go('/register'),
+              onPressed: () => context.go(Routes.register),
               child: const Text('Create an account'),
             ),
           ],

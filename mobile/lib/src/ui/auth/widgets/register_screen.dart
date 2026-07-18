@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
 import '../view_model/auth_view_model.dart';
+import 'auth_fields.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -32,27 +34,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            TextField(
-              key: const Key('email_field'),
-              controller: _email,
-              decoration: const InputDecoration(labelText: 'Email'),
+            AuthFields(
+              email: _email,
+              password: _password,
+              hasError: auth.hasError,
+              errorLabel: 'Registration failed',
+              errorKey: const Key('register_error'),
             ),
-            TextField(
-              key: const Key('password_field'),
-              controller: _password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Password'),
-            ),
-            const SizedBox(height: 16),
-            if (auth.hasError)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  'Registration failed',
-                  key: const Key('register_error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
             FilledButton(
               key: const Key('register_button'),
               onPressed: auth.isLoading
@@ -64,7 +52,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             ),
             TextButton(
               key: const Key('go_login'),
-              onPressed: () => context.go('/login'),
+              onPressed: () => context.go(Routes.login),
               child: const Text('I already have an account'),
             ),
           ],

@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/providers.dart';
 import '../../../data/models/debrief.dart';
 import '../../../data/repositories/debrief_repository.dart';
-import '../../auth/view_model/auth_view_model.dart';
 
 final debriefRepositoryProvider = Provider<DebriefRepository>(
   (ref) => DebriefRepository(ref.watch(authenticatedApiClientProvider)),

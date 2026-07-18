@@ -19,12 +19,12 @@ from app.config import get_settings  # noqa: E402
 from app.core.rate_limit import NoOpRateLimiter  # noqa: E402
 from app.database import Base, get_db  # noqa: E402
 from app.features.auth.dependencies import (  # noqa: E402
-    get_conversation_rate_limiter,
-    get_debrief_rate_limiter,
     get_login_rate_limiter,
     get_refresh_rate_limiter,
     get_register_rate_limiter,
 )
+from app.features.conversation.dependencies import get_conversation_rate_limiter  # noqa: E402
+from app.features.debrief.dependencies import get_debrief_rate_limiter  # noqa: E402
 from app.main import app  # noqa: E402
 
 

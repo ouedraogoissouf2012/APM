@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
+import '../../../data/models/session_modes.dart';
 import '../view_model/conversation_state.dart';
 import '../view_model/conversation_view_model.dart';
 
@@ -22,7 +24,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       ref
           .read(conversationViewModelProvider.notifier)
           .start(
-            mode: params['mode'] ?? 'free',
+            mode: params['mode'] ?? kSessionModeFree,
             scenarioId: params['scenario'],
           );
     });
@@ -44,7 +46,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   .sessionId;
               await ref.read(conversationViewModelProvider.notifier).end();
               if (!context.mounted) return;
-              context.go(sessionId != null ? '/debrief/$sessionId' : '/home');
+              context.go(
+                sessionId != null ? Routes.debrief(sessionId) : Routes.home,
+              );
             },
           ),
         ],
@@ -57,7 +61,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
               itemCount: state.turns.length,
               itemBuilder: (_, i) {
                 final turn = state.turns[i];
-                final isUser = turn.role == 'user';
+                final isUser = turn.role == kRoleUser;
                 return Align(
                   alignment: isUser
                       ? Alignment.centerRight

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
 import '../../../data/models/progress_snapshot.dart';
+import '../../../data/models/scenarios.dart';
 import '../../../data/models/session_summary.dart';
 import '../view_model/progress_view_model.dart';
 
@@ -229,7 +231,8 @@ class _SessionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = session.scenarioId == null
         ? 'Free conversation'
-        : _scenarioTitle(session.scenarioId!);
+        // Canonical title from the scenario catalog — no re-derived divergence.
+        : scenarioTitle(session.scenarioId!);
     final duration = session.durationMinutes == null
         ? 'In progress'
         : '${session.durationMinutes!.toStringAsFixed(1)} min';
@@ -248,19 +251,11 @@ class _SessionTile extends StatelessWidget {
               ),
         onTap: session.cefrEstimate == null
             ? null
-            : () => context.go('/debrief/${session.id}'),
+            : () => context.go(Routes.debrief(session.id)),
       ),
     );
   }
 }
-
-String _scenarioTitle(String id) => id
-    .split('_')
-    .map(
-      (part) =>
-          part.isEmpty ? part : '${part[0].toUpperCase()}${part.substring(1)}',
-    )
-    .join(' ');
 
 String _formatDate(DateTime value) {
   final local = value.toLocal();

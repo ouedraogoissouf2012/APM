@@ -4,14 +4,14 @@ import pytest
 
 
 async def _auth_header(client, email):
-    reg = await client.post("/auth/register", json={"email": email, "password": "s3cret!"})
+    reg = await client.post("/auth/register", json={"email": email, "password": "s3cret!pass"})
     return {"Authorization": f"Bearer {reg.json()['access_token']}"}
 
 
 @pytest.mark.asyncio
 async def test_register_invalid_email_rejected(client):
     resp = await client.post(
-        "/auth/register", json={"email": "not-an-email", "password": "s3cret!"}
+        "/auth/register", json={"email": "not-an-email", "password": "s3cret!pass"}
     )
     assert resp.status_code == 422
 
@@ -19,6 +19,13 @@ async def test_register_invalid_email_rejected(client):
 @pytest.mark.asyncio
 async def test_register_short_password_rejected(client):
     resp = await client.post("/auth/register", json={"email": "v@b.com", "password": "123"})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_register_seven_char_password_rejected(client):
+    # Password policy: NIST 800-63B minimum of 8 characters.
+    resp = await client.post("/auth/register", json={"email": "v7@b.com", "password": "1234567"})
     assert resp.status_code == 422
 
 

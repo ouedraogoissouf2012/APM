@@ -1,7 +1,11 @@
+import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
+import 'package:apm/src/data/models/profile.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
+import 'package:apm/src/data/repositories/profile_repository.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_view_model.dart';
+import 'package:apm/src/ui/profile/view_model/profile_view_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -9,15 +13,23 @@ import 'package:mocktail/mocktail.dart';
 class _MockConversationRepository extends Mock
     implements ConversationRepository {}
 
+class _MockProfileRepository extends Mock implements ProfileRepository {}
+
 class _FakeSpeech implements SpeechService {
   _FakeSpeech(this.recognized, {this.ready = true});
 
   final String recognized;
   final bool ready;
   String? spokenText;
+  String? languageTag;
 
   @override
   Future<bool> initialize() async => ready;
+  @override
+  Future<void> setLanguage(String languageTag) async {
+    this.languageTag = languageTag;
+  }
+
   @override
   Future<String> listenOnce() async => recognized;
   @override
@@ -66,6 +78,108 @@ void main() {
       c.read(conversationViewModelProvider).turns.single.role,
       'assistant',
     );
+  });
+
+  test('start resumes the active session when start returns 409', () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenThrow(
+      const ApiException(
+        statusCode: 409,
+        code: 'ActiveSessionExistsError',
+        message: 'A session is already in progress',
+      ),
+    );
+    when(() => repo.getActiveSession()).thenAnswer(
+      (_) async => const ActiveSessionData(
+        sessionId: 77,
+        mode: 'free',
+        scenarioId: null,
+        turns: [
+          (role: 'user', content: 'hi'),
+          (role: 'assistant', content: 'Hello again!'),
+        ],
+      ),
+    );
+    final c = _container(repo, _FakeSpeech(''));
+
+    await c.read(conversationViewModelProvider.notifier).start();
+
+    final state = c.read(conversationViewModelProvider);
+    expect(state.sessionId, 77);
+    expect(state.turns.map((t) => t.content).toList(), ['hi', 'Hello again!']);
+  });
+
+  test('start rethrows non-409 errors instead of swallowing them', () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenThrow(
+      const ApiException(
+        statusCode: 402,
+        code: 'QuotaExhaustedError',
+        message: 'Daily free quota exhausted',
+      ),
+    );
+    final c = _container(repo, _FakeSpeech(''));
+
+    await expectLater(
+      c.read(conversationViewModelProvider.notifier).start(),
+      throwsA(isA<ApiException>()),
+    );
+    verifyNever(() => repo.getActiveSession());
+  });
+
+  test("start applies the learner's accent to the speech service", () async {
+    final profileRepo = _MockProfileRepository();
+    when(profileRepo.getProfile).thenAnswer(
+      (_) async => const Profile(
+        interests: [],
+        goal: null,
+        correctionIntensity: 'gentle',
+        accent: 'uk',
+      ),
+    );
+    final speech = _FakeSpeech('');
+    final c = ProviderContainer(
+      overrides: [
+        conversationRepositoryProvider.overrideWithValue(_repoReturning(3)),
+        speechServiceProvider.overrideWithValue(speech),
+        profileRepositoryProvider.overrideWithValue(profileRepo),
+      ],
+    );
+    addTearDown(c.dispose);
+
+    await c.read(conversationViewModelProvider.notifier).start();
+
+    expect(speech.languageTag, 'en-GB');
+  });
+
+  test('start falls back to US English when the profile fails to load', () async {
+    final profileRepo = _MockProfileRepository();
+    when(
+      profileRepo.getProfile,
+    ).thenAnswer((_) async => throw Exception('offline'));
+    final speech = _FakeSpeech('');
+    final c = ProviderContainer(
+      overrides: [
+        conversationRepositoryProvider.overrideWithValue(_repoReturning(3)),
+        speechServiceProvider.overrideWithValue(speech),
+        profileRepositoryProvider.overrideWithValue(profileRepo),
+      ],
+    );
+    addTearDown(c.dispose);
+
+    await c.read(conversationViewModelProvider.notifier).start();
+
+    expect(speech.languageTag, 'en-US');
   });
 
   test('start reports when microphone is unavailable', () async {

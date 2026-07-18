@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../scenarios.dart';
+import '../../../core/router/routes.dart';
+import '../../../data/models/scenarios.dart';
+import '../../../data/models/session_modes.dart';
 
 class ScenariosScreen extends StatelessWidget {
   const ScenariosScreen({super.key});
@@ -19,7 +21,7 @@ class ScenariosScreen extends StatelessWidget {
               leading: const Text('🗣️', style: TextStyle(fontSize: 28)),
               title: const Text('Free conversation'),
               subtitle: const Text('Talk about anything you like.'),
-              onTap: () => context.go('/conversation?mode=free'),
+              onTap: () => context.go(Routes.conversationFree),
             ),
           ),
           const Divider(),
@@ -34,7 +36,10 @@ class ScenariosScreen extends StatelessWidget {
                 title: Text(scenario.title),
                 subtitle: Text(scenario.description),
                 onTap: () => context.go(
-                  '/conversation?mode=scenario&scenario=${scenario.id}',
+                  Routes.conversationWith(
+                    mode: kSessionModeScenario,
+                    scenarioId: scenario.id,
+                  ),
                 ),
               ),
             ),
