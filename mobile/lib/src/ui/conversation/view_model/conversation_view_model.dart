@@ -8,17 +8,13 @@ import '../../../data/repositories/conversation_repository.dart';
 import '../../profile/view_model/profile_view_model.dart';
 import 'conversation_state.dart';
 
-/// Speech pinned to the learner's chosen accent (profile: 'us' | 'uk').
-/// Selecting the derived language tag (not the raw profile) means the service
-/// is only rebuilt when the tag actually changes.
-final speechServiceProvider = Provider<SpeechService>((ref) {
-  final languageTag = ref.watch(
-    profileViewModelProvider.select(
-      (profile) => languageTagForAccent(profile.value?.accent),
-    ),
-  );
-  return DeviceSpeechService(languageTag: languageTag);
-});
+/// A single long-lived speech service. It must NEVER be rebuilt: the
+/// underlying speech_to_text plugin is a process singleton that binds its
+/// status callback to the first instance — a second instance would hang
+/// forever. Accent changes go through setLanguage() in [ConversationViewModel.start].
+final speechServiceProvider = Provider<SpeechService>(
+  (ref) => DeviceSpeechService(),
+);
 
 final conversationRepositoryProvider = Provider<ConversationRepository>(
   (ref) => ConversationRepository(ref.watch(authenticatedApiClientProvider)),
@@ -67,12 +63,31 @@ class ConversationViewModel extends Notifier<ConversationState> {
             ];
     }
 
-    final speechReady = await ref.read(speechServiceProvider).initialize();
+    final speech = ref.read(speechServiceProvider);
+    await speech.setLanguage(await _preferredLanguageTag());
+    final speechReady = await speech.initialize();
+    if (!ref.mounted) return;
     state = ConversationState(
       sessionId: sessionId,
       turns: turns,
       error: speechReady ? null : 'Microphone is not available',
     );
+  }
+
+  /// The learner's practice locale from their profile accent ('us' | 'uk').
+  /// Bounded wait: Riverpod retries failing providers, so an unavailable
+  /// profile must not block the conversation — fall back to US English.
+  Future<String> _preferredLanguageTag() async {
+    final accent = ref.read(profileViewModelProvider).value?.accent;
+    if (accent != null) return languageTagForAccent(accent);
+    try {
+      final profile = await ref
+          .read(profileViewModelProvider.future)
+          .timeout(const Duration(seconds: 3));
+      return languageTagForAccent(profile.accent);
+    } catch (_) {
+      return languageTagForAccent(null);
+    }
   }
 
   Future<void> listenAndRespond() async {

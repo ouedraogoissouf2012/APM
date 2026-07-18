@@ -4,6 +4,7 @@ import '../../../core/config/app_config.dart';
 import '../../../core/network/providers.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/repositories/auth_repository.dart';
+import '../../profile/view_model/profile_view_model.dart';
 
 // Plain Riverpod providers (no codegen) — fewer moving parts, simple to maintain.
 // Infrastructure providers (HTTP clients, token storage) live in
@@ -53,6 +54,9 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
 
   Future<void> logout() async {
     await ref.read(authRepositoryProvider).logout();
+    // Drop per-user caches: without this, the next account on this device
+    // would inherit the previous learner's profile (e.g. accent preference).
+    ref.invalidate(profileViewModelProvider);
     state = const AsyncData(null);
   }
 }
