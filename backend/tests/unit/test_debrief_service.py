@@ -217,6 +217,35 @@ class _RecordingUsers:
         return user
 
 
+class _ExplodingDebriefs:
+    async def get_by_session(self, session_id):
+        return None
+
+    async def save(self, session_id, cefr_estimate, summary, errors):
+        raise RuntimeError("db down")
+
+
+@pytest.mark.asyncio
+async def test_generate_does_not_persist_the_user_when_the_debrief_save_fails():
+    # Atomicity: if the debrief commit fails, the CEFR promotion must not be
+    # committed either — otherwise a client retry double-promotes the level.
+    user = _user()
+    user.cefr_level = "A1"
+    users = _RecordingUsers()
+    service = DebriefService(
+        sessions=_FakeSessions(owner_id=7),
+        transcripts=_FakeTranscripts(turns=[{"role": "user", "content": "i is happy"}]),
+        debriefs=_ExplodingDebriefs(),
+        analyzer=DebriefAnalyzer(_CannedLlm()),
+        users=users,
+    )
+
+    with pytest.raises(RuntimeError):
+        await service.generate(session_id=1, user=user)
+
+    assert users.saved is None  # user repo untouched when the debrief failed
+
+
 @pytest.mark.asyncio
 async def test_generate_persists_the_cefr_change_through_the_user_repository():
     # The nudge must go through the repository, not rely on a side-effect commit.

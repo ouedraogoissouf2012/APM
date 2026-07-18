@@ -8,7 +8,9 @@ from typing import Literal
 
 ENGINE_FAKE = "fake"
 ENGINE_DEEPSEEK = "deepseek"
-ENGINE_LIVEKIT = "livekit"
 
-VoiceEngineName = Literal["fake", "deepseek", "livekit"]
+# Only implemented engines are valid config values. A "livekit" realtime
+# engine (issue #69) must be added here the day it actually exists — until
+# then, configuring it fails at startup instead of 502-ing on every turn.
+VoiceEngineName = Literal["fake", "deepseek"]
 DebriefEngineName = Literal["fake", "deepseek"]

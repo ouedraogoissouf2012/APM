@@ -58,9 +58,9 @@ class Settings(BaseSettings):
     deepseek_debrief_max_tokens: int = 900
     debrief_max_errors: int = 5  # errors surfaced to the learner per debrief
     session_history_page_size: int = 20
-    # Literal-validated: a typo (e.g. "deepsek") fails at startup instead of
-    # silently degrading to the fake engine.
-    voice_engine: VoiceEngineName = "fake"  # "fake" (default, no keys) | "deepseek" | "livekit"
+    # Literal-validated: a typo (e.g. "deepsek") or a not-yet-implemented
+    # engine fails at startup instead of silently degrading or 502-ing.
+    voice_engine: VoiceEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
     debrief_engine: DebriefEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
 
     @property

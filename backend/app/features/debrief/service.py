@@ -44,10 +44,8 @@ class DebriefService:
             transcript.turns, native_language=user.native_language
         )
         # Adaptive difficulty: nudge the learner's level one step toward the
-        # session estimate, persisted explicitly through the user repository.
+        # session estimate.
         user.cefr_level = next_cefr_level(user.cefr_level, result.cefr_estimate)
-        if self._users is not None:
-            await self._users.save(user)
         errors = [
             {
                 "original": e.original,
@@ -57,9 +55,16 @@ class DebriefService:
             }
             for e in result.errors
         ]
+        # Order matters for atomicity: the debrief commit persists the pending
+        # CEFR nudge in the SAME transaction (shared request session). If it
+        # fails, both roll back — a retry cannot double-promote. users.save
+        # afterwards makes the intent explicit and covers repository
+        # implementations that do not share the session.
         debrief = await self._debriefs.save(
             session_id, result.cefr_estimate, result.summary, errors
         )
+        if self._users is not None:
+            await self._users.save(user)
         await self._update_memory(user.id, result.summary, errors)
         return debrief
 
