@@ -17,12 +17,17 @@ class ConversationState {
     this.turns = const [],
     this.status = ConversationStatus.idle,
     this.error,
+    this.partialTranscript,
   });
 
   final int? sessionId;
   final List<ConversationTurn> turns;
   final ConversationStatus status;
   final String? error;
+
+  /// Interim recognized words shown live while the learner speaks; null when
+  /// not listening or nothing has been heard yet.
+  final String? partialTranscript;
 
   bool get isActive => sessionId != null;
 
@@ -31,13 +36,17 @@ class ConversationState {
     List<ConversationTurn>? turns,
     ConversationStatus? status,
     String? error,
+    String? partialTranscript,
     bool clearError = false,
+    bool clearPartial = false,
   }) {
     return ConversationState(
       sessionId: sessionId ?? this.sessionId,
       turns: turns ?? this.turns,
       status: status ?? this.status,
       error: clearError ? null : (error ?? this.error),
+      partialTranscript:
+          clearPartial ? null : (partialTranscript ?? this.partialTranscript),
     );
   }
 }

@@ -144,24 +144,31 @@ class _OrbZone extends ConsumerWidget {
 
   static String _labelFor(ConversationStatus status) => switch (status) {
         ConversationStatus.idle => "touche l'orbe pour parler",
-        ConversationStatus.listening => "je t'écoute",
+        ConversationStatus.listening => "je t'écoute — touche pour arrêter",
         ConversationStatus.thinking => 'je réfléchis',
         ConversationStatus.speaking => 'je te réponds',
       };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final vm = ref.read(conversationViewModelProvider.notifier);
     final idle = state.status == ConversationStatus.idle;
+    // Idle -> start the hands-free loop. Listening -> tap to stop early.
+    // Thinking/speaking -> not interruptible by tap (reply in flight).
+    final VoidCallback? onTap = !state.isActive
+        ? null
+        : idle
+            ? vm.listenAndRespond
+            : state.status == ConversationStatus.listening
+                ? vm.stopConversation
+                : null;
+
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         GestureDetector(
           key: const Key('mic_button'),
-          onTap: idle && state.isActive
-              ? () => ref
-                    .read(conversationViewModelProvider.notifier)
-                    .listenAndRespond()
-              : null,
+          onTap: onTap,
           child: VoiceOrb(state: _orbStateFor(state.status)),
         ),
         const SizedBox(height: AppSpacing.xl),
@@ -187,17 +194,19 @@ class _TranscriptZone extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final userText = _lastContent(kRoleUser);
+    final listening = state.status == ConversationStatus.listening;
+    // While listening, show the live partial words; otherwise the last final
+    // user turn. Live feedback tells the learner the mic is actually hearing.
+    final userText = listening
+        ? (state.partialTranscript ?? '')
+        : (_lastContent(kRoleUser) ?? '');
     final assistantText = _lastContent(kRoleAssistant);
     final colors = context.colors;
 
     return Column(
       children: [
-        if (userText != null)
-          TranscriptText(
-            userText,
-            listening: state.status == ConversationStatus.listening,
-          ),
+        if (userText.isNotEmpty)
+          TranscriptText(userText, listening: listening),
         if (assistantText != null)
           Padding(
             padding: const EdgeInsets.only(top: AppSpacing.md),

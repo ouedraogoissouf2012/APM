@@ -90,19 +90,49 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
   }
 
+  /// True while an auto-chaining conversation loop is running. Set to false by
+  /// [stopConversation]/[end] to break the loop after the current turn.
+  bool _conversing = false;
+
+  /// Starts a hands-free conversation loop: listen -> send -> speak -> listen…
+  /// One tap begins it; it continues automatically until the learner falls
+  /// silent (empty transcript), an error occurs, or it is explicitly stopped.
   Future<void> listenAndRespond() async {
+    if (state.sessionId == null || state.status != ConversationStatus.idle) {
+      return;
+    }
+    if (_conversing) return;
+    _conversing = true;
+    try {
+      while (_conversing) {
+        final continued = await _runOneTurn();
+        if (!continued) break;
+      }
+    } finally {
+      _conversing = false;
+    }
+  }
+
+  /// Runs a single listen->respond->speak turn. Returns true when the loop
+  /// should continue (the learner spoke and got a reply), false to stop
+  /// (silence, error, or externally stopped).
+  Future<bool> _runOneTurn() async {
     final sessionId = state.sessionId;
-    if (sessionId == null || state.status != ConversationStatus.idle) return;
+    if (sessionId == null) return false;
 
     state = state.copyWith(
       status: ConversationStatus.listening,
       clearError: true,
+      clearPartial: true,
     );
     final speech = ref.read(speechServiceProvider);
-    final text = (await speech.listenOnce()).trim();
-    if (text.isEmpty) {
-      state = state.copyWith(status: ConversationStatus.idle);
-      return;
+    final text = (await speech.listenOnce(
+      onPartial: _onPartial,
+    )).trim();
+
+    if (!_conversing || text.isEmpty) {
+      if (ref.mounted) state = state.copyWith(status: ConversationStatus.idle);
+      return false;
     }
 
     state = state.copyWith(
@@ -114,21 +144,49 @@ class ConversationViewModel extends Notifier<ConversationState> {
       final reply = await ref
           .read(conversationRepositoryProvider)
           .sendTurn(sessionId, text);
+      if (!_conversing) {
+        if (ref.mounted) {
+          state = state.copyWith(status: ConversationStatus.idle);
+        }
+        return false;
+      }
       state = state.copyWith(
         turns: [...state.turns, ConversationTurn(kRoleAssistant, reply)],
         status: ConversationStatus.speaking,
       );
       await speech.speak(reply);
-      state = state.copyWith(status: ConversationStatus.idle);
+      return _conversing;
     } catch (_) {
       state = state.copyWith(
         status: ConversationStatus.idle,
         error: 'Could not get a reply',
       );
+      return false;
+    }
+  }
+
+  /// Live partial transcript, shown on screen while the learner is speaking.
+  void _onPartial(String words) {
+    if (state.status == ConversationStatus.listening) {
+      state = state.copyWith(partialTranscript: words);
+    }
+  }
+
+  /// Stops the conversation loop and the recognizer, returning to idle.
+  Future<void> stopConversation() async {
+    _conversing = false;
+    await ref.read(speechServiceProvider).stopListening();
+    if (ref.mounted && state.sessionId != null) {
+      state = state.copyWith(
+        status: ConversationStatus.idle,
+        clearPartial: true,
+      );
     }
   }
 
   Future<void> end() async {
+    _conversing = false;
+    await ref.read(speechServiceProvider).stopListening();
     final id = state.sessionId;
     if (id != null) {
       await ref.read(conversationRepositoryProvider).endSession(id);
