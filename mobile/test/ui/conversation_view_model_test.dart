@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
 import 'package:apm/src/data/models/profile.dart';
@@ -16,12 +18,22 @@ class _MockConversationRepository extends Mock
 class _MockProfileRepository extends Mock implements ProfileRepository {}
 
 class _FakeSpeech implements SpeechService {
-  _FakeSpeech(this.recognized, {this.ready = true});
+  /// [recognized] is heard on the first turn; [thenSilence] makes every later
+  /// turn return empty (so an auto-chaining loop terminates naturally).
+  _FakeSpeech(this.recognized, {this.ready = true, this.thenSilence = true});
 
   final String recognized;
   final bool ready;
+  final bool thenSilence;
+
+  int listenCalls = 0;
+  final List<String> spoken = [];
   String? spokenText;
   String? languageTag;
+  bool stopped = false;
+
+  @override
+  String? get lastError => null;
 
   @override
   Future<bool> initialize() async => ready;
@@ -31,14 +43,60 @@ class _FakeSpeech implements SpeechService {
   }
 
   @override
-  Future<String> listenOnce() async => recognized;
-  @override
-  Future<void> speak(String text) async {
-    spokenText = text;
+  Future<String> listenOnce({void Function(String words)? onPartial}) async {
+    listenCalls++;
+    if (listenCalls == 1) return recognized;
+    return thenSilence ? '' : recognized;
   }
 
   @override
-  Future<void> stopListening() async {}
+  Future<void> speak(String text) async {
+    spokenText = text;
+    spoken.add(text);
+  }
+
+  @override
+  Future<void> stopListening() async {
+    stopped = true;
+  }
+}
+
+/// Speech fake whose [listenOnce] blocks until the test releases it, so the
+/// view model can be observed mid-turn (e.g. to test stop/interrupt).
+class _BlockingSpeech implements SpeechService {
+  _BlockingSpeech(this.firstText);
+
+  final String firstText;
+  final listenStarted = Completer<void>();
+  Completer<String>? _pending;
+  bool stopped = false;
+
+  @override
+  String? get lastError => null;
+
+  @override
+  Future<bool> initialize() async => true;
+  @override
+  Future<void> setLanguage(String languageTag) async {}
+
+  @override
+  Future<String> listenOnce({void Function(String words)? onPartial}) {
+    _pending = Completer<String>();
+    if (!listenStarted.isCompleted) listenStarted.complete();
+    return _pending!.future;
+  }
+
+  void releaseListen(String text) {
+    if (_pending != null && !_pending!.isCompleted) _pending!.complete(text);
+  }
+
+  @override
+  Future<void> speak(String text) async {}
+
+  @override
+  Future<void> stopListening() async {
+    stopped = true;
+  }
 }
 
 ProviderContainer _container(
@@ -238,5 +296,74 @@ void main() {
 
     expect(c.read(conversationViewModelProvider).sessionId, isNull);
     verify(() => repo.endSession(9)).called(1);
+  });
+
+  group('automatic turn chaining', () {
+    test('after the assistant replies, it listens again without a new tap',
+        () async {
+      // First turn is heard, later turns are silent so the loop terminates.
+      final speech = _FakeSpeech('hello there');
+      final c = _container(_repoReturning(1, reply: 'Hi back!'), speech);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond();
+
+      // One tap -> at least a second listen was started automatically.
+      expect(speech.listenCalls, greaterThanOrEqualTo(2));
+      expect(c.read(conversationViewModelProvider).status,
+          ConversationStatus.idle);
+    });
+
+    test('silence ends the loop back to idle (no infinite listening)',
+        () async {
+      final speech = _FakeSpeech('', thenSilence: true);
+      final c = _container(_repoReturning(1, reply: 'unused'), speech);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond();
+
+      final state = c.read(conversationViewModelProvider);
+      expect(state.status, ConversationStatus.idle);
+      expect(state.turns.length, 1); // only the opening assistant line
+    });
+
+    test('stopConversation halts the loop and stops the recognizer', () async {
+      // Blocking fake: listen() waits until the test releases it, so
+      // stopConversation runs while a turn is genuinely in flight.
+      final speech = _BlockingSpeech('keep going');
+      final c = _container(_repoReturning(1, reply: 'And then?'), speech);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      unawaited(vm.listenAndRespond());
+      await speech.listenStarted.future; // a turn is now listening
+
+      await vm.stopConversation();
+      speech.releaseListen(''); // recognizer returns empty after stop
+
+      expect(speech.stopped, isTrue);
+      expect(c.read(conversationViewModelProvider).status,
+          ConversationStatus.idle);
+    });
+
+    test('end() also stops an in-progress conversation loop', () async {
+      final repo = _repoReturning(5, reply: 'Go on');
+      when(() => repo.endSession(any())).thenAnswer((_) async {});
+      final speech = _BlockingSpeech('more');
+      final c = _container(repo, speech);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      unawaited(vm.listenAndRespond());
+      await speech.listenStarted.future;
+
+      await vm.end();
+      speech.releaseListen('');
+
+      expect(speech.stopped, isTrue);
+      expect(c.read(conversationViewModelProvider).sessionId, isNull);
+    });
   });
 }

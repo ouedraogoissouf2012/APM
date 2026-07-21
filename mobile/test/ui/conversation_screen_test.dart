@@ -17,6 +17,7 @@ class _StubConversationViewModel extends ConversationViewModel {
 
   final ConversationState _initial;
   bool listenCalled = false;
+  bool stopCalled = false;
   bool endCalled = false;
 
   @override
@@ -31,6 +32,11 @@ class _StubConversationViewModel extends ConversationViewModel {
   @override
   Future<void> listenAndRespond() async {
     listenCalled = true;
+  }
+
+  @override
+  Future<void> stopConversation() async {
+    stopCalled = true;
   }
 
   @override
@@ -101,7 +107,32 @@ void main() {
       tester.widget<VoiceOrb>(find.byType(VoiceOrb)).state,
       VoiceOrbState.listening,
     );
-    expect(find.text("JE T'ÉCOUTE"), findsOneWidget);
+    expect(find.textContaining("JE T'ÉCOUTE"), findsOneWidget);
+  });
+
+  testWidgets('tapping the orb while listening stops the conversation',
+      (tester) async {
+    final stub = await _pump(
+      tester,
+      activeIdle.copyWith(status: ConversationStatus.listening),
+    );
+
+    await tester.tap(find.byKey(const Key('mic_button')));
+    expect(stub.stopCalled, isTrue);
+    expect(stub.listenCalled, isFalse);
+  });
+
+  testWidgets('shows the live partial transcript while listening',
+      (tester) async {
+    await _pump(
+      tester,
+      activeIdle.copyWith(
+        status: ConversationStatus.listening,
+        partialTranscript: 'i would like to',
+      ),
+    );
+    expect(find.byType(TranscriptText), findsOneWidget);
+    expect(find.textContaining('i would like to'), findsOneWidget);
   });
 
   testWidgets('thinking/speaking : états mappés + réponse IA en sous-titre',

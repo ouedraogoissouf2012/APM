@@ -1,7 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_tts/flutter_tts.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'speech_engines.dart';
 
 /// Maps the learner's accent preference (profile: 'us' | 'uk') to the BCP-47
 /// tag used for both recognition and synthesis. Unknown/absent -> US English.
@@ -9,7 +8,8 @@ String languageTagForAccent(String? accent) =>
     accent == 'uk' ? 'en-GB' : 'en-US';
 
 /// On-device speech: recognition (STT) and synthesis (TTS). Free, no API keys —
-/// the device/browser engines do the work. Abstracted so the ViewModel is testable.
+/// the device/browser engines do the work. Abstracted so the ViewModel is
+/// testable and so the timing behaviour can be unit-tested with fake engines.
 abstract class SpeechService {
   Future<bool> initialize();
 
@@ -18,53 +18,70 @@ abstract class SpeechService {
   Future<void> setLanguage(String languageTag);
 
   /// Listens for a single utterance and resolves with the recognized text
-  /// (empty string if nothing was understood).
-  Future<String> listenOnce();
+  /// (empty string if nothing was understood or an error occurred). [onPartial]
+  /// receives interim words as they are recognised, for live on-screen feedback.
+  Future<String> listenOnce({void Function(String words)? onPartial});
 
   Future<void> speak(String text);
 
   Future<void> stopListening();
+
+  /// The last recognizer error reason (e.g. 'no-speech', 'network'), or null.
+  String? get lastError;
 }
 
-/// IMPORTANT: `speech_to_text`'s SpeechToText() is a process-wide singleton
-/// whose `initialize` registers its status callback ONCE. This service must
-/// therefore be a long-lived single instance (see `speechServiceProvider`);
-/// language changes go through [setLanguage], never through recreating it —
-/// a second instance would never receive the singleton's status events and
-/// its [listenOnce] would hang forever.
+/// On-device implementation over injectable [SttEngine]/[TtsEngine] ports.
+///
+/// IMPORTANT: the real STT plugin is a process-wide singleton whose status
+/// callback binds ONCE. This service must therefore be a long-lived single
+/// instance (see `speechServiceProvider`); language changes go through
+/// [setLanguage], never through recreating it — a second instance would never
+/// receive the singleton's status events and its [listenOnce] would hang.
 class DeviceSpeechService implements SpeechService {
-  /// [languageTag] is the BCP-47 language the learner practises in. Both the
-  /// recognizer and the synthesizer are pinned to it, otherwise the device
-  /// default locale (e.g. French) hijacks recognition and English speech gets
-  /// transcribed as garbage — fatal for an English-practice app.
-  DeviceSpeechService({String languageTag = 'en-US'})
-    : _languageTag = languageTag;
+  DeviceSpeechService({
+    SttEngine? stt,
+    TtsEngine? tts,
+    String languageTag = 'en-US',
+  })  : _stt = stt ?? PluginSttEngine(),
+        _tts = tts ?? PluginTtsEngine(),
+        _languageTag = languageTag;
 
   /// TTS rate, slightly below default: a clearer model for a learner's ear.
   static const double kLearnerSpeechRate = 0.45;
 
+  /// Trailing silence after which a turn is considered finished. Short enough
+  /// that the learner is not left waiting, long enough not to cut mid-sentence.
+  static const Duration kPauseFor = Duration(seconds: 2);
+
+  /// Hard cap on a single utterance so a stuck recognizer cannot hang the turn.
+  static const Duration kListenFor = Duration(seconds: 30);
+
+  final SttEngine _stt;
+  final TtsEngine _tts;
+
   String _languageTag;
   String get languageTag => _languageTag;
-
-  final stt.SpeechToText _stt = stt.SpeechToText();
-  final FlutterTts _tts = FlutterTts();
 
   bool _ready = false;
   // Resolved to a locale the recognizer actually supports (device locale IDs
   // vary: 'en-US' vs 'en_US'); falls back to [languageTag] when unknown.
   late String _sttLocaleId = _languageTag;
+
   Completer<String>? _turn;
   String _captured = '';
+  void Function(String words)? _onPartial;
+
+  String? _lastError;
+  @override
+  String? get lastError => _lastError;
 
   @override
   Future<bool> initialize() async {
-    _ready = await _stt.initialize(onStatus: _onStatus);
+    _ready = await _stt.initialize(onStatus: _onStatus, onError: _onError);
     if (_ready) {
       _sttLocaleId = await _resolveRecognitionLocale();
     }
-    await _tts.setLanguage(_languageTag);
-    await _tts.setSpeechRate(kLearnerSpeechRate);
-    await _tts.awaitSpeakCompletion(true);
+    await _tts.configure(languageTag: _languageTag, rate: kLearnerSpeechRate);
     return _ready;
   }
 
@@ -75,7 +92,7 @@ class DeviceSpeechService implements SpeechService {
     _sttLocaleId = languageTag;
     if (_ready) {
       _sttLocaleId = await _resolveRecognitionLocale();
-      await _tts.setLanguage(languageTag);
+      await _tts.configure(languageTag: languageTag, rate: kLearnerSpeechRate);
     }
   }
 
@@ -86,14 +103,13 @@ class DeviceSpeechService implements SpeechService {
     final want = _normalize(_languageTag);
     final language = want.split('-').first;
     try {
-      final locales = await _stt.locales();
-      if (locales.isEmpty) return _languageTag;
-      final sameLanguage = locales
-          .where((l) => _normalize(l.localeId).split('-').first == language)
-          .toList();
+      final ids = await _stt.localeIds();
+      if (ids.isEmpty) return _languageTag;
+      final sameLanguage =
+          ids.where((id) => _normalize(id).split('-').first == language).toList();
       if (sameLanguage.isEmpty) return _languageTag;
-      final exact = sameLanguage.where((l) => _normalize(l.localeId) == want);
-      return exact.isNotEmpty ? exact.first.localeId : sameLanguage.first.localeId;
+      final exact = sameLanguage.where((id) => _normalize(id) == want);
+      return exact.isNotEmpty ? exact.first : sameLanguage.first;
     } catch (_) {
       return _languageTag;
     }
@@ -103,27 +119,45 @@ class DeviceSpeechService implements SpeechService {
       localeId.toLowerCase().replaceAll('_', '-');
 
   void _onStatus(String status) {
-    if ((status == 'done' || status == 'notListening') &&
-        _turn != null &&
-        !_turn!.isCompleted) {
-      _turn!.complete(_captured.trim());
+    if ((status == 'done' || status == 'notListening')) {
+      _completeTurn(_captured.trim());
+    }
+  }
+
+  void _onError(String error) {
+    _lastError = error;
+    // Surface the failure by ending the turn empty instead of hanging forever.
+    _completeTurn('');
+  }
+
+  void _completeTurn(String text) {
+    if (_turn != null && !_turn!.isCompleted) {
+      _turn!.complete(text);
     }
   }
 
   @override
-  Future<String> listenOnce() async {
+  Future<String> listenOnce({void Function(String words)? onPartial}) async {
     if (!_ready) {
       await initialize();
       if (!_ready) return '';
     }
     _captured = '';
+    _lastError = null;
+    _onPartial = onPartial;
     _turn = Completer<String>();
     await _stt.listen(
-      onResult: (r) => _captured = r.recognizedWords,
-      listenOptions: stt.SpeechListenOptions(
-        localeId: _sttLocaleId,
-        partialResults: true,
-      ),
+      localeId: _sttLocaleId,
+      pauseFor: kPauseFor,
+      listenFor: kListenFor,
+      onResult: (words, isFinal) {
+        _captured = words;
+        if (isFinal) {
+          _completeTurn(words.trim());
+        } else {
+          _onPartial?.call(words);
+        }
+      },
     );
     return _turn!.future;
   }
