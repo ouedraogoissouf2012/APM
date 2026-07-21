@@ -20,7 +20,13 @@ class _FakeStt implements SttEngine {
   Duration? lastPauseFor;
   Duration? lastListenFor;
   int listenCalls = 0;
+  int stopCalls = 0;
   bool stopped = false;
+
+  // Mirrors the real web plugin: a session is "active" from listen() until
+  // stop() (or a final result / status resets it). A second listen() while
+  // active throws, exactly like SpeechRecognition.start does.
+  bool _active = false;
 
   void Function(String words, bool isFinal)? _onResult;
 
@@ -44,6 +50,10 @@ class _FakeStt implements SttEngine {
     required Duration pauseFor,
     required Duration listenFor,
   }) async {
+    if (_active) {
+      throw StateError('recognition has already started');
+    }
+    _active = true;
     listenCalls++;
     lastLocaleId = localeId;
     lastPauseFor = pauseFor;
@@ -53,13 +63,22 @@ class _FakeStt implements SttEngine {
 
   @override
   Future<void> stop() async {
+    stopCalls++;
     stopped = true;
+    _active = false;
   }
 
   // Test helpers to simulate recognizer callbacks.
   void emitPartial(String words) => _onResult?.call(words, false);
-  void emitFinal(String words) => _onResult?.call(words, true);
-  void fireError(String error) => onError?.call(error);
+  void emitFinal(String words) {
+    _onResult?.call(words, true);
+    _active = false; // the plugin ends the session on a final result
+  }
+
+  void fireError(String error) {
+    onError?.call(error);
+    _active = false; // errors also end the session
+  }
 }
 
 class _FakeTts implements TtsEngine {
@@ -155,6 +174,30 @@ void main() {
       unawaited(service.listenOnce());
       await Future<void>.value();
       expect(stt.lastLocaleId, anyOf('en-US', 'en_US'));
+    });
+
+    test(
+        'a second listenOnce right after a status-ended turn does not throw '
+        '"already started" (stops the recognizer first)', () async {
+      await service.initialize();
+
+      // First turn ends via the status callback (notListening), which the web
+      // plugin fires WITHOUT resetting the recognition object — the source of
+      // the "recognition has already started" crash when chaining turns.
+      final first = service.listenOnce();
+      await Future<void>.value();
+      stt.onStatus?.call('notListening');
+      await first;
+
+      // The loop immediately starts the next turn. This must not throw.
+      final second = service.listenOnce();
+      await Future<void>.value();
+      stt.emitFinal('second turn');
+
+      expect(await second, 'second turn');
+      expect(stt.listenCalls, 2);
+      // The service must have explicitly stopped between turns.
+      expect(stt.stopCalls, greaterThanOrEqualTo(1));
     });
   });
 

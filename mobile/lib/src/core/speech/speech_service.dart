@@ -142,23 +142,35 @@ class DeviceSpeechService implements SpeechService {
       await initialize();
       if (!_ready) return '';
     }
+    // A previous turn may have ended via the status callback (or a timeout)
+    // without the underlying recognizer actually being torn down — starting a
+    // new session on top of it throws "recognition has already started" on web.
+    // Always stop first so each turn begins from a clean state.
+    await _stt.stop();
+
     _captured = '';
     _lastError = null;
     _onPartial = onPartial;
     _turn = Completer<String>();
-    await _stt.listen(
-      localeId: _sttLocaleId,
-      pauseFor: kPauseFor,
-      listenFor: kListenFor,
-      onResult: (words, isFinal) {
-        _captured = words;
-        if (isFinal) {
-          _completeTurn(words.trim());
-        } else {
-          _onPartial?.call(words);
-        }
-      },
-    );
+    try {
+      await _stt.listen(
+        localeId: _sttLocaleId,
+        pauseFor: kPauseFor,
+        listenFor: kListenFor,
+        onResult: (words, isFinal) {
+          _captured = words;
+          if (isFinal) {
+            _completeTurn(words.trim());
+          } else {
+            _onPartial?.call(words);
+          }
+        },
+      );
+    } catch (e) {
+      // Never leave the turn hanging: surface the reason and resolve empty.
+      _lastError = e.toString();
+      _completeTurn('');
+    }
     return _turn!.future;
   }
 
