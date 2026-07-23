@@ -39,3 +39,6 @@ Thumbs.db
 hs_err_pid*.log
 replay_pid*.log
 *.err
+
+# ---- Claude Code (local settings, not shared) ----
+.claude/
