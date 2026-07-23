@@ -6,6 +6,7 @@ import '../../../core/speech/speech_service.dart';
 import '../../../data/models/session_modes.dart';
 import '../../../data/repositories/conversation_repository.dart';
 import '../../profile/view_model/profile_view_model.dart';
+import 'conversation_script.dart';
 import 'conversation_state.dart';
 
 /// A single long-lived speech service. It must NEVER be rebuilt: the
@@ -42,7 +43,10 @@ class ConversationViewModel extends Notifier<ConversationState> {
     try {
       sessionId = await repo.startSession(mode: mode, scenarioId: scenarioId);
       turns = [
-        ConversationTurn(kRoleAssistant, _openingMessage(mode, scenarioId)),
+        ConversationTurn(
+          kRoleAssistant,
+          ConversationScript.openingMessage(mode: mode, scenarioId: scenarioId),
+        ),
       ];
     } on ApiException catch (e) {
       // A session is already in progress (409): resume it instead of leaving
@@ -55,7 +59,10 @@ class ConversationViewModel extends Notifier<ConversationState> {
           ? [
               ConversationTurn(
                 kRoleAssistant,
-                _openingMessage(active.mode, active.scenarioId),
+                ConversationScript.openingMessage(
+                  mode: active.mode,
+                  scenarioId: active.scenarioId,
+                ),
               ),
             ]
           : [
@@ -90,79 +97,110 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
   }
 
-  /// True while an auto-chaining conversation loop is running. Set to false by
-  /// [stopConversation]/[end] to break the loop after the current turn.
+  /// Intent flag: true while the learner wants the hands-free loop to continue.
+  /// Cleared by [stopConversation]/[end] to end the loop after the in-flight
+  /// turn resolves.
   bool _conversing = false;
 
-  /// Starts a hands-free conversation loop: listen -> send -> speak -> listen…
+  /// Re-entrancy guard held for the WHOLE lifetime of [listenAndRespond],
+  /// released only in its `finally`. [_conversing] is insufficient on its own:
+  /// stopConversation() clears it while its own `await stopListening()` is
+  /// still pending, so a fast stop→re-tap could otherwise start a second loop
+  /// before the first has unwound — two recognizers, the "already started"
+  /// crash. This guard makes a concurrent loop impossible by construction.
+  bool _loopRunning = false;
+
+  /// The loop and every turn step are still "live" only while the loop is
+  /// wanted and the notifier is mounted. This single predicate replaces the
+  /// checks that used to be duplicated after each `await`, so a step can never
+  /// mutate state on behalf of a loop that was already stopped or disposed.
+  bool get _active => _conversing && ref.mounted;
+
+  /// Starts a hands-free conversation loop: listen → send → speak → listen…
   /// One tap begins it; it continues automatically until the learner falls
   /// silent (empty transcript), an error occurs, or it is explicitly stopped.
   Future<void> listenAndRespond() async {
     if (state.sessionId == null || state.status != ConversationStatus.idle) {
       return;
     }
-    if (_conversing) return;
+    if (_loopRunning) return; // a prior loop is still unwinding
+    _loopRunning = true;
     _conversing = true;
     try {
-      while (_conversing) {
-        final continued = await _runOneTurn();
-        if (!continued) break;
-      }
+      while (_active && await _runOneTurn()) {}
     } finally {
       _conversing = false;
+      _loopRunning = false;
+      // Settle back to idle only if a session is still live: end() may have
+      // reset the state entirely, and _fetchReply may have set an error we
+      // must not clobber. Guarding on an active, non-error session keeps this
+      // a no-op in those cases.
+      if (ref.mounted &&
+          state.sessionId != null &&
+          state.status != ConversationStatus.idle) {
+        state = state.copyWith(status: ConversationStatus.idle);
+      }
     }
   }
 
-  /// Runs a single listen->respond->speak turn. Returns true when the loop
-  /// should continue (the learner spoke and got a reply), false to stop
-  /// (silence, error, or externally stopped).
+  /// One listen → respond → speak turn. Returns whether the loop should carry
+  /// on (learner spoke and got a reply) or stop (silence, error, or stopped).
+  /// Each phase is guarded by [_active]: a turn resolving after the loop was
+  /// stopped simply bails without touching state.
   Future<bool> _runOneTurn() async {
     final sessionId = state.sessionId;
     if (sessionId == null) return false;
 
+    final heard = await _listen();
+    if (!_active || heard.isEmpty) return false;
+    _appendTurn(kRoleUser, ConversationStatus.thinking, heard);
+
+    final reply = await _fetchReply(sessionId, heard);
+    if (reply == null) return false; // error already surfaced
+    if (!_active) return false;
+    _appendTurn(kRoleAssistant, ConversationStatus.speaking, reply);
+
+    await ref.read(speechServiceProvider).speak(reply);
+    return _active;
+  }
+
+  /// Listens for one utterance, streaming partial words to the UI.
+  Future<String> _listen() async {
     state = state.copyWith(
       status: ConversationStatus.listening,
       clearError: true,
       clearPartial: true,
     );
-    final speech = ref.read(speechServiceProvider);
-    final text = (await speech.listenOnce(
-      onPartial: _onPartial,
-    )).trim();
+    final text = await ref.read(speechServiceProvider).listenOnce(
+          onPartial: _onPartial,
+        );
+    return text.trim();
+  }
 
-    if (!_conversing || text.isEmpty) {
-      if (ref.mounted) state = state.copyWith(status: ConversationStatus.idle);
-      return false;
-    }
-
-    state = state.copyWith(
-      turns: [...state.turns, ConversationTurn(kRoleUser, text)],
-      status: ConversationStatus.thinking,
-    );
-
+  /// Sends the learner's line to the backend. Returns the reply, or null after
+  /// surfacing a user-facing error (which also ends the loop).
+  Future<String?> _fetchReply(int sessionId, String text) async {
     try {
-      final reply = await ref
+      return await ref
           .read(conversationRepositoryProvider)
           .sendTurn(sessionId, text);
-      if (!_conversing) {
-        if (ref.mounted) {
-          state = state.copyWith(status: ConversationStatus.idle);
-        }
-        return false;
-      }
-      state = state.copyWith(
-        turns: [...state.turns, ConversationTurn(kRoleAssistant, reply)],
-        status: ConversationStatus.speaking,
-      );
-      await speech.speak(reply);
-      return _conversing;
     } catch (_) {
-      state = state.copyWith(
-        status: ConversationStatus.idle,
-        error: 'Could not get a reply',
-      );
-      return false;
+      if (ref.mounted) {
+        state = state.copyWith(
+          status: ConversationStatus.idle,
+          error: 'Could not get a reply',
+        );
+      }
+      return null;
     }
+  }
+
+  /// Appends a turn and moves to [next]. Single place that grows the transcript.
+  void _appendTurn(String role, ConversationStatus next, String content) {
+    state = state.copyWith(
+      turns: [...state.turns, ConversationTurn(role, content)],
+      status: next,
+    );
   }
 
   /// Live partial transcript, shown on screen while the learner is speaking.
@@ -172,7 +210,7 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
   }
 
-  /// Stops the conversation loop and the recognizer, returning to idle.
+  /// Stops the loop and the recognizer, returning to idle.
   Future<void> stopConversation() async {
     _conversing = false;
     await ref.read(speechServiceProvider).stopListening();
@@ -193,12 +231,4 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
     state = const ConversationState();
   }
-}
-
-String _openingMessage(String mode, String? scenarioId) {
-  if (mode == kSessionModeScenario && scenarioId != null) {
-    final scenario = scenarioId.replaceAll('_', ' ');
-    return "Let's practise $scenario. I will keep it simple and ask you questions.";
-  }
-  return "Hi, let's practise English. What would you like to talk about today?";
 }

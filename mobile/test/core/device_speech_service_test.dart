@@ -28,6 +28,9 @@ class _FakeStt implements SttEngine {
   // active throws, exactly like SpeechRecognition.start does.
   bool _active = false;
 
+  /// When set, the next [listen] throws it (models a plugin start failure).
+  Object? throwOnNextListen;
+
   void Function(String words, bool isFinal)? _onResult;
 
   @override
@@ -50,6 +53,11 @@ class _FakeStt implements SttEngine {
     required Duration pauseFor,
     required Duration listenFor,
   }) async {
+    final toThrow = throwOnNextListen;
+    if (toThrow != null) {
+      throwOnNextListen = null;
+      throw toThrow;
+    }
     if (_active) {
       throw StateError('recognition has already started');
     }
@@ -228,6 +236,23 @@ void main() {
 
       expect(await future, '');
       expect(service.lastError, 'no-speech');
+    });
+
+    test('a listen() that throws surfaces a stable code, not a raw dump',
+        () async {
+      await service.initialize();
+      stt.throwOnNextListen = StateError('recognition has already started');
+
+      final text = await service.listenOnce();
+
+      expect(text, '');
+      // The UI keys messages off this value: it must be a stable reason code,
+      // never a Dart exception's toString() (which leaks internals and is
+      // impossible to branch on).
+      expect(service.lastError, isNotNull);
+      expect(service.lastError, isNot(contains('Instance of')));
+      expect(service.lastError, isNot(contains('StateError')));
+      expect(service.lastError, SpeechErrors.recognizerBusy);
     });
   });
 
