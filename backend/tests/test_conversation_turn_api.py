@@ -46,6 +46,47 @@ async def test_turn_rejected_after_session_ended(client):
 
 
 @pytest.mark.asyncio
+async def test_turn_stream_emits_sentence_events_and_done(client):
+    headers = await _auth_header(client, email="stream@b.com")
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    resp = await client.post(
+        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "hello"}
+    )
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+    body = resp.text
+    # FakeLlm streams two sentences, then a done event.
+    assert "event: chunk" in body
+    assert "You said: hello." in body
+    assert "Tell me more." in body
+    assert "event: done" in body
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_persists_full_reply(client):
+    headers = await _auth_header(client, email="stream2@b.com")
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    await client.post(
+        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "hi"}
+    )
+    # The next non-stream turn must see the streamed reply in history.
+    second = await client.post(
+        f"/sessions/{session_id}/turn", headers=headers, json={"text": "again"}
+    )
+    assert second.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_requires_auth(client):
+    resp = await client.post("/sessions/1/turn/stream", json={"text": "hi"})
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_turn_requires_auth(client):
     resp = await client.post("/sessions/1/turn", json={"text": "hi"})
     assert resp.status_code == 401

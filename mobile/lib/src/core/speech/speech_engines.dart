@@ -89,6 +89,11 @@ class PluginSttEngine implements SttEngine {
 class PluginTtsEngine implements TtsEngine {
   final FlutterTts _tts = FlutterTts();
 
+  /// A slightly warmer-than-default pitch: the flat 1.0 system default reads as
+  /// robotic; nudging it a touch makes the partner sound more natural without
+  /// tipping into a cartoonish voice.
+  static const double _pitch = 1.05;
+
   @override
   Future<void> configure({
     required String languageTag,
@@ -96,9 +101,50 @@ class PluginTtsEngine implements TtsEngine {
   }) async {
     await _tts.setLanguage(languageTag);
     await _tts.setSpeechRate(rate);
+    await _tts.setPitch(_pitch);
+    // Prefer a higher-quality voice for the language when the device offers a
+    // choice; the plain system default is often the most robotic option.
+    await _selectBestVoice(languageTag);
     // Make speak() resolve only when the utterance has actually finished, so
     // the caller can chain the next listen right after.
     await _tts.awaitSpeakCompletion(true);
+  }
+
+  /// Picks a voice whose locale matches [languageTag], preferring names that
+  /// signal a better engine (e.g. network/enhanced/neural). Best-effort: any
+  /// failure leaves the platform default in place.
+  Future<void> _selectBestVoice(String languageTag) async {
+    try {
+      final raw = await _tts.getVoices;
+      if (raw is! List) return;
+      final lang = languageTag.toLowerCase().replaceAll('_', '-');
+      final matches = <Map<String, String>>[];
+      for (final v in raw) {
+        if (v is! Map) continue;
+        final voice = {
+          for (final e in v.entries) e.key.toString(): e.value.toString(),
+        };
+        final locale = (voice['locale'] ?? '').toLowerCase().replaceAll('_', '-');
+        if (locale.startsWith(lang.split('-').first)) matches.add(voice);
+      }
+      if (matches.isEmpty) return;
+      const preferred = ['neural', 'enhanced', 'premium', 'network'];
+      matches.sort((a, b) {
+        int score(Map<String, String> v) {
+          final name = (v['name'] ?? '').toLowerCase();
+          for (var i = 0; i < preferred.length; i++) {
+            if (name.contains(preferred[i])) return preferred.length - i;
+          }
+          return 0;
+        }
+
+        return score(b).compareTo(score(a));
+      });
+      final best = matches.first;
+      await _tts.setVoice({'name': best['name']!, 'locale': best['locale']!});
+    } catch (_) {
+      // Keep the platform default voice on any lookup/set failure.
+    }
   }
 
   @override

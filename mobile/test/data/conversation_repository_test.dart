@@ -46,6 +46,42 @@ void main() {
     verify(() => api.postJson('/sessions/5/end')).called(1);
   });
 
+  test('streamTurn yields each sentence from the SSE stream in order', () async {
+    when(
+      () => api.postLineStream('/sessions/5/turn/stream', body: any(named: 'body')),
+    ).thenAnswer(
+      (_) => Stream.fromIterable([
+        'event: chunk',
+        'data: {"text":"Hi there."}',
+        '',
+        'event: chunk',
+        'data: {"text":"How are you?"}',
+        '',
+        'event: done',
+        'data: {}',
+        '',
+      ]),
+    );
+
+    final sentences = await repo.streamTurn(5, 'hello').toList();
+
+    expect(sentences, ['Hi there.', 'How are you?']);
+  });
+
+  test('streamTurn surfaces a server error event as an exception', () async {
+    when(
+      () => api.postLineStream('/sessions/5/turn/stream', body: any(named: 'body')),
+    ).thenAnswer(
+      (_) => Stream.fromIterable([
+        'event: error',
+        'data: {"message":"LLM provider failed"}',
+        '',
+      ]),
+    );
+
+    expect(repo.streamTurn(5, 'hi').toList(), throwsA(isA<Exception>()));
+  });
+
   test('getActiveSession returns the session with its transcript', () async {
     when(() => api.getJson('/sessions/active')).thenAnswer(
       (_) async => {

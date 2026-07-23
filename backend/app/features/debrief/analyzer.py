@@ -1,5 +1,7 @@
 from app.features.conversation.messages import ROLE_USER, Message
-from app.features.conversation.providers.interfaces import LlmProvider
+from app.features.conversation.providers.interfaces import (
+    TextCompletionProvider as LlmProvider,
+)
 from app.features.debrief.domain import VALID_CEFR, DebriefError, DebriefResult
 from app.features.debrief.error_taxonomy import normalize_error_type
 from app.features.debrief.parsing import parse_debrief_json

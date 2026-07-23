@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../config/app_config.dart';
@@ -67,6 +69,30 @@ class ApiClient {
     } on DioException catch (e) {
       throw _toApiException(e);
     }
+  }
+
+  /// POSTs and streams the response body as decoded text lines — used for the
+  /// Server-Sent Events turn endpoint. The line stream is fed to [parseSse].
+  Stream<String> postLineStream(
+    String path, {
+    Map<String, dynamic>? body,
+    String? bearer,
+  }) async* {
+    final Response<ResponseBody> response;
+    try {
+      response = await _dio.post<ResponseBody>(
+        path,
+        data: body,
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: bearer == null ? null : {'Authorization': 'Bearer $bearer'},
+        ),
+      );
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+    final byteStream = response.data!.stream.map((chunk) => chunk.toList());
+    yield* byteStream.transform(utf8.decoder).transform(const LineSplitter());
   }
 
   Options _options(String? bearer) => Options(

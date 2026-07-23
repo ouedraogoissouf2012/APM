@@ -133,7 +133,9 @@ ConversationRepository _repoReturning(int sessionId, {String? reply}) {
     ),
   ).thenAnswer((_) async => sessionId);
   if (reply != null) {
-    when(() => repo.sendTurn(any(), any())).thenAnswer((_) async => reply);
+    // The VM consumes the streaming path; yield the reply as one sentence.
+    when(() => repo.streamTurn(any(), any()))
+        .thenAnswer((_) => Stream.value(reply));
   }
   return repo;
 }
@@ -306,6 +308,35 @@ void main() {
     },
   );
 
+  test('speaks each streamed sentence as it arrives (not one block)',
+      () async {
+    // The reply streams as two sentences; both must be spoken, in order, and
+    // the transcript shows them joined as one growing assistant turn.
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(['Nice weekend?', 'What did you do?']),
+    );
+    final speech = _FakeSpeech('i went out');
+    final c = _container(repo, speech);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.listenAndRespond();
+
+    // Each sentence was spoken separately, in order.
+    expect(speech.spoken, ['Nice weekend?', 'What did you do?']);
+    // The transcript shows the full reply joined.
+    final last = c.read(conversationViewModelProvider).turns.last;
+    expect(last.role, 'assistant');
+    expect(last.content, 'Nice weekend? What did you do?');
+  });
+
   test('empty recognized speech stays idle and sends nothing', () async {
     final repo = _repoReturning(1, reply: 'unused');
     final c = _container(repo, _FakeSpeech('   '));
@@ -318,7 +349,7 @@ void main() {
     expect(state.turns.length, 1);
     expect(state.turns.single.role, 'assistant');
     expect(state.status, ConversationStatus.idle);
-    verifyNever(() => repo.sendTurn(any(), any()));
+    verifyNever(() => repo.streamTurn(any(), any()));
   });
 
   test('end closes the session and resets state', () async {
@@ -410,8 +441,8 @@ void main() {
           scenarioId: any(named: 'scenarioId'),
         ),
       ).thenAnswer((_) async => 1);
-      when(() => repo.sendTurn(any(), any()))
-          .thenThrow(Exception('network down'));
+      when(() => repo.streamTurn(any(), any()))
+          .thenAnswer((_) => Stream.error(Exception('network down')));
       final c = _container(repo, _FakeSpeech('hello'));
       final vm = c.read(conversationViewModelProvider.notifier);
 
@@ -500,7 +531,7 @@ void main() {
           turnsAfterStop);
       expect(c.read(conversationViewModelProvider).status,
           ConversationStatus.idle);
-      verifyNever(() => repo.sendTurn(any(), any()));
+      verifyNever(() => repo.streamTurn(any(), any()));
     });
   });
 }
