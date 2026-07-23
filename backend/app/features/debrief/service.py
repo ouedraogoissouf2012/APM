@@ -52,6 +52,9 @@ class DebriefService:
                 "correction": e.correction,
                 "rule": e.rule,
                 "error_type": e.error_type,
+                "explanation": e.explanation,
+                "examples": e.examples,
+                "alternatives": e.alternatives,
             }
             for e in result.errors
         ]

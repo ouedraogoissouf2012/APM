@@ -6,6 +6,10 @@ class DebriefErrorOut(BaseModel):
     correction: str
     rule: str
     error_type: str
+    # Defaults keep debriefs saved before this field existed valid.
+    explanation: str = ""
+    examples: list[str] = []
+    alternatives: list[str] = []
 
 
 class DebriefOut(BaseModel):
