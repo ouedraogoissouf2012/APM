@@ -1,5 +1,6 @@
 import '../../core/network/api_exception.dart';
 import '../../core/network/authenticated_api_client.dart';
+import '../../core/network/sse.dart';
 
 /// The user's in-progress session plus its transcript so far, used to resume a
 /// conversation the app lost track of instead of dead-ending on a 409.
@@ -60,6 +61,31 @@ class ConversationRepository {
       body: {'text': text},
     );
     return json['reply'] as String;
+  }
+
+  /// Streams the reply one sentence at a time via Server-Sent Events, so the
+  /// caller can speak each sentence as soon as it arrives instead of waiting
+  /// for the whole reply. Throws if the server emits an `error` event.
+  Stream<String> streamTurn(int sessionId, String text) async* {
+    final lines = _api.postLineStream(
+      '/sessions/$sessionId/turn/stream',
+      body: {'text': text},
+    );
+    await for (final event in parseSse(lines)) {
+      switch (event.event) {
+        case 'chunk':
+          final text = sseChunkText(event.data);
+          if (text != null && text.isNotEmpty) yield text;
+        case 'error':
+          throw const ApiException(
+            statusCode: 502,
+            code: 'LlmProviderError',
+            message: 'The assistant could not reply',
+          );
+        case 'done':
+          return;
+      }
+    }
   }
 
   Future<void> endSession(int sessionId) async {

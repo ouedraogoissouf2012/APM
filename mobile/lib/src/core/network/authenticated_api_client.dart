@@ -18,6 +18,14 @@ class AuthenticatedApiClient {
   Future<Map<String, dynamic>> getJson(String path) =>
       _withRefresh((bearer) => _api.getJson(path, bearer: bearer));
 
+  /// Streams response lines (SSE). Uses the current access token; a mid-stream
+  /// 401 is not retried (the session was just validated on start), so the
+  /// caller falls back to the non-streaming turn on failure.
+  Stream<String> postLineStream(String path, {Map<String, dynamic>? body}) async* {
+    final access = await _storage.readAccessToken();
+    yield* _api.postLineStream(path, body: body, bearer: access);
+  }
+
   Future<List<dynamic>> getList(String path) =>
       _withRefreshList((bearer) => _api.getList(path, bearer: bearer));
 

@@ -167,14 +167,55 @@ class ConversationViewModel extends Notifier<ConversationState> {
       return false;
     }
     _appendTurn(kRoleUser, ConversationStatus.thinking, heard);
+    return _streamReplyAndSpeak(sessionId, heard);
+  }
 
-    final reply = await _fetchReply(sessionId, heard);
-    if (reply == null) return false; // error already surfaced
-    if (!_active) return false;
-    _appendTurn(kRoleAssistant, ConversationStatus.speaking, reply);
-
-    await ref.read(speechServiceProvider).speak(reply);
+  /// Streams the reply sentence by sentence: each sentence is spoken as soon as
+  /// it arrives (so the learner hears the first words while the model is still
+  /// writing) and the on-screen reply grows in step. This is what removes the
+  /// long silence before the assistant starts talking.
+  Future<bool> _streamReplyAndSpeak(int sessionId, String heard) async {
+    final speech = ref.read(speechServiceProvider);
+    final buffer = StringBuffer();
+    var spokeAnything = false;
+    try {
+      final sentences = ref
+          .read(conversationRepositoryProvider)
+          .streamTurn(sessionId, heard);
+      await for (final sentence in sentences) {
+        if (!_active) return false;
+        buffer.write(spokeAnything ? ' $sentence' : sentence);
+        _setAssistantReply(buffer.toString());
+        await speech.speak(sentence);
+        spokeAnything = true;
+        if (!_active) return false;
+      }
+    } catch (_) {
+      if (ref.mounted) {
+        state = state.copyWith(
+          status: ConversationStatus.idle,
+          error: 'Could not get a reply',
+        );
+      }
+      return false;
+    }
     return _active;
+  }
+
+  /// Sets (or replaces) the current assistant turn as its text streams in, and
+  /// moves to the speaking state. Replaces the last assistant turn in place so
+  /// the transcript shows one growing reply, not a sentence per turn.
+  void _setAssistantReply(String content) {
+    final turns = [...state.turns];
+    if (turns.isNotEmpty && turns.last.role == kRoleAssistant) {
+      turns[turns.length - 1] = ConversationTurn(kRoleAssistant, content);
+    } else {
+      turns.add(ConversationTurn(kRoleAssistant, content));
+    }
+    state = state.copyWith(
+      turns: turns,
+      status: ConversationStatus.speaking,
+    );
   }
 
   /// Listens for one utterance, streaming partial words to the UI.
@@ -200,24 +241,6 @@ class ConversationViewModel extends Notifier<ConversationState> {
       error: message,
       clearError: message == null,
     );
-  }
-
-  /// Sends the learner's line to the backend. Returns the reply, or null after
-  /// surfacing a user-facing error (which also ends the loop).
-  Future<String?> _fetchReply(int sessionId, String text) async {
-    try {
-      return await ref
-          .read(conversationRepositoryProvider)
-          .sendTurn(sessionId, text);
-    } catch (_) {
-      if (ref.mounted) {
-        state = state.copyWith(
-          status: ConversationStatus.idle,
-          error: 'Could not get a reply',
-        );
-      }
-      return null;
-    }
   }
 
   /// Appends a turn and moves to [next]. Single place that grows the transcript.
