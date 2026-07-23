@@ -32,8 +32,12 @@ class _FakeSpeech implements SpeechService {
   String? languageTag;
   bool stopped = false;
 
+  /// Simulates a recognizer error: when set, [listenOnce] returns empty (as the
+  /// real service does on failure) and exposes this via [lastError].
+  String? errorOnListen;
+
   @override
-  String? get lastError => null;
+  String? get lastError => errorOnListen;
 
   @override
   Future<bool> initialize() async => ready;
@@ -45,6 +49,7 @@ class _FakeSpeech implements SpeechService {
   @override
   Future<String> listenOnce({void Function(String words)? onPartial}) async {
     listenCalls++;
+    if (errorOnListen != null) return '';
     if (listenCalls == 1) return recognized;
     return thenSilence ? '' : recognized;
   }
@@ -392,6 +397,36 @@ void main() {
       // The error the loop set must survive its finally clause (not be reset).
       expect(state.error, 'Could not get a reply');
       expect(state.status, ConversationStatus.idle);
+    });
+
+    test('a recognizer error surfaces a helpful message and returns to idle',
+        () async {
+      final speech = _FakeSpeech('')..errorOnListen = 'no-speech';
+      final c = _container(_repoReturning(1, reply: 'unused'), speech);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond();
+
+      final state = c.read(conversationViewModelProvider);
+      expect(state.status, ConversationStatus.idle);
+      expect(state.error, isNotNull);
+      expect(state.error!.toLowerCase(), contains('entendu'));
+    });
+
+    test('silence with no recognizer error shows no error (just idle)',
+        () async {
+      // Plain silence (learner said nothing) must NOT look like a failure.
+      final speech = _FakeSpeech('', thenSilence: true);
+      final c = _container(_repoReturning(1, reply: 'unused'), speech);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond();
+
+      final state = c.read(conversationViewModelProvider);
+      expect(state.status, ConversationStatus.idle);
+      expect(state.error, isNull);
     });
 
     test('a re-tap while a loop is already running is ignored (re-entrancy)',
