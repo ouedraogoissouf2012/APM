@@ -1,3 +1,4 @@
+import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/router/routes.dart';
 import 'package:apm/src/core/theme/app_theme.dart';
 import 'package:apm/src/data/models/session_modes.dart';
@@ -52,6 +53,7 @@ Future<_StubConversationViewModel> _pump(
   WidgetTester tester,
   ConversationState state, {
   String location = '/conversation?mode=free',
+  bool demoMode = false,
 }) async {
   final stub = _StubConversationViewModel(state);
   final router = GoRouter(
@@ -73,7 +75,10 @@ Future<_StubConversationViewModel> _pump(
   );
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [conversationViewModelProvider.overrideWith(() => stub)],
+      overrides: [
+        conversationViewModelProvider.overrideWith(() => stub),
+        demoModeProvider.overrideWith((ref) async => demoMode),
+      ],
       child: MaterialApp.router(theme: AppTheme.dark(), routerConfig: router),
     ),
   );
@@ -269,6 +274,21 @@ void main() {
 
     // Non-interruption: the chip must not show while listening.
     expect(find.byType(CorrectionChip), findsNothing);
+  });
+
+  testWidgets('mode démo : bandeau affiché quand le backend est en fake',
+      (tester) async {
+    await _pump(tester, activeIdle, demoMode: true);
+    await tester.pump();
+    expect(find.byKey(const Key('demo_banner')), findsOneWidget);
+    expect(find.textContaining('Mode démo'), findsOneWidget);
+  });
+
+  testWidgets('mode démo : aucun bandeau quand un vrai moteur est configuré',
+      (tester) async {
+    await _pump(tester, activeIdle, demoMode: false);
+    await tester.pump();
+    expect(find.byKey(const Key('demo_banner')), findsNothing);
   });
 
   testWidgets('quota épuisé : affiche le paywall, pas l\'orbe', (tester) async {
