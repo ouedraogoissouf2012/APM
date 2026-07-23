@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/network/providers.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/scenarios.dart';
@@ -82,6 +83,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 active: state.isActive,
                 onEnd: _endSession,
               ),
+              if (ref.watch(demoModeProvider).value ?? false)
+                const _DemoBanner(),
               Expanded(child: _OrbZone(state: state)),
               _TranscriptZone(state: state),
               if (state.error != null)
@@ -236,6 +239,37 @@ class _TranscriptZone extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Shown when the backend runs on the fake engine (no DeepSeek key): the app
+/// invents replies and cannot correct — say so plainly rather than pretend.
+class _DemoBanner extends StatelessWidget {
+  const _DemoBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Container(
+      key: const Key('demo_banner'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: AppSpacing.md),
+      padding: const EdgeInsets.symmetric(
+        vertical: AppSpacing.sm,
+        horizontal: AppSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+        border: Border.all(color: colors.border, width: AppStroke.hairline),
+      ),
+      child: Text(
+        'Mode démo — réponses simulées, aucune correction. '
+        'Configure une clé DeepSeek pour l’expérience réelle.',
+        style: AppType.label(colors.textMuted),
+        textAlign: TextAlign.center,
+      ),
     );
   }
 }
