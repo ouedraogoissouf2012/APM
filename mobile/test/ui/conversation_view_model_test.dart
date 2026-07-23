@@ -183,7 +183,8 @@ void main() {
     expect(state.turns.map((t) => t.content).toList(), ['hi', 'Hello again!']);
   });
 
-  test('start rethrows non-409 errors instead of swallowing them', () async {
+  test('start surfaces a quota-exhausted state on 402 (no uncaught error)',
+      () async {
     final repo = _MockConversationRepository();
     when(
       () => repo.startSession(
@@ -199,11 +200,35 @@ void main() {
     );
     final c = _container(repo, _FakeSpeech(''));
 
+    // Must NOT throw — the learner sees a friendly paywall state instead.
+    await c.read(conversationViewModelProvider.notifier).start();
+
+    final state = c.read(conversationViewModelProvider);
+    expect(state.quotaExhausted, isTrue);
+    expect(state.sessionId, isNull);
+    verifyNever(() => repo.getActiveSession());
+  });
+
+  test('start rethrows non-quota, non-409 errors (e.g. 500)', () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenThrow(
+      const ApiException(
+        statusCode: 500,
+        code: 'InternalError',
+        message: 'boom',
+      ),
+    );
+    final c = _container(repo, _FakeSpeech(''));
+
     await expectLater(
       c.read(conversationViewModelProvider.notifier).start(),
       throwsA(isA<ApiException>()),
     );
-    verifyNever(() => repo.getActiveSession());
   });
 
   test("start applies the learner's accent to the speech service", () async {

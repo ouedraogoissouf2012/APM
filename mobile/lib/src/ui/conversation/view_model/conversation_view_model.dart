@@ -50,6 +50,14 @@ class ConversationViewModel extends Notifier<ConversationState> {
         ),
       ];
     } on ApiException catch (e) {
+      // Daily free quota spent (402): surface a friendly paywall state rather
+      // than letting the exception reach the UI as an uncaught error.
+      if (e.statusCode == 402) {
+        if (ref.mounted) {
+          state = const ConversationState(quotaExhausted: true);
+        }
+        return;
+      }
       // A session is already in progress (409): resume it instead of leaving
       // the user stuck. The backend allows only one active session per user.
       if (e.statusCode != 409) rethrow;

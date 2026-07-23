@@ -18,6 +18,7 @@ class ConversationState {
     this.status = ConversationStatus.idle,
     this.error,
     this.partialTranscript,
+    this.quotaExhausted = false,
   });
 
   final int? sessionId;
@@ -29,6 +30,11 @@ class ConversationState {
   /// not listening or nothing has been heard yet.
   final String? partialTranscript;
 
+  /// True when the session could not start because the daily free quota is
+  /// spent. A distinct state (not a plain error) so the UI can offer an
+  /// upgrade path rather than a dead conversation screen.
+  final bool quotaExhausted;
+
   bool get isActive => sessionId != null;
 
   ConversationState copyWith({
@@ -37,6 +43,7 @@ class ConversationState {
     ConversationStatus? status,
     String? error,
     String? partialTranscript,
+    bool? quotaExhausted,
     bool clearError = false,
     bool clearPartial = false,
   }) {
@@ -47,6 +54,7 @@ class ConversationState {
       error: clearError ? null : (error ?? this.error),
       partialTranscript:
           clearPartial ? null : (partialTranscript ?? this.partialTranscript),
+      quotaExhausted: quotaExhausted ?? this.quotaExhausted,
     );
   }
 }

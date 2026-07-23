@@ -6,6 +6,7 @@ import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/scenarios.dart';
 import '../../../data/models/session_modes.dart';
+import '../../../design_system/atoms/app_button.dart';
 import '../../../design_system/atoms/overline_text.dart';
 import '../../../design_system/molecules/transcript_text.dart';
 import '../../../design_system/organisms/voice_orb.dart';
@@ -62,6 +63,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(conversationViewModelProvider);
     final colors = context.colors;
+
+    if (state.quotaExhausted) {
+      return const Scaffold(body: SafeArea(child: _QuotaExhausted()));
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -219,6 +224,49 @@ class _TranscriptZone extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Shown when the daily free quota is spent — DESIGN_SPEC §9: a clear, warm
+/// message with a way forward, never a hard cut. No upgrade flow exists yet,
+/// so the primary action returns home; the copy sets up the future paywall.
+class _QuotaExhausted extends StatelessWidget {
+  const _QuotaExhausted();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          key: const Key('quota_exhausted'),
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.hourglass_bottom, size: 40, color: colors.accent),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Ton temps gratuit du jour est terminé.',
+              style: AppType.displayMd(colors.textPrimary),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Reviens demain pour continuer à progresser — '
+              'ou passe au premium bientôt pour parler sans limite.',
+              style: AppType.body(colors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            AppButton.primary(
+              key: const Key('quota_home_button'),
+              label: "Revenir à l'accueil",
+              onPressed: () => context.go(Routes.home),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
