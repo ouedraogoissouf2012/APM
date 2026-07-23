@@ -97,12 +97,21 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
   }
 
-  /// True while a hands-free conversation loop is running. Cleared by
-  /// [stopConversation]/[end] to break the loop after the in-flight turn.
+  /// Intent flag: true while the learner wants the hands-free loop to continue.
+  /// Cleared by [stopConversation]/[end] to end the loop after the in-flight
+  /// turn resolves.
   bool _conversing = false;
 
+  /// Re-entrancy guard held for the WHOLE lifetime of [listenAndRespond],
+  /// released only in its `finally`. [_conversing] is insufficient on its own:
+  /// stopConversation() clears it while its own `await stopListening()` is
+  /// still pending, so a fast stop→re-tap could otherwise start a second loop
+  /// before the first has unwound — two recognizers, the "already started"
+  /// crash. This guard makes a concurrent loop impossible by construction.
+  bool _loopRunning = false;
+
   /// The loop and every turn step are still "live" only while the loop is
-  /// running and the notifier is mounted. This single predicate replaces the
+  /// wanted and the notifier is mounted. This single predicate replaces the
   /// checks that used to be duplicated after each `await`, so a step can never
   /// mutate state on behalf of a loop that was already stopped or disposed.
   bool get _active => _conversing && ref.mounted;
@@ -114,12 +123,14 @@ class ConversationViewModel extends Notifier<ConversationState> {
     if (state.sessionId == null || state.status != ConversationStatus.idle) {
       return;
     }
-    if (_conversing) return;
+    if (_loopRunning) return; // a prior loop is still unwinding
+    _loopRunning = true;
     _conversing = true;
     try {
       while (_active && await _runOneTurn()) {}
     } finally {
       _conversing = false;
+      _loopRunning = false;
       // Settle back to idle only if a session is still live: end() may have
       // reset the state entirely, and _fetchReply may have set an error we
       // must not clobber. Guarding on an active, non-error session keeps this

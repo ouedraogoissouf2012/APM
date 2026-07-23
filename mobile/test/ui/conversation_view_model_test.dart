@@ -69,6 +69,8 @@ class _BlockingSpeech implements SpeechService {
   final String firstText;
   final listenStarted = Completer<void>();
   Completer<String>? _pending;
+  int _liveListens = 0;
+  int maxConcurrentListens = 0;
   bool stopped = false;
 
   @override
@@ -81,9 +83,13 @@ class _BlockingSpeech implements SpeechService {
 
   @override
   Future<String> listenOnce({void Function(String words)? onPartial}) {
+    _liveListens++;
+    if (_liveListens > maxConcurrentListens) {
+      maxConcurrentListens = _liveListens;
+    }
     _pending = Completer<String>();
     if (!listenStarted.isCompleted) listenStarted.complete();
-    return _pending!.future;
+    return _pending!.future.whenComplete(() => _liveListens--);
   }
 
   void releaseListen(String text) {
@@ -388,12 +394,31 @@ void main() {
       expect(state.status, ConversationStatus.idle);
     });
 
+    test('a re-tap while a loop is already running is ignored (re-entrancy)',
+        () async {
+      // The _loopRunning guard: calling listenAndRespond again while a loop is
+      // in flight must be a no-op, never a second concurrent loop.
+      final speech = _BlockingSpeech('hi');
+      final c = _container(_repoReturning(1, reply: 'reply'), speech);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      unawaited(vm.listenAndRespond());
+      await speech.listenStarted.future;
+
+      // Second call while the first loop is mid-listen: must not start a turn.
+      await vm.listenAndRespond();
+
+      // Exactly one listen was ever started by the single running loop.
+      expect(speech.maxConcurrentListens, 1);
+    });
+
     test(
         'a turn from a stopped loop cannot overwrite the state of a new session',
         () async {
       // Fragility guard: an in-flight turn that resolves AFTER the loop was
       // stopped must not append turns or flip status — otherwise a stale loop
-      // races a freshly restarted session. The generation token prevents this.
+      // races a freshly restarted session. The _active guard prevents this.
       final repo = _repoReturning(1, reply: 'stale reply');
       final speech = _BlockingSpeech('stale words');
       final c = _container(repo, speech);

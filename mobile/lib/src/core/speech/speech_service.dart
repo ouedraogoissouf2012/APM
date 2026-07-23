@@ -7,6 +7,21 @@ import 'speech_engines.dart';
 String languageTagForAccent(String? accent) =>
     accent == 'uk' ? 'en-GB' : 'en-US';
 
+/// Stable recognizer error reason codes exposed via [SpeechService.lastError].
+///
+/// The UI branches on these to show a helpful message, so they must be a small
+/// closed vocabulary — never a raw exception string. Native plugin `onError`
+/// codes (e.g. 'no-speech', 'network', 'not-allowed') are already stable and
+/// pass through unchanged; only thrown exceptions are normalised here.
+abstract final class SpeechErrors {
+  /// The recognizer was still busy from a previous session when a new one was
+  /// requested (web: "recognition has already started").
+  static const recognizerBusy = 'recognizer-busy';
+
+  /// An unexpected failure while starting the recognizer.
+  static const startFailed = 'start-failed';
+}
+
 /// On-device speech: recognition (STT) and synthesis (TTS). Free, no API keys —
 /// the device/browser engines do the work. Abstracted so the ViewModel is
 /// testable and so the timing behaviour can be unit-tested with fake engines.
@@ -167,8 +182,12 @@ class DeviceSpeechService implements SpeechService {
         },
       );
     } catch (e) {
-      // Never leave the turn hanging: surface the reason and resolve empty.
-      _lastError = e.toString();
+      // Never leave the turn hanging, and never surface a raw exception string
+      // to the UI: normalise to a stable reason code. A StateError from the web
+      // plugin means the recognizer was still busy despite the stop() above.
+      _lastError = e is StateError
+          ? SpeechErrors.recognizerBusy
+          : SpeechErrors.startFailed;
       _completeTurn('');
     }
     return _turn!.future;
