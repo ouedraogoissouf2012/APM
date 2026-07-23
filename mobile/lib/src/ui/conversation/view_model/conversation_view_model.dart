@@ -8,6 +8,7 @@ import '../../../data/repositories/conversation_repository.dart';
 import '../../profile/view_model/profile_view_model.dart';
 import 'conversation_script.dart';
 import 'conversation_state.dart';
+import 'speech_error_message.dart';
 
 /// A single long-lived speech service. It must NEVER be rebuilt: the
 /// underlying speech_to_text plugin is a process singleton that binds its
@@ -152,7 +153,11 @@ class ConversationViewModel extends Notifier<ConversationState> {
     if (sessionId == null) return false;
 
     final heard = await _listen();
-    if (!_active || heard.isEmpty) return false;
+    if (!_active) return false;
+    if (heard.isEmpty) {
+      _surfaceListenError(); // no-op on plain silence, message on failure
+      return false;
+    }
     _appendTurn(kRoleUser, ConversationStatus.thinking, heard);
 
     final reply = await _fetchReply(sessionId, heard);
@@ -175,6 +180,18 @@ class ConversationViewModel extends Notifier<ConversationState> {
           onPartial: _onPartial,
         );
     return text.trim();
+  }
+
+  /// After an empty utterance, show a helpful message only if the recognizer
+  /// actually failed. Plain silence (learner said nothing) is not an error and
+  /// leaves the state clean.
+  void _surfaceListenError() {
+    final message = speechErrorMessage(ref.read(speechServiceProvider).lastError);
+    state = state.copyWith(
+      status: ConversationStatus.idle,
+      error: message,
+      clearError: message == null,
+    );
   }
 
   /// Sends the learner's line to the backend. Returns the reply, or null after
