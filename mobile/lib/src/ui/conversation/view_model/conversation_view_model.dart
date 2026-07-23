@@ -4,6 +4,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
 import '../../../core/speech/speech_service.dart';
 import '../../../data/models/session_modes.dart';
+import '../../../data/models/turn_correction.dart';
 import '../../../data/repositories/conversation_repository.dart';
 import '../../profile/view_model/profile_view_model.dart';
 import 'conversation_script.dart';
@@ -179,15 +180,21 @@ class ConversationViewModel extends Notifier<ConversationState> {
     final buffer = StringBuffer();
     var spokeAnything = false;
     try {
-      final sentences = ref
+      final events = ref
           .read(conversationRepositoryProvider)
           .streamTurn(sessionId, heard);
-      await for (final sentence in sentences) {
+      await for (final event in events) {
         if (!_active) return false;
-        buffer.write(spokeAnything ? ' $sentence' : sentence);
-        _setAssistantReply(buffer.toString());
-        await speech.speak(sentence);
-        spokeAnything = true;
+        switch (event) {
+          case ReplySentence(:final text):
+            buffer.write(spokeAnything ? ' $text' : text);
+            _setAssistantReply(buffer.toString());
+            await speech.speak(text);
+            spokeAnything = true;
+          case CorrectionEvent(:final correction):
+            // Attach to the learner's turn -> gold chip under their bubble.
+            _attachCorrection(correction);
+        }
         if (!_active) return false;
       }
     } catch (_) {
@@ -200,6 +207,19 @@ class ConversationViewModel extends Notifier<ConversationState> {
       return false;
     }
     return _active;
+  }
+
+  /// Attaches a grammar correction to the learner's most recent user turn, so
+  /// the UI renders the gold correction chip under that bubble.
+  void _attachCorrection(TurnCorrection correction) {
+    final turns = [...state.turns];
+    for (var i = turns.length - 1; i >= 0; i--) {
+      if (turns[i].role == kRoleUser) {
+        turns[i] = turns[i].withCorrection(correction);
+        state = state.copyWith(turns: turns);
+        return;
+      }
+    }
   }
 
   /// Sets (or replaces) the current assistant turn as its text streams in, and
