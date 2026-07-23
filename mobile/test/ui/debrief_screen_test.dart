@@ -81,6 +81,33 @@ void main() {
     expect(find.textContaining('to be'), findsOneWidget);
   });
 
+  testWidgets('a correction shows its type, explanation, examples and options',
+      (tester) async {
+    await _pump(
+      tester,
+      _debrief(errors: [
+        const DebriefError(
+          original: 'i is happy',
+          correction: 'I am happy',
+          rule: "Use 'am' with 'I'.",
+          errorType: 'subject_verb_agreement',
+          explanation: "The verb must agree with the subject 'I'.",
+          examples: ['I am tired.', 'I am ready.'],
+          alternatives: ["I'm happy", 'I feel happy'],
+        ),
+      ]),
+    );
+
+    // error_type is surfaced (was parsed but never shown before), humanized.
+    expect(find.text('SUBJECT VERB AGREEMENT'), findsOneWidget);
+    // The fuller explanation and the grammar "options" are shown.
+    expect(find.textContaining("must agree with the subject"), findsOneWidget);
+    expect(find.text('EXEMPLES'), findsOneWidget);
+    expect(find.text('· I am tired.'), findsOneWidget);
+    expect(find.text('TU PEUX AUSSI DIRE'), findsOneWidget);
+    expect(find.text("· I'm happy"), findsOneWidget);
+  });
+
   testWidgets('no corrections shows an encouraging state, not an empty list',
       (tester) async {
     await _pump(tester, _debrief(errors: const []));

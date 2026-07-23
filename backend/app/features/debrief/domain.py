@@ -9,6 +9,10 @@ class DebriefError:
     correction: str
     rule: str
     error_type: str
+    # Richer teaching content (defaults keep older debriefs valid):
+    explanation: str = ""  # 2-3 sentences: WHY it was wrong, for the learner
+    examples: list[str] = field(default_factory=list)  # correct example sentences
+    alternatives: list[str] = field(default_factory=list)  # other ways to say it
 
 
 @dataclass

@@ -181,6 +181,13 @@ class _CorrectionPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (error.errorType.isNotEmpty) ...[
+            OverlineText(
+              error.errorType.replaceAll('_', ' '),
+              color: colors.textMuted,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           Text(
             error.original,
             style: AppType.body(colors.textFaint).copyWith(
@@ -192,8 +199,67 @@ class _CorrectionPanel extends StatelessWidget {
           Text(error.correction, style: AppType.displayItalic(colors.correction, fontSize: 18)),
           if (error.rule.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.sm),
-            Text(error.rule, style: AppType.body(colors.textMuted).copyWith(fontSize: 13)),
+            Text(
+              error.rule,
+              style: AppType.label(colors.textSecondary).copyWith(fontSize: 13),
+            ),
           ],
+          if (error.explanation.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              error.explanation,
+              style: AppType.body(colors.textMuted).copyWith(fontSize: 13),
+            ),
+          ],
+          if (error.examples.isNotEmpty)
+            _LabeledLines(
+              label: 'exemples',
+              lines: error.examples,
+              color: colors.textMuted,
+            ),
+          if (error.alternatives.isNotEmpty)
+            _LabeledLines(
+              label: 'tu peux aussi dire',
+              lines: error.alternatives,
+              color: colors.correction,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A small labeled list (an overline + one bulleted line per item), used for a
+/// correction's examples and alternative phrasings.
+class _LabeledLines extends StatelessWidget {
+  const _LabeledLines({
+    required this.label,
+    required this.lines,
+    required this.color,
+  });
+
+  final String label;
+  final List<String> lines;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          OverlineText(label, color: color),
+          const SizedBox(height: AppSpacing.xs),
+          for (final line in lines)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: Text(
+                '· $line',
+                style: AppType.body(colors.textPrimary).copyWith(fontSize: 13),
+              ),
+            ),
         ],
       ),
     );

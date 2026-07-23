@@ -41,6 +41,47 @@ async def test_analyze_returns_errors_and_cefr():
 
 
 @pytest.mark.asyncio
+async def test_analyze_captures_explanation_examples_and_alternatives():
+    reply = (
+        '{"cefr_estimate": "A2", "summary": "Good effort!",'
+        ' "errors": ['
+        '  {"original": "I go to school yesterday",'
+        '   "correction": "I went to school yesterday",'
+        '   "rule": "Past simple", "error_type": "verb_tense",'
+        '   "explanation": "Yesterday is finished, so use the past simple.",'
+        '   "examples": ["I went home.", "She played tennis."],'
+        '   "alternatives": ["Yesterday I went to school", "extra", "too many"]}'
+        " ]}"
+    )
+    analyzer = DebriefAnalyzer(_CannedLlm(reply))
+    result = await analyzer.analyze(_TURNS, native_language="fr")
+
+    err = result.errors[0]
+    assert err.explanation.startswith("Yesterday is finished")
+    assert err.examples == ["I went home.", "She played tennis."]
+    # Alternatives are capped at 2.
+    assert err.alternatives == ["Yesterday I went to school", "extra"]
+
+
+@pytest.mark.asyncio
+async def test_analyze_tolerates_missing_rich_fields():
+    reply = (
+        '{"cefr_estimate": "A2", "summary": "s",'
+        ' "errors": ['
+        '  {"original": "i eats lunch", "correction": "I eat lunch",'
+        '   "rule": "SVA", "error_type": "subject_verb_agreement"}'
+        " ]}"
+    )
+    analyzer = DebriefAnalyzer(_CannedLlm(reply))
+    result = await analyzer.analyze(_TURNS, native_language="fr")
+
+    err = result.errors[0]
+    assert err.explanation == ""
+    assert err.examples == []
+    assert err.alternatives == []
+
+
+@pytest.mark.asyncio
 async def test_analyze_normalizes_error_type_to_canonical_taxonomy():
     reply = (
         '{"cefr_estimate": "A2", "summary": "Good effort!",'
