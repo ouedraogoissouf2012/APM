@@ -4,10 +4,42 @@ VOICE_ENGINE defaults to "fake", so the LLM is FakeLlm -> reply "You said: <text
 """
 
 import pytest
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import InMemoryRateLimiter
-from app.features.conversation.dependencies import get_conversation_rate_limiter
+from app.database import get_db
+from app.features.conversation.correction import TurnCorrection
+from app.features.conversation.dependencies import (
+    get_conversation_rate_limiter,
+    get_conversation_turn_service,
+)
+from app.features.conversation.providers.fakes import FakeLlm
+from app.features.conversation.repository import SqlAlchemyTranscriptRepository
+from app.features.conversation.turn_service import ConversationTurnService
+from app.features.profile.repository import SqlAlchemyProfileRepository
+from app.features.sessions.repository import SqlAlchemySessionRepository
 from app.main import app
+
+
+class _CannedCorrector:
+    async def correct(self, text, cefr_level, native_language):
+        return TurnCorrection(
+            original="i is happy",
+            correction="I am happy",
+            rule="Use 'am' with 'I'.",
+            alternatives=["I'm happy"],
+        )
+
+
+def _service_with_correction(db: AsyncSession = Depends(get_db)) -> ConversationTurnService:
+    return ConversationTurnService(
+        sessions=SqlAlchemySessionRepository(db),
+        transcripts=SqlAlchemyTranscriptRepository(db),
+        profiles=SqlAlchemyProfileRepository(db),
+        llm=FakeLlm(),
+        corrector=_CannedCorrector(),
+    )
 
 
 async def _auth_header(client, email="conv@b.com"):
@@ -78,6 +110,30 @@ async def test_turn_stream_persists_full_reply(client):
         f"/sessions/{session_id}/turn", headers=headers, json={"text": "again"}
     )
     assert second.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_emits_a_correction_event_after_the_reply(client):
+    app.dependency_overrides[get_conversation_turn_service] = _service_with_correction
+    try:
+        headers = await _auth_header(client, email="correct@b.com")
+        start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+        session_id = start.json()["session_id"]
+
+        resp = await client.post(
+            f"/sessions/{session_id}/turn/stream",
+            headers=headers,
+            json={"text": "i is happy"},
+        )
+        assert resp.status_code == 200
+        body = resp.text
+        # Reply chunks, then the correction, then done — order preserved.
+        assert body.index("event: chunk") < body.index("event: correction")
+        assert body.index("event: correction") < body.index("event: done")
+        assert "I am happy" in body
+        assert "Use 'am' with 'I'." in body
+    finally:
+        app.dependency_overrides.pop(get_conversation_turn_service, None)
 
 
 @pytest.mark.asyncio

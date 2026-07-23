@@ -5,11 +5,13 @@ so the backend only needs the LLM turn: take the user's recognized text, reply
 with the LLM (DeepSeek), and keep the transcript. No audio, no LiveKit.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from app.domain.exceptions import ConflictError
 from app.features.auth.models import User
+from app.features.conversation.correction import TurnCorrection, TurnCorrector
 from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER, Message
 from app.features.conversation.prompt import PromptContext, build_system_prompt
 from app.features.conversation.providers.interfaces import LlmProvider
@@ -25,6 +27,25 @@ class TurnResult:
     turns: list[dict]
 
 
+@dataclass(frozen=True)
+class ReplyChunk:
+    """One speakable sentence of the assistant's reply."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class CorrectionReady:
+    """A grammar correction for the learner's utterance, emitted once, after
+    the reply, so it never interrupts the spoken flow."""
+
+    correction: TurnCorrection
+
+
+# What `stream_turn` yields: reply sentences, then at most one correction.
+TurnStreamEvent = ReplyChunk | CorrectionReady
+
+
 class ConversationTurnService:
     def __init__(
         self,
@@ -32,11 +53,13 @@ class ConversationTurnService:
         transcripts: TranscriptRepository,
         profiles: ProfileRepository,
         llm: LlmProvider,
+        corrector: TurnCorrector | None = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
         self._profiles = profiles
         self._llm = llm
+        self._corrector = corrector
 
     async def take_turn(self, session_id: int, user: User, text: str) -> TurnResult:
         turns, system_prompt, history = await self._prepare(session_id, user, text)
@@ -46,16 +69,35 @@ class ConversationTurnService:
 
     async def stream_turn(
         self, session_id: int, user: User, text: str
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[TurnStreamEvent]:
         """Stream the reply sentence by sentence (so the client can speak the
         first sentence while the rest is still generating), then persist the
-        full reply once the stream completes."""
+        full reply. A grammar correction for the learner's utterance is computed
+        IN PARALLEL and emitted once at the end (after the reply, never during),
+        so the learner sees a gold correction chip without breaking the flow."""
         turns, system_prompt, history = await self._prepare(session_id, user, text)
-        parts: list[str] = []
-        async for sentence in self._llm.stream_complete(system_prompt, history):
-            parts.append(sentence)
-            yield sentence
-        await self._persist(session_id, turns, text, " ".join(parts))
+        correction_task = (
+            asyncio.ensure_future(
+                self._corrector.correct(text, user.cefr_level, user.native_language)
+            )
+            if self._corrector is not None
+            else None
+        )
+        try:
+            parts: list[str] = []
+            async for sentence in self._llm.stream_complete(system_prompt, history):
+                parts.append(sentence)
+                yield ReplyChunk(sentence)
+            await self._persist(session_id, turns, text, " ".join(parts))
+            if correction_task is not None:
+                correction = await correction_task
+                if correction is not None:
+                    yield CorrectionReady(correction)
+        finally:
+            # If the reply stream errored or the consumer stopped early, don't
+            # leak the parallel correction task.
+            if correction_task is not None and not correction_task.done():
+                correction_task.cancel()
 
     async def _prepare(
         self, session_id: int, user: User, text: str

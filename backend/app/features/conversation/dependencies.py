@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
 from app.database import get_db
+from app.features.conversation.correction import TurnCorrector
 from app.features.conversation.factory import shared_llm_provider
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
@@ -43,4 +44,7 @@ def get_conversation_turn_service(
         transcripts=SqlAlchemyTranscriptRepository(db),
         profiles=SqlAlchemyProfileRepository(db),
         llm=llm,
+        # Same shared provider: the correction is a second, bounded call run in
+        # parallel with the reply. Fake engine -> no correction (honest).
+        corrector=TurnCorrector(llm),
     )

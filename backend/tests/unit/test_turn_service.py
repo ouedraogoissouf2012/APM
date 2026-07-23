@@ -2,7 +2,12 @@ import pytest
 
 from app.domain.exceptions import ConflictError, NotFoundError
 from app.features.auth.models import User
-from app.features.conversation.turn_service import ConversationTurnService
+from app.features.conversation.correction import TurnCorrection, TurnCorrector
+from app.features.conversation.turn_service import (
+    ConversationTurnService,
+    CorrectionReady,
+    ReplyChunk,
+)
 
 
 class _FakeSessions:
@@ -100,8 +105,20 @@ def _user() -> User:
     return u
 
 
-def _service(sessions, transcripts, llm, profiles=None):
-    return ConversationTurnService(sessions, transcripts, profiles or _FakeProfiles(), llm)
+def _service(sessions, transcripts, llm, profiles=None, corrector=None):
+    return ConversationTurnService(
+        sessions, transcripts, profiles or _FakeProfiles(), llm, corrector=corrector
+    )
+
+
+class _CannedCorrector:
+    """Stands in for TurnCorrector; returns a fixed correction (or None)."""
+
+    def __init__(self, correction) -> None:
+        self._correction = correction
+
+    async def correct(self, text, cefr_level, native_language):
+        return self._correction
 
 
 @pytest.mark.asyncio
@@ -171,10 +188,14 @@ async def test_stream_turn_yields_sentences_then_persists_full_reply():
     llm = _StreamingLlm(["Hi there.", "How are you?"])
     service = _service(_FakeSessions(owner_id=7), transcripts, llm)
 
-    chunks = [c async for c in service.stream_turn(1, _user(), "hello")]
+    events = [c async for c in service.stream_turn(1, _user(), "hello")]
 
-    # The client receives each sentence as it is produced.
-    assert chunks == ["Hi there.", "How are you?"]
+    # The client receives each sentence as it is produced (no corrector here).
+    assert [e.text for e in events if isinstance(e, ReplyChunk)] == [
+        "Hi there.",
+        "How are you?",
+    ]
+    assert not any(isinstance(e, CorrectionReady) for e in events)
     # The full reply is persisted once, joined, alongside the user turn.
     assert transcripts.saved == (
         1,
@@ -183,6 +204,64 @@ async def test_stream_turn_yields_sentences_then_persists_full_reply():
             {"role": "assistant", "content": "Hi there. How are you?"},
         ],
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_emits_a_correction_after_the_reply():
+    correction = TurnCorrection(
+        original="i is happy", correction="I am happy", rule="Use 'am' with 'I'."
+    )
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _StreamingLlm(["Nice."]),
+        corrector=_CannedCorrector(correction),
+    )
+
+    events = [c async for c in service.stream_turn(1, _user(), "i is happy")]
+
+    # Reply chunk(s) first, correction last (never interrupting the flow).
+    assert isinstance(events[0], ReplyChunk)
+    assert isinstance(events[-1], CorrectionReady)
+    assert events[-1].correction == correction
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_emits_no_correction_event_when_there_is_no_mistake():
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _StreamingLlm(["Nice."]),
+        corrector=_CannedCorrector(None),
+    )
+
+    events = [c async for c in service.stream_turn(1, _user(), "I am happy")]
+
+    assert all(isinstance(e, ReplyChunk) for e in events)
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_with_real_corrector_uses_the_llm_json():
+    # Wire a real TurnCorrector over a canned JSON LLM (end-to-end of the unit).
+    class _JsonLlm(_StreamingLlm):
+        async def complete(self, system_prompt, history):
+            return (
+                '{"has_error": true, "original": "i is happy", '
+                '"correction": "I am happy", "rule": "Use am with I."}'
+            )
+
+    llm = _JsonLlm(["Great."])
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        llm,
+        corrector=TurnCorrector(llm),
+    )
+
+    events = [c async for c in service.stream_turn(1, _user(), "i is happy")]
+    corrections = [e for e in events if isinstance(e, CorrectionReady)]
+    assert len(corrections) == 1
+    assert corrections[0].correction.correction == "I am happy"
 
 
 @pytest.mark.asyncio

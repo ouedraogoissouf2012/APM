@@ -63,9 +63,39 @@ void main() {
       ]),
     );
 
-    final sentences = await repo.streamTurn(5, 'hello').toList();
+    final events = await repo.streamTurn(5, 'hello').toList();
 
-    expect(sentences, ['Hi there.', 'How are you?']);
+    expect(
+      events.whereType<ReplySentence>().map((e) => e.text).toList(),
+      ['Hi there.', 'How are you?'],
+    );
+  });
+
+  test('streamTurn yields a correction event with rule and alternatives',
+      () async {
+    when(
+      () => api.postLineStream('/sessions/5/turn/stream', body: any(named: 'body')),
+    ).thenAnswer(
+      (_) => Stream.fromIterable([
+        'event: chunk',
+        'data: {"text":"Good."}',
+        '',
+        'event: correction',
+        'data: {"original":"i is happy","correction":"I am happy",'
+            '"rule":"Use am with I.","alternatives":["I\'m happy"]}',
+        '',
+        'event: done',
+        'data: {}',
+        '',
+      ]),
+    );
+
+    final events = await repo.streamTurn(5, 'i is happy').toList();
+
+    final corrections = events.whereType<CorrectionEvent>().toList();
+    expect(corrections, hasLength(1));
+    expect(corrections.single.correction.correction, 'I am happy');
+    expect(corrections.single.correction.alternatives, ["I'm happy"]);
   });
 
   test('streamTurn surfaces a server error event as an exception', () async {

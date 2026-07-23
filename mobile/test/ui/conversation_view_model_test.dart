@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
 import 'package:apm/src/data/models/profile.dart';
+import 'package:apm/src/data/models/turn_correction.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
 import 'package:apm/src/data/repositories/profile_repository.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
@@ -135,7 +136,7 @@ ConversationRepository _repoReturning(int sessionId, {String? reply}) {
   if (reply != null) {
     // The VM consumes the streaming path; yield the reply as one sentence.
     when(() => repo.streamTurn(any(), any()))
-        .thenAnswer((_) => Stream.value(reply));
+        .thenAnswer((_) => Stream.value(ReplySentence(reply)));
   }
   return repo;
 }
@@ -320,7 +321,10 @@ void main() {
       ),
     ).thenAnswer((_) async => 1);
     when(() => repo.streamTurn(any(), any())).thenAnswer(
-      (_) => Stream.fromIterable(['Nice weekend?', 'What did you do?']),
+      (_) => Stream.fromIterable(const [
+        ReplySentence('Nice weekend?'),
+        ReplySentence('What did you do?'),
+      ]),
     );
     final speech = _FakeSpeech('i went out');
     final c = _container(repo, speech);
@@ -335,6 +339,42 @@ void main() {
     final last = c.read(conversationViewModelProvider).turns.last;
     expect(last.role, 'assistant');
     expect(last.content, 'Nice weekend? What did you do?');
+  });
+
+  test('attaches a streamed correction to the learner turn', () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(const [
+        ReplySentence('Good.'),
+        CorrectionEvent(
+          TurnCorrection(
+            original: 'i is happy',
+            correction: 'I am happy',
+            rule: "Use 'am' with 'I'.",
+            alternatives: ["I'm happy"],
+          ),
+        ),
+      ]),
+    );
+    final c = _container(repo, _FakeSpeech('i is happy'));
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.listenAndRespond();
+
+    final userTurn = c
+        .read(conversationViewModelProvider)
+        .turns
+        .firstWhere((t) => t.role == 'user');
+    expect(userTurn.correction, isNotNull);
+    expect(userTurn.correction!.correction, 'I am happy');
+    expect(userTurn.correction!.alternatives, ["I'm happy"]);
   });
 
   test('empty recognized speech stays idle and sends nothing', () async {

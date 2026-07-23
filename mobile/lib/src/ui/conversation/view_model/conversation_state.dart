@@ -1,3 +1,5 @@
+import '../../../data/models/turn_correction.dart';
+
 enum ConversationStatus { idle, listening, thinking, speaking }
 
 /// Turn roles — protocol values shared with the backend transcript.
@@ -5,10 +7,17 @@ const String kRoleUser = 'user';
 const String kRoleAssistant = 'assistant';
 
 class ConversationTurn {
-  const ConversationTurn(this.role, this.content);
+  const ConversationTurn(this.role, this.content, {this.correction});
 
   final String role; // kRoleUser | kRoleAssistant
   final String content;
+
+  /// Set on a user turn once the backend returns a grammar correction for it,
+  /// so the UI can render the gold correction chip under the bubble.
+  final TurnCorrection? correction;
+
+  ConversationTurn withCorrection(TurnCorrection correction) =>
+      ConversationTurn(role, content, correction: correction);
 }
 
 class ConversationState {

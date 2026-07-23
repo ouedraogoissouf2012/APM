@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncIterator
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -13,7 +14,11 @@ from app.features.conversation.dependencies import (
     get_conversation_turn_service,
 )
 from app.features.conversation.schemas import TurnIn, TurnOut
-from app.features.conversation.turn_service import ConversationTurnService
+from app.features.conversation.turn_service import (
+    ConversationTurnService,
+    CorrectionReady,
+    ReplyChunk,
+)
 
 router = APIRouter(prefix="/sessions/{session_id}", tags=["conversation"])
 
@@ -48,17 +53,21 @@ async def stream_turn(
     service: ConversationTurnService = Depends(get_conversation_turn_service),
 ) -> StreamingResponse:
     """Stream the reply as Server-Sent Events: one `chunk` event per sentence
-    so the client speaks it immediately, a final `done` event, or an `error`.
-    Ownership/quota checks happen before streaming begins."""
+    so the client speaks it immediately, then at most one `correction` event
+    (the learner's mistake + fix + rule + alternatives), a final `done`, or an
+    `error`. Ownership/quota checks happen before streaming begins."""
     client_host = request.client.host if request.client else "anonymous"
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            async for sentence in service.stream_turn(
+            async for event in service.stream_turn(
                 session_id, current_user, payload.text
             ):
-                yield _sse("chunk", {"text": sentence})
+                if isinstance(event, ReplyChunk):
+                    yield _sse("chunk", {"text": event.text})
+                elif isinstance(event, CorrectionReady):
+                    yield _sse("correction", asdict(event.correction))
             yield _sse("done", {})
         except LlmProviderError:
             yield _sse("error", {"message": "LLM provider failed"})
