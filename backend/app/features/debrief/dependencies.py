@@ -7,7 +7,9 @@ from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
 from app.database import get_db
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.factory import shared_llm_provider
-from app.features.conversation.providers.interfaces import LlmProvider
+from app.features.conversation.providers.interfaces import (
+    TextCompletionProvider as LlmProvider,
+)
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.fake_llm import FakeDebriefLlm

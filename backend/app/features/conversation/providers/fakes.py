@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 from app.features.conversation.messages import Message
 
 
@@ -20,6 +22,15 @@ class FakeLlm:
     async def complete(self, system_prompt: str, history: list[Message]) -> str:
         last_user = next((m.content for m in reversed(history) if m.role == "user"), "")
         return f"You said: {last_user}"
+
+    async def stream_complete(
+        self, system_prompt: str, history: list[Message]
+    ) -> AsyncIterator[str]:
+        """Two deterministic sentences, so the streaming path is exercisable
+        without a network provider."""
+        last_user = next((m.content for m in reversed(history) if m.role == "user"), "")
+        yield f"You said: {last_user}."
+        yield "Tell me more."
 
 
 class FakeTts:

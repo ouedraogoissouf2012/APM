@@ -77,6 +77,22 @@ class _CannedLlm:
         return self._reply
 
 
+class _StreamingLlm:
+    """Yields the reply as pre-split sentence chunks."""
+
+    def __init__(self, chunks) -> None:
+        self._chunks = chunks
+        self.seen_history = None
+
+    async def complete(self, system_prompt, history):  # pragma: no cover - unused
+        return " ".join(self._chunks)
+
+    async def stream_complete(self, system_prompt, history):
+        self.seen_history = history
+        for chunk in self._chunks:
+            yield chunk
+
+
 def _user() -> User:
     u = User(email="c@b.com", hashed_password="x", native_language="fr")
     u.id = 7
@@ -147,6 +163,48 @@ async def test_take_turn_injects_learner_memory_into_prompt():
     await service.take_turn(1, _user(), "hello")
 
     assert "past tense" in llm.seen_system
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_yields_sentences_then_persists_full_reply():
+    transcripts = _FakeTranscripts()
+    llm = _StreamingLlm(["Hi there.", "How are you?"])
+    service = _service(_FakeSessions(owner_id=7), transcripts, llm)
+
+    chunks = [c async for c in service.stream_turn(1, _user(), "hello")]
+
+    # The client receives each sentence as it is produced.
+    assert chunks == ["Hi there.", "How are you?"]
+    # The full reply is persisted once, joined, alongside the user turn.
+    assert transcripts.saved == (
+        1,
+        [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "Hi there. How are you?"},
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_includes_prior_history():
+    prior = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
+    llm = _StreamingLlm(["Sure."])
+    service = _service(_FakeSessions(owner_id=7), _FakeTranscripts(prior), llm)
+
+    _ = [c async for c in service.stream_turn(1, _user(), "and you?")]
+
+    assert [m.content for m in llm.seen_history] == ["hi", "hello", "and you?"]
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_rejects_ended_session():
+    llm = _StreamingLlm(["x"])
+    service = _service(_FakeSessions(owner_id=7, ended=True), _FakeTranscripts(), llm)
+    with pytest.raises(ConflictError):
+        _ = [c async for c in service.stream_turn(1, _user(), "hello")]
 
 
 @pytest.mark.asyncio
