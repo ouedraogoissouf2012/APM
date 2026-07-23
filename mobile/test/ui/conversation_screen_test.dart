@@ -209,4 +209,28 @@ void main() {
     expect(stub.endCalled, isTrue);
     expect(find.text('Debrief target'), findsOneWidget);
   });
+
+  testWidgets('quota épuisé : affiche le paywall, pas l\'orbe', (tester) async {
+    await _pump(
+      tester,
+      const ConversationState(quotaExhausted: true),
+    );
+
+    expect(find.byKey(const Key('quota_exhausted')), findsOneWidget);
+    // No conversation UI when the session could not start.
+    expect(find.byType(VoiceOrb), findsNothing);
+    // A way out: back home.
+    expect(find.byKey(const Key('quota_home_button')), findsOneWidget);
+  });
+
+  testWidgets('quota épuisé : le bouton ramène à l\'accueil', (tester) async {
+    await _pump(
+      tester,
+      const ConversationState(quotaExhausted: true),
+    );
+
+    await tester.tap(find.byKey(const Key('quota_home_button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Home target'), findsOneWidget);
+  });
 }
