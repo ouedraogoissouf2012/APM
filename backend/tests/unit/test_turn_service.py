@@ -220,7 +220,7 @@ async def test_stream_turn_yields_sentences_then_persists_full_reply():
 
 
 @pytest.mark.asyncio
-async def test_stream_turn_emits_audio_after_each_sentence_when_tts_configured():
+async def test_stream_turn_speaks_whole_reply_as_one_clip_after_the_text():
     import base64
 
     service = _service(
@@ -232,12 +232,13 @@ async def test_stream_turn_emits_audio_after_each_sentence_when_tts_configured()
 
     events = [c async for c in service.stream_turn(1, _user(), "hello")]
 
-    # Each sentence -> a text chunk immediately followed by its audio.
+    # All the text chunks stream first; then ONE audio clip for the full reply
+    # (never per-sentence clips, which cut each other off on the client).
     kinds = [type(e).__name__ for e in events]
-    assert kinds == ["ReplyChunk", "AudioChunk", "ReplyChunk", "AudioChunk"]
-    first_audio = next(e for e in events if isinstance(e, AudioChunk))
-    assert base64.b64decode(first_audio.audio_b64) == b"audio::Hi there."
-    assert first_audio.mime == "audio/mpeg"
+    assert kinds == ["ReplyChunk", "ReplyChunk", "AudioChunk"]
+    audio = next(e for e in events if isinstance(e, AudioChunk))
+    assert base64.b64decode(audio.audio_b64) == b"audio::Hi there. How are you?"
+    assert audio.mime == "audio/mpeg"
 
 
 @pytest.mark.asyncio

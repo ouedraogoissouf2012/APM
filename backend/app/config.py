@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # Conversation / voice
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"  # V3, low-latency; NOT the slow "reasoner"
+    deepseek_model: str = "deepseek-v4-flash"  # V4 fast tier (deepseek-chat was retired)
     deepseek_timeout_seconds: float = 20.0
     deepseek_max_retries: int = 1
     deepseek_conversation_max_tokens: int = 400

@@ -84,11 +84,12 @@ class ConversationTurnService:
     async def stream_turn(
         self, session_id: int, user: User, text: str
     ) -> AsyncIterator[TurnStreamEvent]:
-        """Stream the reply sentence by sentence (so the client can speak the
-        first sentence while the rest is still generating), then persist the
-        full reply. A grammar correction for the learner's utterance is computed
-        IN PARALLEL and emitted once at the end (after the reply, never during),
-        so the learner sees a gold correction chip without breaking the flow."""
+        """Stream the reply sentence by sentence (text appears live), then speak
+        it. The spoken audio is synthesized for the WHOLE reply as ONE clip
+        (emitted after the text), not per sentence: playing many short clips
+        back-to-back on the client cuts sentences off. A grammar correction for
+        the learner's utterance is computed IN PARALLEL and emitted last, so the
+        gold chip never breaks the flow."""
         turns, system_prompt, history = await self._prepare(session_id, user, text)
         correction_task: asyncio.Future[TurnCorrection | None] | None = None
         try:
@@ -96,16 +97,6 @@ class ConversationTurnService:
             async for sentence in self._llm.stream_complete(system_prompt, history):
                 parts.append(sentence)
                 yield ReplyChunk(sentence)
-                # Synthesize this sentence to a real neural voice (when a server
-                # TTS is configured) right after its text, so the client can play
-                # it as it streams. TTS failure must not break the reply.
-                if self._tts is not None:
-                    try:
-                        audio = await self._tts.synthesize(sentence)
-                    except Exception:
-                        audio = b""
-                    if audio:
-                        yield AudioChunk(base64.b64encode(audio).decode("ascii"))
                 # Start the correction only once the reply is already streaming,
                 # so its concurrent LLM call cannot delay the reply's first token
                 # (the latency the learner actually feels). It still overlaps the
@@ -117,7 +108,17 @@ class ConversationTurnService:
                             text, user.cefr_level, user.native_language
                         )
                     )
-            await self._persist(session_id, turns, text, " ".join(parts))
+            full_reply = " ".join(parts)
+            await self._persist(session_id, turns, text, full_reply)
+            # Speak the whole reply as one clean clip. TTS failure must not break
+            # the turn (the text reply already succeeded).
+            if self._tts is not None and full_reply:
+                try:
+                    audio = await self._tts.synthesize(full_reply)
+                except Exception:
+                    audio = b""
+                if audio:
+                    yield AudioChunk(base64.b64encode(audio).decode("ascii"))
             if correction_task is not None:
                 correction = await correction_task
                 if correction is not None:
