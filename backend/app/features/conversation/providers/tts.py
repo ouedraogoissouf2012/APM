@@ -12,12 +12,14 @@ via the same TtsProvider seam.
 
 from app.domain.exceptions import LlmProviderError
 
-# Default neural voices per BCP-47 accent tag.
+# Default neural voices per BCP-47 accent tag. The "Multilingual" voices are
+# Azure's newest and most natural/expressive — noticeably warmer and less flat
+# than the older ...Neural voices, which matters for a conversation partner.
 _VOICE_BY_TAG = {
-    "en-us": "en-US-AriaNeural",
+    "en-us": "en-US-AvaMultilingualNeural",
     "en-gb": "en-GB-SoniaNeural",
 }
-_DEFAULT_VOICE = "en-US-AriaNeural"
+_DEFAULT_VOICE = "en-US-AvaMultilingualNeural"
 
 
 def voice_for_language(language_tag: str) -> str:
