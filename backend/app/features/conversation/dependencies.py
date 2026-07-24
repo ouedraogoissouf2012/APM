@@ -6,6 +6,8 @@ from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
 from app.database import get_db
 from app.features.conversation.correction import TurnCorrector
 from app.features.conversation.factory import shared_llm_provider
+from app.features.conversation.providers.interfaces import TtsProvider
+from app.features.conversation.providers.tts import EdgeTtsProvider
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
 from app.features.profile.repository import SqlAlchemyProfileRepository
@@ -39,6 +41,9 @@ def get_conversation_turn_service(
         max_retries=settings.deepseek_max_retries,
         max_tokens=settings.deepseek_conversation_max_tokens,
     )
+    # Server-side neural voice when TTS_ENGINE=edge; None keeps the on-device
+    # system voice (default), so nothing changes until it is switched on.
+    tts: TtsProvider | None = EdgeTtsProvider() if settings.tts_engine == "edge" else None
     return ConversationTurnService(
         sessions=SqlAlchemySessionRepository(db),
         transcripts=SqlAlchemyTranscriptRepository(db),
@@ -47,4 +52,5 @@ def get_conversation_turn_service(
         # Same shared provider: the correction is a second, bounded call run in
         # parallel with the reply. Fake engine -> no correction (honest).
         corrector=TurnCorrector(llm),
+        tts=tts,
     )

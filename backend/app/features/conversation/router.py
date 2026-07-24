@@ -15,6 +15,7 @@ from app.features.conversation.dependencies import (
 )
 from app.features.conversation.schemas import TurnIn, TurnOut
 from app.features.conversation.turn_service import (
+    AudioChunk,
     ConversationTurnService,
     CorrectionReady,
     ReplyChunk,
@@ -66,6 +67,8 @@ async def stream_turn(
             ):
                 if isinstance(event, ReplyChunk):
                     yield _sse("chunk", {"text": event.text})
+                elif isinstance(event, AudioChunk):
+                    yield _sse("audio", {"audio": event.audio_b64, "mime": event.mime})
                 elif isinstance(event, CorrectionReady):
                     yield _sse("correction", asdict(event.correction))
             yield _sse("done", {})

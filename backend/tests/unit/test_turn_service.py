@@ -4,6 +4,7 @@ from app.domain.exceptions import ConflictError, NotFoundError
 from app.features.auth.models import User
 from app.features.conversation.correction import TurnCorrection, TurnCorrector
 from app.features.conversation.turn_service import (
+    AudioChunk,
     ConversationTurnService,
     CorrectionReady,
     ReplyChunk,
@@ -105,10 +106,22 @@ def _user() -> User:
     return u
 
 
-def _service(sessions, transcripts, llm, profiles=None, corrector=None):
+def _service(sessions, transcripts, llm, profiles=None, corrector=None, tts=None):
     return ConversationTurnService(
-        sessions, transcripts, profiles or _FakeProfiles(), llm, corrector=corrector
+        sessions,
+        transcripts,
+        profiles or _FakeProfiles(),
+        llm,
+        corrector=corrector,
+        tts=tts,
     )
+
+
+class _FakeTts:
+    """Returns deterministic 'audio' bytes so the stream is exercisable."""
+
+    async def synthesize(self, text: str) -> bytes:
+        return f"audio::{text}".encode()
 
 
 class _CannedCorrector:
@@ -204,6 +217,36 @@ async def test_stream_turn_yields_sentences_then_persists_full_reply():
             {"role": "assistant", "content": "Hi there. How are you?"},
         ],
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_emits_audio_after_each_sentence_when_tts_configured():
+    import base64
+
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _StreamingLlm(["Hi there.", "How are you?"]),
+        tts=_FakeTts(),
+    )
+
+    events = [c async for c in service.stream_turn(1, _user(), "hello")]
+
+    # Each sentence -> a text chunk immediately followed by its audio.
+    kinds = [type(e).__name__ for e in events]
+    assert kinds == ["ReplyChunk", "AudioChunk", "ReplyChunk", "AudioChunk"]
+    first_audio = next(e for e in events if isinstance(e, AudioChunk))
+    assert base64.b64decode(first_audio.audio_b64) == b"audio::Hi there."
+    assert first_audio.mime == "audio/mpeg"
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_emits_no_audio_when_no_tts():
+    service = _service(
+        _FakeSessions(owner_id=7), _FakeTranscripts(), _StreamingLlm(["Hi."])
+    )
+    events = [c async for c in service.stream_turn(1, _user(), "hello")]
+    assert not any(isinstance(e, AudioChunk) for e in events)
 
 
 @pytest.mark.asyncio

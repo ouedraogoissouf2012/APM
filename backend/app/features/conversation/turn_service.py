@@ -6,6 +6,7 @@ with the LLM (DeepSeek), and keep the transcript. No audio, no LiveKit.
 """
 
 import asyncio
+import base64
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -14,7 +15,7 @@ from app.features.auth.models import User
 from app.features.conversation.correction import TurnCorrection, TurnCorrector
 from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER, Message
 from app.features.conversation.prompt import PromptContext, build_system_prompt
-from app.features.conversation.providers.interfaces import LlmProvider
+from app.features.conversation.providers.interfaces import LlmProvider, TtsProvider
 from app.features.conversation.repository import TranscriptRepository
 from app.features.profile.repository import ProfileRepository
 from app.features.sessions.ownership import get_owned_session
@@ -29,9 +30,19 @@ class TurnResult:
 
 @dataclass(frozen=True)
 class ReplyChunk:
-    """One speakable sentence of the assistant's reply."""
+    """One speakable sentence of the assistant's reply (text)."""
 
     text: str
+
+
+@dataclass(frozen=True)
+class AudioChunk:
+    """Base64-encoded synthesized audio for one reply sentence, emitted right
+    after its text so the client plays a real neural voice instead of the
+    robotic on-device one. Only produced when a server-side TTS is configured."""
+
+    audio_b64: str
+    mime: str = "audio/mpeg"
 
 
 @dataclass(frozen=True)
@@ -42,8 +53,9 @@ class CorrectionReady:
     correction: TurnCorrection
 
 
-# What `stream_turn` yields: reply sentences, then at most one correction.
-TurnStreamEvent = ReplyChunk | CorrectionReady
+# What `stream_turn` yields: per sentence a text chunk (+ optional audio), then
+# at most one correction.
+TurnStreamEvent = ReplyChunk | AudioChunk | CorrectionReady
 
 
 class ConversationTurnService:
@@ -54,12 +66,14 @@ class ConversationTurnService:
         profiles: ProfileRepository,
         llm: LlmProvider,
         corrector: TurnCorrector | None = None,
+        tts: TtsProvider | None = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
         self._profiles = profiles
         self._llm = llm
         self._corrector = corrector
+        self._tts = tts
 
     async def take_turn(self, session_id: int, user: User, text: str) -> TurnResult:
         turns, system_prompt, history = await self._prepare(session_id, user, text)
@@ -82,6 +96,16 @@ class ConversationTurnService:
             async for sentence in self._llm.stream_complete(system_prompt, history):
                 parts.append(sentence)
                 yield ReplyChunk(sentence)
+                # Synthesize this sentence to a real neural voice (when a server
+                # TTS is configured) right after its text, so the client can play
+                # it as it streams. TTS failure must not break the reply.
+                if self._tts is not None:
+                    try:
+                        audio = await self._tts.synthesize(sentence)
+                    except Exception:
+                        audio = b""
+                    if audio:
+                        yield AudioChunk(base64.b64encode(audio).decode("ascii"))
                 # Start the correction only once the reply is already streaming,
                 # so its concurrent LLM call cannot delay the reply's first token
                 # (the latency the learner actually feels). It still overlaps the

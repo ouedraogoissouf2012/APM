@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/audio/audio_playback_service.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
 import '../../../core/speech/speech_service.dart';
@@ -21,6 +22,10 @@ final speechServiceProvider = Provider<SpeechService>(
 
 final conversationRepositoryProvider = Provider<ConversationRepository>(
   (ref) => ConversationRepository(ref.watch(authenticatedApiClientProvider)),
+);
+
+final audioPlaybackProvider = Provider<AudioPlaybackService>(
+  (ref) => DeviceAudioPlaybackService(),
 );
 
 final conversationViewModelProvider =
@@ -177,8 +182,13 @@ class ConversationViewModel extends Notifier<ConversationState> {
   /// long silence before the assistant starts talking.
   Future<bool> _streamReplyAndSpeak(int sessionId, String heard) async {
     final speech = ref.read(speechServiceProvider);
+    final audio = ref.read(audioPlaybackProvider);
+    // Server-side neural voice? Then the reply arrives as audio clips to play;
+    // otherwise fall back to the on-device system voice. Defaults to false
+    // (on-device) if the backend/config is unreachable.
+    final serverTts = await ref.read(serverTtsProvider.future);
     final buffer = StringBuffer();
-    var spokeAnything = false;
+    var hasText = false;
     try {
       final events = ref
           .read(conversationRepositoryProvider)
@@ -187,10 +197,14 @@ class ConversationViewModel extends Notifier<ConversationState> {
         if (!_active) return false;
         switch (event) {
           case ReplySentence(:final text):
-            buffer.write(spokeAnything ? ' $text' : text);
+            buffer.write(hasText ? ' $text' : text);
             _setAssistantReply(buffer.toString());
-            await speech.speak(text);
-            spokeAnything = true;
+            hasText = true;
+            // Only speak on-device when the backend is NOT sending audio.
+            if (!serverTts) await speech.speak(text);
+          case AudioClip(:final audioB64, :final mime):
+            // Real neural voice: play it (awaits until the clip finishes).
+            await audio.playClip(audioB64, mime);
           case CorrectionEvent(:final correction):
             // Attach to the learner's turn -> gold chip under their bubble.
             _attachCorrection(correction);

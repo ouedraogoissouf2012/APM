@@ -30,13 +30,22 @@ final runtimeConfigRepositoryProvider = Provider<RuntimeConfigRepository>(
   (ref) => RuntimeConfigRepository(ref.watch(apiClientProvider)),
 );
 
-/// True when the backend is in demo mode (fake engine). Never blocks the UI:
-/// any fetch failure resolves to false (assume a real backend).
-final demoModeProvider = FutureProvider<bool>((ref) async {
+/// Runtime config from the backend. Never blocks the UI: any fetch failure
+/// resolves to safe defaults (real backend, on-device voice).
+final runtimeConfigProvider = FutureProvider<RuntimeConfig>((ref) async {
   try {
-    final config = await ref.watch(runtimeConfigRepositoryProvider).fetch();
-    return config.demoMode;
+    return await ref.watch(runtimeConfigRepositoryProvider).fetch();
   } catch (_) {
-    return false;
+    return const RuntimeConfig(demoMode: false, serverTts: false);
   }
+});
+
+/// True when the backend is in demo mode (fake engine).
+final demoModeProvider = FutureProvider<bool>((ref) async {
+  return (await ref.watch(runtimeConfigProvider.future)).demoMode;
+});
+
+/// True when the backend streams neural audio (play it instead of on-device TTS).
+final serverTtsProvider = FutureProvider<bool>((ref) async {
+  return (await ref.watch(runtimeConfigProvider.future)).serverTts;
 });

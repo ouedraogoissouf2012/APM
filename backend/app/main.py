@@ -49,4 +49,7 @@ async def public_config() -> dict[str, bool]:
     return {
         "demo_mode": s.voice_engine == ENGINE_FAKE,
         "debrief_demo_mode": s.debrief_engine == ENGINE_FAKE,
+        # When true, the backend streams synthesized neural audio; the client
+        # plays it instead of speaking with the on-device system voice.
+        "server_tts": s.tts_engine != "device",
     }
