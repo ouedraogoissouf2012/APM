@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:audioplayers/audioplayers.dart';
 
 /// Plays synthesized reply audio streamed from the backend. Abstracted so the
@@ -18,12 +16,16 @@ class DeviceAudioPlaybackService implements AudioPlaybackService {
 
   @override
   Future<void> playClip(String audioB64, String mime) async {
-    final bytes = base64Decode(audioB64);
-    // Subscribe to completion BEFORE starting playback, so a very short clip
-    // that finishes immediately cannot slip past us and hang the turn.
+    // A `data:` URL via UrlSource plays reliably on web AND mobile — the browser
+    // decodes it natively. BytesSource is "platform-dependent" and often silent
+    // on Flutter web, which is exactly the surface this app is tested on.
+    final source = UrlSource('data:$mime;base64,$audioB64');
+    // Subscribe to completion BEFORE starting playback so a very short clip
+    // cannot finish before we listen. A timeout guards against a clip that never
+    // signals completion (e.g. a web decode error) freezing the conversation.
     final completed = _player.onPlayerComplete.first;
-    await _player.play(BytesSource(bytes, mimeType: mime));
-    await completed;
+    await _player.play(source);
+    await completed.timeout(const Duration(seconds: 20), onTimeout: () {});
   }
 
   @override
