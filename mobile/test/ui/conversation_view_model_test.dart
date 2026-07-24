@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:apm/src/core/audio/audio_playback_service.dart';
 import 'package:apm/src/core/network/api_exception.dart';
+import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
 import 'package:apm/src/data/models/profile.dart';
 import 'package:apm/src/data/models/turn_correction.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
 import 'package:apm/src/data/repositories/profile_repository.dart';
+import 'package:apm/src/data/repositories/runtime_config_repository.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_view_model.dart';
 import 'package:apm/src/ui/profile/view_model/profile_view_model.dart';
@@ -15,6 +18,19 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockConversationRepository extends Mock
     implements ConversationRepository {}
+
+/// Records which audio clips were played, so tests can assert the server voice
+/// is used (and the on-device voice is not).
+class _FakeAudio implements AudioPlaybackService {
+  final List<String> played = [];
+  @override
+  Future<void> playClip(String audioB64, String mime) async {
+    played.add(audioB64);
+  }
+
+  @override
+  Future<void> stop() async {}
+}
 
 class _MockProfileRepository extends Mock implements ProfileRepository {}
 
@@ -113,12 +129,19 @@ class _BlockingSpeech implements SpeechService {
 
 ProviderContainer _container(
   ConversationRepository repo,
-  SpeechService speech,
-) {
+  SpeechService speech, {
+  bool serverTts = false,
+  AudioPlaybackService? audio,
+}) {
   final c = ProviderContainer(
     overrides: [
       conversationRepositoryProvider.overrideWithValue(repo),
       speechServiceProvider.overrideWithValue(speech),
+      audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
+      // Avoid any real /config network fetch in tests.
+      runtimeConfigProvider.overrideWith(
+        (ref) async => RuntimeConfig(demoMode: false, serverTts: serverTts),
+      ),
     ],
   );
   addTearDown(c.dispose);
@@ -339,6 +362,39 @@ void main() {
     final last = c.read(conversationViewModelProvider).turns.last;
     expect(last.role, 'assistant');
     expect(last.content, 'Nice weekend? What did you do?');
+  });
+
+  test('plays server audio and skips the on-device voice when serverTts is on',
+      () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(const [
+        ReplySentence('Good.'),
+        AudioClip('QUJD', 'audio/mpeg'), // "ABC" in base64
+      ]),
+    );
+    final speech = _FakeSpeech('i went out');
+    final audio = _FakeAudio();
+    final c = _container(repo, speech, serverTts: true, audio: audio);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.listenAndRespond();
+
+    // The neural clip was played, and the robotic on-device voice was NOT used.
+    expect(audio.played, ['QUJD']);
+    expect(speech.spoken, isEmpty);
+    // The transcript still shows the reply text.
+    expect(
+      c.read(conversationViewModelProvider).turns.last.content,
+      'Good.',
+    );
   });
 
   test('attaches a streamed correction to the learner turn', () async {

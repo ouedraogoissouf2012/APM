@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     voice_engine: VoiceEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
     debrief_engine: DebriefEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
 
+    # Text-to-speech: "device" = on-device system voice (default, robotic);
+    # "edge" = free Microsoft Edge neural voices synthesized server-side and
+    # streamed to the client (no key). Voice is chosen from the learner's accent.
+    tts_engine: Literal["device", "edge"] = "device"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

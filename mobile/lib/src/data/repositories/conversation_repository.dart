@@ -17,6 +17,14 @@ class ReplySentence extends TurnEvent {
   final String text;
 }
 
+/// Synthesized neural audio (base64) for a reply sentence, to be played instead
+/// of the on-device system voice.
+class AudioClip extends TurnEvent {
+  const AudioClip(this.audioB64, this.mime);
+  final String audioB64;
+  final String mime;
+}
+
 class CorrectionEvent extends TurnEvent {
   const CorrectionEvent(this.correction);
   final TurnCorrection correction;
@@ -97,6 +105,9 @@ class ConversationRepository {
         case 'chunk':
           final text = sseChunkText(event.data);
           if (text != null && text.isNotEmpty) yield ReplySentence(text);
+        case 'audio':
+          final clip = _parseAudio(event.data);
+          if (clip != null) yield clip;
         case 'correction':
           final correction = _parseCorrection(event.data);
           if (correction != null) yield CorrectionEvent(correction);
@@ -110,6 +121,21 @@ class ConversationRepository {
           return;
       }
     }
+  }
+
+  AudioClip? _parseAudio(String data) {
+    if (data.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(data);
+      if (decoded is Map && decoded['audio'] is String) {
+        final b64 = decoded['audio'] as String;
+        if (b64.isEmpty) return null;
+        return AudioClip(b64, decoded['mime'] as String? ?? 'audio/mpeg');
+      }
+    } catch (_) {
+      // Malformed audio payload — skip it, keep the conversation going.
+    }
+    return null;
   }
 
   TurnCorrection? _parseCorrection(String data) {
