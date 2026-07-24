@@ -76,18 +76,23 @@ class ConversationTurnService:
         IN PARALLEL and emitted once at the end (after the reply, never during),
         so the learner sees a gold correction chip without breaking the flow."""
         turns, system_prompt, history = await self._prepare(session_id, user, text)
-        correction_task = (
-            asyncio.ensure_future(
-                self._corrector.correct(text, user.cefr_level, user.native_language)
-            )
-            if self._corrector is not None
-            else None
-        )
+        correction_task: asyncio.Future[TurnCorrection | None] | None = None
         try:
             parts: list[str] = []
             async for sentence in self._llm.stream_complete(system_prompt, history):
                 parts.append(sentence)
                 yield ReplyChunk(sentence)
+                # Start the correction only once the reply is already streaming,
+                # so its concurrent LLM call cannot delay the reply's first token
+                # (the latency the learner actually feels). It still overlaps the
+                # rest of the reply + its spoken playback, so the chip is ready in
+                # time.
+                if correction_task is None and self._corrector is not None:
+                    correction_task = asyncio.ensure_future(
+                        self._corrector.correct(
+                            text, user.cefr_level, user.native_language
+                        )
+                    )
             await self._persist(session_id, turns, text, " ".join(parts))
             if correction_task is not None:
                 correction = await correction_task
