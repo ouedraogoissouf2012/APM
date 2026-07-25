@@ -151,6 +151,18 @@ class ConversationRepository {
     return null;
   }
 
+  /// Transcribes recorded audio server-side (Whisper via Groq) — far more
+  /// accurate on a non-native accent than the browser recognizer.
+  Future<String> transcribe(List<int> audioBytes) async {
+    final json = await _api.postBytes(
+      '/transcribe',
+      bytes: audioBytes,
+      field: 'audio',
+      filename: 'speech.webm',
+    );
+    return json['text'] as String? ?? '';
+  }
+
   Future<void> endSession(int sessionId) async {
     await _api.postJson('/sessions/$sessionId/end');
   }

@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     # streamed to the client (no key). Voice is chosen from the learner's accent.
     tts_engine: Literal["device", "edge"] = "device"
 
+    # Speech-to-text: "device" = browser recognition (default, weak on accents);
+    # "groq" = Whisper via Groq (free API key), recorded on the device and
+    # transcribed server-side — far better for a non-native accent.
+    stt_engine: Literal["device", "groq"] = "device"
+    groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_stt_model: str = "whisper-large-v3-turbo"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

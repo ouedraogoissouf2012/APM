@@ -8,6 +8,7 @@ from app.core.engines import ENGINE_FAKE
 from app.core.logging import configure_logging
 from app.features.auth.router import router as auth_router
 from app.features.conversation.router import router as conversation_router
+from app.features.conversation.stt_router import router as stt_router
 from app.features.debrief.router import router as debrief_router
 from app.features.profile.router import router as profile_router
 from app.features.sessions.router import router as sessions_router
@@ -32,6 +33,7 @@ app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(sessions_router)
 app.include_router(conversation_router)
+app.include_router(stt_router)
 app.include_router(debrief_router)
 
 
@@ -52,4 +54,7 @@ async def public_config() -> dict[str, bool]:
         # When true, the backend streams synthesized neural audio; the client
         # plays it instead of speaking with the on-device system voice.
         "server_tts": s.tts_engine != "device",
+        # When true, the client records audio and POSTs it to /transcribe
+        # instead of using the (weaker) on-device browser recognizer.
+        "server_stt": s.stt_engine != "device",
     }

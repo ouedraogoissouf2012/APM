@@ -13,6 +13,30 @@ class ApiClient {
 
   Dio get raw => _dio;
 
+  /// POSTs raw bytes as a single multipart file field (used to upload recorded
+  /// audio to /transcribe).
+  Future<Map<String, dynamic>> postBytes(
+    String path, {
+    required List<int> bytes,
+    required String field,
+    required String filename,
+    String? bearer,
+  }) async {
+    try {
+      final form = FormData.fromMap({
+        field: MultipartFile.fromBytes(bytes, filename: filename),
+      });
+      final response = await _dio.post<Map<String, dynamic>>(
+        path,
+        data: form,
+        options: _options(bearer),
+      );
+      return response.data ?? <String, dynamic>{};
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+  }
+
   Future<Map<String, dynamic>> postJson(
     String path, {
     Map<String, dynamic>? body,

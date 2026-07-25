@@ -4,9 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
 from app.database import get_db
+from app.domain.exceptions import NotFoundError
 from app.features.conversation.correction import TurnCorrector
 from app.features.conversation.factory import shared_llm_provider
-from app.features.conversation.providers.interfaces import TtsProvider
+from app.features.conversation.providers.interfaces import SttProvider, TtsProvider
+from app.features.conversation.providers.stt import build_stt_provider
 from app.features.conversation.providers.tts import EdgeTtsProvider
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
@@ -25,6 +27,21 @@ _conversation_rate_limiter = InMemoryRateLimiter(
 
 def get_conversation_rate_limiter() -> RateLimiter:
     return _conversation_rate_limiter
+
+
+def get_stt_provider() -> SttProvider:
+    """Server-side transcription provider. 404 when STT_ENGINE=device: the
+    client transcribes on-device and must not reach this endpoint."""
+    settings = get_settings()
+    provider = build_stt_provider(
+        engine=settings.stt_engine,
+        api_key=settings.groq_api_key,
+        base_url=settings.groq_base_url,
+        model=settings.groq_stt_model,
+    )
+    if provider is None:
+        raise NotFoundError("Server-side transcription is not enabled")
+    return provider
 
 
 def get_conversation_turn_service(
