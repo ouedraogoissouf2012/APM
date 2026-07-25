@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/audio_playback_service.dart';
+import '../../../core/audio/audio_recording_service.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
 import '../../../core/speech/speech_service.dart';
@@ -26,6 +27,10 @@ final conversationRepositoryProvider = Provider<ConversationRepository>(
 
 final audioPlaybackProvider = Provider<AudioPlaybackService>(
   (ref) => DeviceAudioPlaybackService(),
+);
+
+final audioRecordingProvider = Provider<AudioRecordingService>(
+  (ref) => DeviceAudioRecordingService(),
 );
 
 final conversationViewModelProvider =
@@ -136,6 +141,13 @@ class ConversationViewModel extends Notifier<ConversationState> {
   /// silent (empty transcript), an error occurs, or it is explicitly stopped.
   Future<void> listenAndRespond() async {
     if (state.sessionId == null || state.status != ConversationStatus.idle) {
+      return;
+    }
+    // Server STT (Whisper via Groq): push-to-talk. This tap starts recording;
+    // the next tap stops, transcribes and responds. No hands-free auto-loop,
+    // because accurate transcription needs a clean full recording.
+    if (await ref.read(serverSttProvider.future)) {
+      await _startRecording();
       return;
     }
     if (_loopRunning) return; // a prior loop is still unwinding
@@ -292,8 +304,79 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
   }
 
-  /// Stops the loop and the recognizer, returning to idle.
+  /// Push-to-talk: true while recording the learner's utterance (server STT).
+  bool _recording = false;
+
+  /// Starts recording the learner's voice (server STT / push-to-talk).
+  Future<void> _startRecording() async {
+    final started = await ref.read(audioRecordingProvider).start();
+    if (!ref.mounted) return;
+    if (!started) {
+      state = state.copyWith(error: 'Microphone is not available');
+      return;
+    }
+    _recording = true;
+    state = state.copyWith(
+      status: ConversationStatus.listening,
+      clearError: true,
+      clearPartial: true,
+    );
+  }
+
+  /// Stops recording, transcribes the audio server-side, then responds.
+  Future<void> _stopRecordingAndRespond() async {
+    _recording = false;
+    final sessionId = state.sessionId;
+    final bytes = await ref.read(audioRecordingProvider).stop();
+    if (!ref.mounted || sessionId == null) return;
+    if (bytes == null || bytes.isEmpty) {
+      state = state.copyWith(status: ConversationStatus.idle);
+      return;
+    }
+    state = state.copyWith(status: ConversationStatus.thinking, clearPartial: true);
+    final String heard;
+    try {
+      heard = (await ref
+              .read(conversationRepositoryProvider)
+              .transcribe(bytes))
+          .trim();
+    } catch (_) {
+      if (ref.mounted) {
+        state = state.copyWith(
+          status: ConversationStatus.idle,
+          error: 'Could not understand you — try again',
+        );
+      }
+      return;
+    }
+    if (!ref.mounted) return;
+    if (heard.isEmpty) {
+      state = state.copyWith(status: ConversationStatus.idle);
+      return;
+    }
+    _appendTurn(kRoleUser, ConversationStatus.thinking, heard);
+    // Reuse the reply flow, which guards on `_active` (= _conversing); enable it
+    // for the duration of this single response.
+    _conversing = true;
+    try {
+      await _streamReplyAndSpeak(sessionId, heard);
+    } finally {
+      _conversing = false;
+      if (ref.mounted &&
+          state.sessionId != null &&
+          state.status != ConversationStatus.idle) {
+        state = state.copyWith(status: ConversationStatus.idle);
+      }
+    }
+  }
+
+  /// Stops the loop / the recording, returning to idle. In push-to-talk mode a
+  /// tap while recording ends the utterance and triggers the response.
   Future<void> stopConversation() async {
+    if (_recording) {
+      await _stopRecordingAndRespond();
+      return;
+    }
     _conversing = false;
     await ref.read(speechServiceProvider).stopListening();
     if (ref.mounted && state.sessionId != null) {
@@ -306,6 +389,10 @@ class ConversationViewModel extends Notifier<ConversationState> {
 
   Future<void> end() async {
     _conversing = false;
+    if (_recording) {
+      _recording = false;
+      await ref.read(audioRecordingProvider).cancel();
+    }
     await ref.read(speechServiceProvider).stopListening();
     final id = state.sessionId;
     if (id != null) {

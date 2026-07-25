@@ -49,3 +49,9 @@ final demoModeProvider = FutureProvider<bool>((ref) async {
 final serverTtsProvider = FutureProvider<bool>((ref) async {
   return (await ref.watch(runtimeConfigProvider.future)).serverTts;
 });
+
+/// True when the backend transcribes audio (record & upload instead of the
+/// browser recognizer).
+final serverSttProvider = FutureProvider<bool>((ref) async {
+  return (await ref.watch(runtimeConfigProvider.future)).serverStt;
+});

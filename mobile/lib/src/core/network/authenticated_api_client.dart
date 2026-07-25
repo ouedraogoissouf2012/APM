@@ -15,6 +15,22 @@ class AuthenticatedApiClient {
   }) =>
       _withRefresh((bearer) => _api.postJson(path, body: body, bearer: bearer));
 
+  Future<Map<String, dynamic>> postBytes(
+    String path, {
+    required List<int> bytes,
+    required String field,
+    required String filename,
+  }) =>
+      _withRefresh(
+        (bearer) => _api.postBytes(
+          path,
+          bytes: bytes,
+          field: field,
+          filename: filename,
+          bearer: bearer,
+        ),
+      );
+
   Future<Map<String, dynamic>> getJson(String path) =>
       _withRefresh((bearer) => _api.getJson(path, bearer: bearer));
 

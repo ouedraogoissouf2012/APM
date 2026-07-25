@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'dart:typed_data';
+
 import 'package:apm/src/core/audio/audio_playback_service.dart';
+import 'package:apm/src/core/audio/audio_recording_service.dart';
 import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
@@ -30,6 +33,26 @@ class _FakeAudio implements AudioPlaybackService {
 
   @override
   Future<void> stop() async {}
+}
+
+/// Fake recorder that yields fixed bytes on stop, for the push-to-talk path.
+class _FakeRecorder implements AudioRecordingService {
+  bool started = false;
+  bool cancelled = false;
+
+  @override
+  Future<bool> start() async {
+    started = true;
+    return true;
+  }
+
+  @override
+  Future<Uint8List?> stop() async => Uint8List.fromList(const [1, 2, 3]);
+
+  @override
+  Future<void> cancel() async {
+    cancelled = true;
+  }
 }
 
 class _MockProfileRepository extends Mock implements ProfileRepository {}
@@ -131,16 +154,23 @@ ProviderContainer _container(
   ConversationRepository repo,
   SpeechService speech, {
   bool serverTts = false,
+  bool serverStt = false,
   AudioPlaybackService? audio,
+  AudioRecordingService? recorder,
 }) {
   final c = ProviderContainer(
     overrides: [
       conversationRepositoryProvider.overrideWithValue(repo),
       speechServiceProvider.overrideWithValue(speech),
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
+      audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
       // Avoid any real /config network fetch in tests.
       runtimeConfigProvider.overrideWith(
-        (ref) async => RuntimeConfig(demoMode: false, serverTts: serverTts),
+        (ref) async => RuntimeConfig(
+          demoMode: false,
+          serverTts: serverTts,
+          serverStt: serverStt,
+        ),
       ),
     ],
   );
@@ -362,6 +392,47 @@ void main() {
     final last = c.read(conversationViewModelProvider).turns.last;
     expect(last.role, 'assistant');
     expect(last.content, 'Nice weekend? What did you do?');
+  });
+
+  test('server STT: records, transcribes via /transcribe, then responds',
+      () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.transcribe(any())).thenAnswer((_) async => 'hello how are you');
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.value(const ReplySentence('I am well, thank you.')),
+    );
+    final recorder = _FakeRecorder();
+    final c = _container(
+      repo,
+      _FakeSpeech(''),
+      serverStt: true,
+      recorder: recorder,
+    );
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    // First tap: start recording (push-to-talk).
+    await vm.listenAndRespond();
+    expect(recorder.started, isTrue);
+    expect(c.read(conversationViewModelProvider).status,
+        ConversationStatus.listening);
+    // Second tap: stop -> transcribe -> respond.
+    await vm.stopConversation();
+
+    verify(() => repo.transcribe(any())).called(1);
+    final turns = c.read(conversationViewModelProvider).turns;
+    expect(turns.any((t) => t.role == 'user' && t.content == 'hello how are you'),
+        isTrue);
+    expect(
+      turns.any((t) => t.role == 'assistant' && t.content == 'I am well, thank you.'),
+      isTrue,
+    );
   });
 
   test('plays server audio and skips the on-device voice when serverTts is on',
