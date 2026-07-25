@@ -69,10 +69,11 @@ class DeviceSpeechService implements SpeechService {
   /// Kept just under each platform's natural rate: clear, not sluggish.
   static double get kLearnerSpeechRate => kIsWeb ? 0.9 : 0.5;
 
-  /// Trailing silence after which a turn is considered finished. Short enough
-  /// that the learner is not left waiting (this delay is felt as latency before
-  /// the assistant replies), long enough not to cut a brief mid-sentence pause.
-  static const Duration kPauseFor = Duration(milliseconds: 1500);
+  /// Trailing silence after which a turn is considered finished. A LEARNER
+  /// pauses mid-sentence ("hello… how are you"), so this must be generous
+  /// enough not to cut them off after the first word — being cut off is far
+  /// worse than waiting an extra second before the assistant replies.
+  static const Duration kPauseFor = Duration(seconds: 3);
 
   /// Hard cap on a single utterance so a stuck recognizer cannot hang the turn.
   static const Duration kListenFor = Duration(seconds: 30);
