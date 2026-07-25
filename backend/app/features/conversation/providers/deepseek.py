@@ -18,7 +18,7 @@ class DeepSeekLlmProvider:
     """LLM stage backed by DeepSeek's OpenAI-compatible API.
 
     The async client is injected so the provider is unit-testable without a key.
-    Use `deepseek-chat` (V3) for low latency, not the slow reasoner model.
+    Use `deepseek-v4-flash` for low latency, not the slower `deepseek-v4-pro`.
     """
 
     def __init__(self, client: Any, model: str, max_tokens: int) -> None:
