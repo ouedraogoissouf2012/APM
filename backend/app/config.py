@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # Conversation / voice
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"  # V3, low-latency; NOT the slow "reasoner"
+    deepseek_model: str = "deepseek-v4-flash"  # V4 fast tier (deepseek-chat was retired)
     deepseek_timeout_seconds: float = 20.0
     deepseek_max_retries: int = 1
     deepseek_conversation_max_tokens: int = 400
@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     # engine fails at startup instead of silently degrading or 502-ing.
     voice_engine: VoiceEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
     debrief_engine: DebriefEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
+
+    # Text-to-speech: "device" = on-device system voice (default, robotic);
+    # "edge" = free Microsoft Edge neural voices synthesized server-side and
+    # streamed to the client (no key). Voice is chosen from the learner's accent.
+    tts_engine: Literal["device", "edge"] = "device"
+
+    # Speech-to-text: "device" = browser recognition (default, weak on accents);
+    # "groq" = Whisper via Groq (free API key), recorded on the device and
+    # transcribed server-side — far better for a non-native accent.
+    stt_engine: Literal["device", "groq"] = "device"
+    groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_stt_model: str = "whisper-large-v3-turbo"
 
     @property
     def cors_origins_list(self) -> list[str]:

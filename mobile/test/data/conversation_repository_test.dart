@@ -46,6 +46,72 @@ void main() {
     verify(() => api.postJson('/sessions/5/end')).called(1);
   });
 
+  test('streamTurn yields each sentence from the SSE stream in order', () async {
+    when(
+      () => api.postLineStream('/sessions/5/turn/stream', body: any(named: 'body')),
+    ).thenAnswer(
+      (_) => Stream.fromIterable([
+        'event: chunk',
+        'data: {"text":"Hi there."}',
+        '',
+        'event: chunk',
+        'data: {"text":"How are you?"}',
+        '',
+        'event: done',
+        'data: {}',
+        '',
+      ]),
+    );
+
+    final events = await repo.streamTurn(5, 'hello').toList();
+
+    expect(
+      events.whereType<ReplySentence>().map((e) => e.text).toList(),
+      ['Hi there.', 'How are you?'],
+    );
+  });
+
+  test('streamTurn yields a correction event with rule and alternatives',
+      () async {
+    when(
+      () => api.postLineStream('/sessions/5/turn/stream', body: any(named: 'body')),
+    ).thenAnswer(
+      (_) => Stream.fromIterable([
+        'event: chunk',
+        'data: {"text":"Good."}',
+        '',
+        'event: correction',
+        'data: {"original":"i is happy","correction":"I am happy",'
+            '"rule":"Use am with I.","alternatives":["I\'m happy"]}',
+        '',
+        'event: done',
+        'data: {}',
+        '',
+      ]),
+    );
+
+    final events = await repo.streamTurn(5, 'i is happy').toList();
+
+    final corrections = events.whereType<CorrectionEvent>().toList();
+    expect(corrections, hasLength(1));
+    expect(corrections.single.correction.correction, 'I am happy');
+    expect(corrections.single.correction.alternatives, ["I'm happy"]);
+  });
+
+  test('streamTurn surfaces a server error event as an exception', () async {
+    when(
+      () => api.postLineStream('/sessions/5/turn/stream', body: any(named: 'body')),
+    ).thenAnswer(
+      (_) => Stream.fromIterable([
+        'event: error',
+        'data: {"message":"LLM provider failed"}',
+        '',
+      ]),
+    );
+
+    expect(repo.streamTurn(5, 'hi').toList(), throwsA(isA<Exception>()));
+  });
+
   test('getActiveSession returns the session with its transcript', () async {
     when(() => api.getJson('/sessions/active')).thenAnswer(
       (_) async => {

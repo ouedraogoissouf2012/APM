@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/repositories/runtime_config_repository.dart';
 import '../config/app_config.dart';
 import '../storage/token_storage.dart';
 import 'api_client.dart';
@@ -24,3 +25,33 @@ final authenticatedApiClientProvider = Provider<AuthenticatedApiClient>(
     ref.watch(tokenStorageProvider),
   ),
 );
+
+final runtimeConfigRepositoryProvider = Provider<RuntimeConfigRepository>(
+  (ref) => RuntimeConfigRepository(ref.watch(apiClientProvider)),
+);
+
+/// Runtime config from the backend. Never blocks the UI: any fetch failure
+/// resolves to safe defaults (real backend, on-device voice).
+final runtimeConfigProvider = FutureProvider<RuntimeConfig>((ref) async {
+  try {
+    return await ref.watch(runtimeConfigRepositoryProvider).fetch();
+  } catch (_) {
+    return const RuntimeConfig(demoMode: false, serverTts: false);
+  }
+});
+
+/// True when the backend is in demo mode (fake engine).
+final demoModeProvider = FutureProvider<bool>((ref) async {
+  return (await ref.watch(runtimeConfigProvider.future)).demoMode;
+});
+
+/// True when the backend streams neural audio (play it instead of on-device TTS).
+final serverTtsProvider = FutureProvider<bool>((ref) async {
+  return (await ref.watch(runtimeConfigProvider.future)).serverTts;
+});
+
+/// True when the backend transcribes audio (record & upload instead of the
+/// browser recognizer).
+final serverSttProvider = FutureProvider<bool>((ref) async {
+  return (await ref.watch(runtimeConfigProvider.future)).serverStt;
+});

@@ -2,16 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/network/providers.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/scenarios.dart';
 import '../../../data/models/session_modes.dart';
+import '../../../data/models/turn_correction.dart';
 import '../../../design_system/atoms/app_button.dart';
 import '../../../design_system/atoms/overline_text.dart';
+import '../../../design_system/molecules/correction_chip.dart';
 import '../../../design_system/molecules/transcript_text.dart';
 import '../../../design_system/organisms/voice_orb.dart';
 import '../view_model/conversation_state.dart';
 import '../view_model/conversation_view_model.dart';
+import 'grammar_sheet.dart';
 import 'session_status_pill.dart';
 
 /// Écran conversation — le tunnel immersif du DESIGN_SPEC §6.1.
@@ -79,6 +83,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 active: state.isActive,
                 onEnd: _endSession,
               ),
+              if (ref.watch(demoModeProvider).value ?? false)
+                const _DemoBanner(),
               Expanded(child: _OrbZone(state: state)),
               _TranscriptZone(state: state),
               if (state.error != null)
@@ -190,9 +196,9 @@ class _TranscriptZone extends StatelessWidget {
 
   final ConversationState state;
 
-  String? _lastContent(String role) {
+  ConversationTurn? _lastTurn(String role) {
     for (final turn in state.turns.reversed) {
-      if (turn.role == role) return turn.content;
+      if (turn.role == role) return turn;
     }
     return null;
   }
@@ -200,18 +206,27 @@ class _TranscriptZone extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final listening = state.status == ConversationStatus.listening;
+    final lastUser = _lastTurn(kRoleUser);
     // While listening, show the live partial words; otherwise the last final
     // user turn. Live feedback tells the learner the mic is actually hearing.
     final userText = listening
         ? (state.partialTranscript ?? '')
-        : (_lastContent(kRoleUser) ?? '');
-    final assistantText = _lastContent(kRoleAssistant);
+        : (lastUser?.content ?? '');
+    final assistantText = _lastTurn(kRoleAssistant)?.content;
+    // The gold correction chip appears only after the learner stopped speaking
+    // (non-interruption): so, not while listening.
+    final correction = listening ? null : lastUser?.correction;
     final colors = context.colors;
 
     return Column(
       children: [
         if (userText.isNotEmpty)
           TranscriptText(userText, listening: listening),
+        if (correction != null)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.md),
+            child: _TappableCorrection(correction: correction),
+          ),
         if (assistantText != null)
           Padding(
             padding: const EdgeInsets.only(top: AppSpacing.md),
@@ -224,6 +239,63 @@ class _TranscriptZone extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Shown when the backend runs on the fake engine (no DeepSeek key): the app
+/// invents replies and cannot correct — say so plainly rather than pretend.
+class _DemoBanner extends StatelessWidget {
+  const _DemoBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Container(
+      key: const Key('demo_banner'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: AppSpacing.md),
+      padding: const EdgeInsets.symmetric(
+        vertical: AppSpacing.sm,
+        horizontal: AppSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+        border: Border.all(color: colors.border, width: AppStroke.hairline),
+      ),
+      child: Text(
+        'Mode démo — réponses simulées, aucune correction. '
+        'Configure une clé DeepSeek pour l’expérience réelle.',
+        style: AppType.label(colors.textMuted),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+/// The gold correction chip, tappable to reveal the grammar rule and
+/// alternative phrasings (the "grammar options") in a bottom sheet.
+class _TappableCorrection extends StatelessWidget {
+  const _TappableCorrection({required this.correction});
+
+  final TurnCorrection correction;
+
+  bool get _hasDetails =>
+      correction.rule.isNotEmpty || correction.alternatives.isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    final chip = CorrectionChip(
+      key: const Key('turn_correction_chip'),
+      original: correction.original,
+      corrected: correction.correction,
+    );
+    if (!_hasDetails) return chip;
+    return GestureDetector(
+      key: const Key('turn_correction_tap'),
+      onTap: () => showGrammarSheet(context, correction),
+      child: chip,
     );
   }
 }

@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/audio/audio_playback_service.dart';
+import '../../../core/audio/audio_recording_service.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
 import '../../../core/speech/speech_service.dart';
 import '../../../data/models/session_modes.dart';
+import '../../../data/models/turn_correction.dart';
 import '../../../data/repositories/conversation_repository.dart';
 import '../../profile/view_model/profile_view_model.dart';
 import 'conversation_script.dart';
@@ -20,6 +23,14 @@ final speechServiceProvider = Provider<SpeechService>(
 
 final conversationRepositoryProvider = Provider<ConversationRepository>(
   (ref) => ConversationRepository(ref.watch(authenticatedApiClientProvider)),
+);
+
+final audioPlaybackProvider = Provider<AudioPlaybackService>(
+  (ref) => DeviceAudioPlaybackService(),
+);
+
+final audioRecordingProvider = Provider<AudioRecordingService>(
+  (ref) => DeviceAudioRecordingService(),
 );
 
 final conversationViewModelProvider =
@@ -132,6 +143,13 @@ class ConversationViewModel extends Notifier<ConversationState> {
     if (state.sessionId == null || state.status != ConversationStatus.idle) {
       return;
     }
+    // Server STT (Whisper via Groq): push-to-talk. This tap starts recording;
+    // the next tap stops, transcribes and responds. No hands-free auto-loop,
+    // because accurate transcription needs a clean full recording.
+    if (await ref.read(serverSttProvider.future)) {
+      await _startRecording();
+      return;
+    }
     if (_loopRunning) return; // a prior loop is still unwinding
     _loopRunning = true;
     _conversing = true;
@@ -167,14 +185,83 @@ class ConversationViewModel extends Notifier<ConversationState> {
       return false;
     }
     _appendTurn(kRoleUser, ConversationStatus.thinking, heard);
+    return _streamReplyAndSpeak(sessionId, heard);
+  }
 
-    final reply = await _fetchReply(sessionId, heard);
-    if (reply == null) return false; // error already surfaced
-    if (!_active) return false;
-    _appendTurn(kRoleAssistant, ConversationStatus.speaking, reply);
-
-    await ref.read(speechServiceProvider).speak(reply);
+  /// Streams the reply sentence by sentence: each sentence is spoken as soon as
+  /// it arrives (so the learner hears the first words while the model is still
+  /// writing) and the on-screen reply grows in step. This is what removes the
+  /// long silence before the assistant starts talking.
+  Future<bool> _streamReplyAndSpeak(int sessionId, String heard) async {
+    final speech = ref.read(speechServiceProvider);
+    final audio = ref.read(audioPlaybackProvider);
+    // Server-side neural voice? Then the reply arrives as audio clips to play;
+    // otherwise fall back to the on-device system voice. Defaults to false
+    // (on-device) if the backend/config is unreachable.
+    final serverTts = await ref.read(serverTtsProvider.future);
+    final buffer = StringBuffer();
+    var hasText = false;
+    try {
+      final events = ref
+          .read(conversationRepositoryProvider)
+          .streamTurn(sessionId, heard);
+      await for (final event in events) {
+        if (!_active) return false;
+        switch (event) {
+          case ReplySentence(:final text):
+            buffer.write(hasText ? ' $text' : text);
+            _setAssistantReply(buffer.toString());
+            hasText = true;
+            // Only speak on-device when the backend is NOT sending audio.
+            if (!serverTts) await speech.speak(text);
+          case AudioClip(:final audioB64, :final mime):
+            // Real neural voice: play it (awaits until the clip finishes).
+            await audio.playClip(audioB64, mime);
+          case CorrectionEvent(:final correction):
+            // Attach to the learner's turn -> gold chip under their bubble.
+            _attachCorrection(correction);
+        }
+        if (!_active) return false;
+      }
+    } catch (_) {
+      if (ref.mounted) {
+        state = state.copyWith(
+          status: ConversationStatus.idle,
+          error: 'Could not get a reply',
+        );
+      }
+      return false;
+    }
     return _active;
+  }
+
+  /// Attaches a grammar correction to the learner's most recent user turn, so
+  /// the UI renders the gold correction chip under that bubble.
+  void _attachCorrection(TurnCorrection correction) {
+    final turns = [...state.turns];
+    for (var i = turns.length - 1; i >= 0; i--) {
+      if (turns[i].role == kRoleUser) {
+        turns[i] = turns[i].withCorrection(correction);
+        state = state.copyWith(turns: turns);
+        return;
+      }
+    }
+  }
+
+  /// Sets (or replaces) the current assistant turn as its text streams in, and
+  /// moves to the speaking state. Replaces the last assistant turn in place so
+  /// the transcript shows one growing reply, not a sentence per turn.
+  void _setAssistantReply(String content) {
+    final turns = [...state.turns];
+    if (turns.isNotEmpty && turns.last.role == kRoleAssistant) {
+      turns[turns.length - 1] = ConversationTurn(kRoleAssistant, content);
+    } else {
+      turns.add(ConversationTurn(kRoleAssistant, content));
+    }
+    state = state.copyWith(
+      turns: turns,
+      status: ConversationStatus.speaking,
+    );
   }
 
   /// Listens for one utterance, streaming partial words to the UI.
@@ -202,24 +289,6 @@ class ConversationViewModel extends Notifier<ConversationState> {
     );
   }
 
-  /// Sends the learner's line to the backend. Returns the reply, or null after
-  /// surfacing a user-facing error (which also ends the loop).
-  Future<String?> _fetchReply(int sessionId, String text) async {
-    try {
-      return await ref
-          .read(conversationRepositoryProvider)
-          .sendTurn(sessionId, text);
-    } catch (_) {
-      if (ref.mounted) {
-        state = state.copyWith(
-          status: ConversationStatus.idle,
-          error: 'Could not get a reply',
-        );
-      }
-      return null;
-    }
-  }
-
   /// Appends a turn and moves to [next]. Single place that grows the transcript.
   void _appendTurn(String role, ConversationStatus next, String content) {
     state = state.copyWith(
@@ -235,8 +304,79 @@ class ConversationViewModel extends Notifier<ConversationState> {
     }
   }
 
-  /// Stops the loop and the recognizer, returning to idle.
+  /// Push-to-talk: true while recording the learner's utterance (server STT).
+  bool _recording = false;
+
+  /// Starts recording the learner's voice (server STT / push-to-talk).
+  Future<void> _startRecording() async {
+    final started = await ref.read(audioRecordingProvider).start();
+    if (!ref.mounted) return;
+    if (!started) {
+      state = state.copyWith(error: 'Microphone is not available');
+      return;
+    }
+    _recording = true;
+    state = state.copyWith(
+      status: ConversationStatus.listening,
+      clearError: true,
+      clearPartial: true,
+    );
+  }
+
+  /// Stops recording, transcribes the audio server-side, then responds.
+  Future<void> _stopRecordingAndRespond() async {
+    _recording = false;
+    final sessionId = state.sessionId;
+    final bytes = await ref.read(audioRecordingProvider).stop();
+    if (!ref.mounted || sessionId == null) return;
+    if (bytes == null || bytes.isEmpty) {
+      state = state.copyWith(status: ConversationStatus.idle);
+      return;
+    }
+    state = state.copyWith(status: ConversationStatus.thinking, clearPartial: true);
+    final String heard;
+    try {
+      heard = (await ref
+              .read(conversationRepositoryProvider)
+              .transcribe(bytes))
+          .trim();
+    } catch (_) {
+      if (ref.mounted) {
+        state = state.copyWith(
+          status: ConversationStatus.idle,
+          error: 'Could not understand you — try again',
+        );
+      }
+      return;
+    }
+    if (!ref.mounted) return;
+    if (heard.isEmpty) {
+      state = state.copyWith(status: ConversationStatus.idle);
+      return;
+    }
+    _appendTurn(kRoleUser, ConversationStatus.thinking, heard);
+    // Reuse the reply flow, which guards on `_active` (= _conversing); enable it
+    // for the duration of this single response.
+    _conversing = true;
+    try {
+      await _streamReplyAndSpeak(sessionId, heard);
+    } finally {
+      _conversing = false;
+      if (ref.mounted &&
+          state.sessionId != null &&
+          state.status != ConversationStatus.idle) {
+        state = state.copyWith(status: ConversationStatus.idle);
+      }
+    }
+  }
+
+  /// Stops the loop / the recording, returning to idle. In push-to-talk mode a
+  /// tap while recording ends the utterance and triggers the response.
   Future<void> stopConversation() async {
+    if (_recording) {
+      await _stopRecordingAndRespond();
+      return;
+    }
     _conversing = false;
     await ref.read(speechServiceProvider).stopListening();
     if (ref.mounted && state.sessionId != null) {
@@ -249,6 +389,10 @@ class ConversationViewModel extends Notifier<ConversationState> {
 
   Future<void> end() async {
     _conversing = false;
+    if (_recording) {
+      _recording = false;
+      await ref.read(audioRecordingProvider).cancel();
+    }
     await ref.read(speechServiceProvider).stopListening();
     final id = state.sessionId;
     if (id != null) {

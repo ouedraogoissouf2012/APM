@@ -1,10 +1,17 @@
 import 'dart:async';
 
+import 'dart:typed_data';
+
+import 'package:apm/src/core/audio/audio_playback_service.dart';
+import 'package:apm/src/core/audio/audio_recording_service.dart';
 import 'package:apm/src/core/network/api_exception.dart';
+import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
 import 'package:apm/src/data/models/profile.dart';
+import 'package:apm/src/data/models/turn_correction.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
 import 'package:apm/src/data/repositories/profile_repository.dart';
+import 'package:apm/src/data/repositories/runtime_config_repository.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_view_model.dart';
 import 'package:apm/src/ui/profile/view_model/profile_view_model.dart';
@@ -14,6 +21,39 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockConversationRepository extends Mock
     implements ConversationRepository {}
+
+/// Records which audio clips were played, so tests can assert the server voice
+/// is used (and the on-device voice is not).
+class _FakeAudio implements AudioPlaybackService {
+  final List<String> played = [];
+  @override
+  Future<void> playClip(String audioB64, String mime) async {
+    played.add(audioB64);
+  }
+
+  @override
+  Future<void> stop() async {}
+}
+
+/// Fake recorder that yields fixed bytes on stop, for the push-to-talk path.
+class _FakeRecorder implements AudioRecordingService {
+  bool started = false;
+  bool cancelled = false;
+
+  @override
+  Future<bool> start() async {
+    started = true;
+    return true;
+  }
+
+  @override
+  Future<Uint8List?> stop() async => Uint8List.fromList(const [1, 2, 3]);
+
+  @override
+  Future<void> cancel() async {
+    cancelled = true;
+  }
+}
 
 class _MockProfileRepository extends Mock implements ProfileRepository {}
 
@@ -112,12 +152,26 @@ class _BlockingSpeech implements SpeechService {
 
 ProviderContainer _container(
   ConversationRepository repo,
-  SpeechService speech,
-) {
+  SpeechService speech, {
+  bool serverTts = false,
+  bool serverStt = false,
+  AudioPlaybackService? audio,
+  AudioRecordingService? recorder,
+}) {
   final c = ProviderContainer(
     overrides: [
       conversationRepositoryProvider.overrideWithValue(repo),
       speechServiceProvider.overrideWithValue(speech),
+      audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
+      audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
+      // Avoid any real /config network fetch in tests.
+      runtimeConfigProvider.overrideWith(
+        (ref) async => RuntimeConfig(
+          demoMode: false,
+          serverTts: serverTts,
+          serverStt: serverStt,
+        ),
+      ),
     ],
   );
   addTearDown(c.dispose);
@@ -133,7 +187,9 @@ ConversationRepository _repoReturning(int sessionId, {String? reply}) {
     ),
   ).thenAnswer((_) async => sessionId);
   if (reply != null) {
-    when(() => repo.sendTurn(any(), any())).thenAnswer((_) async => reply);
+    // The VM consumes the streaming path; yield the reply as one sentence.
+    when(() => repo.streamTurn(any(), any()))
+        .thenAnswer((_) => Stream.value(ReplySentence(reply)));
   }
   return repo;
 }
@@ -306,6 +362,148 @@ void main() {
     },
   );
 
+  test('speaks each streamed sentence as it arrives (not one block)',
+      () async {
+    // The reply streams as two sentences; both must be spoken, in order, and
+    // the transcript shows them joined as one growing assistant turn.
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(const [
+        ReplySentence('Nice weekend?'),
+        ReplySentence('What did you do?'),
+      ]),
+    );
+    final speech = _FakeSpeech('i went out');
+    final c = _container(repo, speech);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.listenAndRespond();
+
+    // Each sentence was spoken separately, in order.
+    expect(speech.spoken, ['Nice weekend?', 'What did you do?']);
+    // The transcript shows the full reply joined.
+    final last = c.read(conversationViewModelProvider).turns.last;
+    expect(last.role, 'assistant');
+    expect(last.content, 'Nice weekend? What did you do?');
+  });
+
+  test('server STT: records, transcribes via /transcribe, then responds',
+      () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.transcribe(any())).thenAnswer((_) async => 'hello how are you');
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.value(const ReplySentence('I am well, thank you.')),
+    );
+    final recorder = _FakeRecorder();
+    final c = _container(
+      repo,
+      _FakeSpeech(''),
+      serverStt: true,
+      recorder: recorder,
+    );
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    // First tap: start recording (push-to-talk).
+    await vm.listenAndRespond();
+    expect(recorder.started, isTrue);
+    expect(c.read(conversationViewModelProvider).status,
+        ConversationStatus.listening);
+    // Second tap: stop -> transcribe -> respond.
+    await vm.stopConversation();
+
+    verify(() => repo.transcribe(any())).called(1);
+    final turns = c.read(conversationViewModelProvider).turns;
+    expect(turns.any((t) => t.role == 'user' && t.content == 'hello how are you'),
+        isTrue);
+    expect(
+      turns.any((t) => t.role == 'assistant' && t.content == 'I am well, thank you.'),
+      isTrue,
+    );
+  });
+
+  test('plays server audio and skips the on-device voice when serverTts is on',
+      () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(const [
+        ReplySentence('Good.'),
+        AudioClip('QUJD', 'audio/mpeg'), // "ABC" in base64
+      ]),
+    );
+    final speech = _FakeSpeech('i went out');
+    final audio = _FakeAudio();
+    final c = _container(repo, speech, serverTts: true, audio: audio);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.listenAndRespond();
+
+    // The neural clip was played, and the robotic on-device voice was NOT used.
+    expect(audio.played, ['QUJD']);
+    expect(speech.spoken, isEmpty);
+    // The transcript still shows the reply text.
+    expect(
+      c.read(conversationViewModelProvider).turns.last.content,
+      'Good.',
+    );
+  });
+
+  test('attaches a streamed correction to the learner turn', () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(const [
+        ReplySentence('Good.'),
+        CorrectionEvent(
+          TurnCorrection(
+            original: 'i is happy',
+            correction: 'I am happy',
+            rule: "Use 'am' with 'I'.",
+            alternatives: ["I'm happy"],
+          ),
+        ),
+      ]),
+    );
+    final c = _container(repo, _FakeSpeech('i is happy'));
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.listenAndRespond();
+
+    final userTurn = c
+        .read(conversationViewModelProvider)
+        .turns
+        .firstWhere((t) => t.role == 'user');
+    expect(userTurn.correction, isNotNull);
+    expect(userTurn.correction!.correction, 'I am happy');
+    expect(userTurn.correction!.alternatives, ["I'm happy"]);
+  });
+
   test('empty recognized speech stays idle and sends nothing', () async {
     final repo = _repoReturning(1, reply: 'unused');
     final c = _container(repo, _FakeSpeech('   '));
@@ -318,7 +516,7 @@ void main() {
     expect(state.turns.length, 1);
     expect(state.turns.single.role, 'assistant');
     expect(state.status, ConversationStatus.idle);
-    verifyNever(() => repo.sendTurn(any(), any()));
+    verifyNever(() => repo.streamTurn(any(), any()));
   });
 
   test('end closes the session and resets state', () async {
@@ -410,8 +608,8 @@ void main() {
           scenarioId: any(named: 'scenarioId'),
         ),
       ).thenAnswer((_) async => 1);
-      when(() => repo.sendTurn(any(), any()))
-          .thenThrow(Exception('network down'));
+      when(() => repo.streamTurn(any(), any()))
+          .thenAnswer((_) => Stream.error(Exception('network down')));
       final c = _container(repo, _FakeSpeech('hello'));
       final vm = c.read(conversationViewModelProvider.notifier);
 
@@ -500,7 +698,7 @@ void main() {
           turnsAfterStop);
       expect(c.read(conversationViewModelProvider).status,
           ConversationStatus.idle);
-      verifyNever(() => repo.sendTurn(any(), any()));
+      verifyNever(() => repo.streamTurn(any(), any()));
     });
   });
 }

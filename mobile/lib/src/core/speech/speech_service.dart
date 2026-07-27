@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'speech_engines.dart';
 
 /// Maps the learner's accent preference (profile: 'us' | 'uk') to the BCP-47
@@ -61,12 +63,17 @@ class DeviceSpeechService implements SpeechService {
         _tts = tts ?? PluginTtsEngine(),
         _languageTag = languageTag;
 
-  /// TTS rate, slightly below default: a clearer model for a learner's ear.
-  static const double kLearnerSpeechRate = 0.45;
+  /// TTS rate — a clear, natural pace for a learner. flutter_tts uses a
+  /// DIFFERENT scale per platform (web's "normal" is ~1.0; Android/iOS's is
+  /// ~0.5), so a single constant sounds fine on mobile but half-speed on web.
+  /// Kept just under each platform's natural rate: clear, not sluggish.
+  static double get kLearnerSpeechRate => kIsWeb ? 0.9 : 0.5;
 
-  /// Trailing silence after which a turn is considered finished. Short enough
-  /// that the learner is not left waiting, long enough not to cut mid-sentence.
-  static const Duration kPauseFor = Duration(seconds: 2);
+  /// Trailing silence after which a turn is considered finished. A LEARNER
+  /// pauses mid-sentence ("hello… how are you"), so this must be generous
+  /// enough not to cut them off after the first word — being cut off is far
+  /// worse than waiting an extra second before the assistant replies.
+  static const Duration kPauseFor = Duration(seconds: 3);
 
   /// Hard cap on a single utterance so a stuck recognizer cannot hang the turn.
   static const Duration kListenFor = Duration(seconds: 30);

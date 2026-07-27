@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../config/app_config.dart';
@@ -10,6 +12,30 @@ class ApiClient {
   final Dio _dio;
 
   Dio get raw => _dio;
+
+  /// POSTs raw bytes as a single multipart file field (used to upload recorded
+  /// audio to /transcribe).
+  Future<Map<String, dynamic>> postBytes(
+    String path, {
+    required List<int> bytes,
+    required String field,
+    required String filename,
+    String? bearer,
+  }) async {
+    try {
+      final form = FormData.fromMap({
+        field: MultipartFile.fromBytes(bytes, filename: filename),
+      });
+      final response = await _dio.post<Map<String, dynamic>>(
+        path,
+        data: form,
+        options: _options(bearer),
+      );
+      return response.data ?? <String, dynamic>{};
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+  }
 
   Future<Map<String, dynamic>> postJson(
     String path, {
@@ -67,6 +93,30 @@ class ApiClient {
     } on DioException catch (e) {
       throw _toApiException(e);
     }
+  }
+
+  /// POSTs and streams the response body as decoded text lines — used for the
+  /// Server-Sent Events turn endpoint. The line stream is fed to [parseSse].
+  Stream<String> postLineStream(
+    String path, {
+    Map<String, dynamic>? body,
+    String? bearer,
+  }) async* {
+    final Response<ResponseBody> response;
+    try {
+      response = await _dio.post<ResponseBody>(
+        path,
+        data: body,
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: bearer == null ? null : {'Authorization': 'Bearer $bearer'},
+        ),
+      );
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+    final byteStream = response.data!.stream.map((chunk) => chunk.toList());
+    yield* byteStream.transform(utf8.decoder).transform(const LineSplitter());
   }
 
   Options _options(String? bearer) => Options(

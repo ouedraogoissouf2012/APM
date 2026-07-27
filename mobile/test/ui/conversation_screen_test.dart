@@ -1,6 +1,9 @@
+import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/router/routes.dart';
 import 'package:apm/src/core/theme/app_theme.dart';
 import 'package:apm/src/data/models/session_modes.dart';
+import 'package:apm/src/data/models/turn_correction.dart';
+import 'package:apm/src/design_system/molecules/correction_chip.dart';
 import 'package:apm/src/design_system/molecules/transcript_text.dart';
 import 'package:apm/src/design_system/organisms/voice_orb.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
@@ -50,6 +53,7 @@ Future<_StubConversationViewModel> _pump(
   WidgetTester tester,
   ConversationState state, {
   String location = '/conversation?mode=free',
+  bool demoMode = false,
 }) async {
   final stub = _StubConversationViewModel(state);
   final router = GoRouter(
@@ -71,7 +75,10 @@ Future<_StubConversationViewModel> _pump(
   );
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [conversationViewModelProvider.overrideWith(() => stub)],
+      overrides: [
+        conversationViewModelProvider.overrideWith(() => stub),
+        demoModeProvider.overrideWith((ref) async => demoMode),
+      ],
       child: MaterialApp.router(theme: AppTheme.dark(), routerConfig: router),
     ),
   );
@@ -208,6 +215,80 @@ void main() {
 
     expect(stub.endCalled, isTrue);
     expect(find.text('Debrief target'), findsOneWidget);
+  });
+
+  testWidgets('correction : chip doré sous la bulle apprenant, tap → grammaire',
+      (tester) async {
+    const withCorrection = ConversationState(
+      sessionId: 7,
+      turns: [
+        ConversationTurn(kRoleAssistant, 'Good.'),
+        ConversationTurn(
+          kRoleUser,
+          'i is happy',
+          correction: TurnCorrection(
+            original: 'i is happy',
+            correction: 'I am happy',
+            rule: "Use 'am' with 'I'.",
+            alternatives: ["I'm happy"],
+          ),
+        ),
+      ],
+    );
+    await _pump(tester, withCorrection);
+    // Let the chip's 400ms non-interruption delay elapse.
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(CorrectionChip), findsOneWidget);
+    expect(find.byKey(const Key('turn_correction_chip')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('turn_correction_tap')));
+    await tester.pumpAndSettle();
+
+    // The grammar sheet shows the rule and the alternative phrasing.
+    expect(find.byKey(const Key('grammar_sheet')), findsOneWidget);
+    expect(find.text("Use 'am' with 'I'."), findsOneWidget);
+    expect(find.textContaining("I'm happy"), findsWidgets);
+  });
+
+  testWidgets('correction : pas de chip pendant que l\'apprenant parle',
+      (tester) async {
+    const listeningWithCorrection = ConversationState(
+      sessionId: 7,
+      status: ConversationStatus.listening,
+      partialTranscript: 'i is',
+      turns: [
+        ConversationTurn(
+          kRoleUser,
+          'i is happy',
+          correction: TurnCorrection(
+            original: 'i is happy',
+            correction: 'I am happy',
+            rule: 'r',
+          ),
+        ),
+      ],
+    );
+    await _pump(tester, listeningWithCorrection);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // Non-interruption: the chip must not show while listening.
+    expect(find.byType(CorrectionChip), findsNothing);
+  });
+
+  testWidgets('mode démo : bandeau affiché quand le backend est en fake',
+      (tester) async {
+    await _pump(tester, activeIdle, demoMode: true);
+    await tester.pump();
+    expect(find.byKey(const Key('demo_banner')), findsOneWidget);
+    expect(find.textContaining('Mode démo'), findsOneWidget);
+  });
+
+  testWidgets('mode démo : aucun bandeau quand un vrai moteur est configuré',
+      (tester) async {
+    await _pump(tester, activeIdle, demoMode: false);
+    await tester.pump();
+    expect(find.byKey(const Key('demo_banner')), findsNothing);
   });
 
   testWidgets('quota épuisé : affiche le paywall, pas l\'orbe', (tester) async {
