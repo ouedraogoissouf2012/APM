@@ -46,9 +46,7 @@ class DebriefAnalyzer:
         native_language: str,
         fallback_cefr: str = "A1",
     ) -> DebriefResult:
-        learner_text = "\n".join(
-            t.get("content", "") for t in turns if t.get("role") == ROLE_USER
-        )
+        learner_text = "\n".join(t.get("content", "") for t in turns if t.get("role") == ROLE_USER)
         system_prompt = _build_system_prompt(native_language, self._max_errors)
         raw = await self._llm.complete(
             system_prompt,

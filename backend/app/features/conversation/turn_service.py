@@ -104,9 +104,7 @@ class ConversationTurnService:
                 # time.
                 if correction_task is None and self._corrector is not None:
                     correction_task = asyncio.ensure_future(
-                        self._corrector.correct(
-                            text, user.cefr_level, user.native_language
-                        )
+                        self._corrector.correct(text, user.cefr_level, user.native_language)
                     )
             full_reply = " ".join(parts)
             await self._persist(session_id, turns, text, full_reply)

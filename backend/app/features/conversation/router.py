@@ -62,9 +62,7 @@ async def stream_turn(
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            async for event in service.stream_turn(
-                session_id, current_user, payload.text
-            ):
+            async for event in service.stream_turn(session_id, current_user, payload.text):
                 if isinstance(event, ReplyChunk):
                     yield _sse("chunk", {"text": event.text})
                 elif isinstance(event, AudioChunk):

@@ -58,8 +58,7 @@ async def test_rejects_correction_not_anchored_in_the_utterance():
 @pytest.mark.asyncio
 async def test_rejects_no_op_correction():
     result = await _correct(
-        '{"has_error": true, "original": "i is happy", '
-        '"correction": "i is happy", "rule": "x"}'
+        '{"has_error": true, "original": "i is happy", "correction": "i is happy", "rule": "x"}'
     )
     assert result is None
 

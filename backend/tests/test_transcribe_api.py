@@ -50,9 +50,7 @@ async def test_transcribe_empty_audio_returns_empty_text(client):
 
 @pytest.mark.asyncio
 async def test_transcribe_requires_auth(client):
-    resp = await client.post(
-        "/transcribe", files={"audio": ("speech.webm", b"x", "audio/webm")}
-    )
+    resp = await client.post("/transcribe", files={"audio": ("speech.webm", b"x", "audio/webm")})
     assert resp.status_code == 401
 
 

@@ -17,9 +17,7 @@ class TextCompletionProvider(Protocol):
 class LlmProvider(TextCompletionProvider, Protocol):
     """A conversation LLM: blocking completion plus streamed sentences."""
 
-    def stream_complete(
-        self, system_prompt: str, history: list[Message]
-    ) -> AsyncIterator[str]:
+    def stream_complete(self, system_prompt: str, history: list[Message]) -> AsyncIterator[str]:
         """Yield the reply as speakable chunks (sentences) as they are generated,
         so the client can start speaking before the whole reply is ready."""
         ...
