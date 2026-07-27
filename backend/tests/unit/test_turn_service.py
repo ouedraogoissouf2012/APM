@@ -243,9 +243,7 @@ async def test_stream_turn_speaks_whole_reply_as_one_clip_after_the_text():
 
 @pytest.mark.asyncio
 async def test_stream_turn_emits_no_audio_when_no_tts():
-    service = _service(
-        _FakeSessions(owner_id=7), _FakeTranscripts(), _StreamingLlm(["Hi."])
-    )
+    service = _service(_FakeSessions(owner_id=7), _FakeTranscripts(), _StreamingLlm(["Hi."]))
     events = [c async for c in service.stream_turn(1, _user(), "hello")]
     assert not any(isinstance(e, AudioChunk) for e in events)
 

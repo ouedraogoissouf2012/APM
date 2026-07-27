@@ -66,9 +66,9 @@ class TurnCorrector:
         # and that actually changes something.
         if not original or not correction or original not in text or original == correction:
             return None
-        alternatives = [
-            _clip(str(a)) for a in data.get("alternatives", []) if str(a).strip()
-        ][:_MAX_ALTERNATIVES]
+        alternatives = [_clip(str(a)) for a in data.get("alternatives", []) if str(a).strip()][
+            :_MAX_ALTERNATIVES
+        ]
         return TurnCorrection(
             original=original,
             correction=correction,

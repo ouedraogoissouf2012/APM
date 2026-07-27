@@ -102,9 +102,7 @@ async def test_turn_stream_persists_full_reply(client):
     start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
     session_id = start.json()["session_id"]
 
-    await client.post(
-        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "hi"}
-    )
+    await client.post(f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "hi"})
     # The next non-stream turn must see the streamed reply in history.
     second = await client.post(
         f"/sessions/{session_id}/turn", headers=headers, json={"text": "again"}
