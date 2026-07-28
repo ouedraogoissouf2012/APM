@@ -8,6 +8,7 @@ from app.core.engines import (
     ENGINE_DEEPSEEK,
     DebriefEngineName,
     MissionEngineName,
+    ShadowingEngineName,
     VoiceEngineName,
 )
 
@@ -42,6 +43,8 @@ class Settings(BaseSettings):
     debrief_rate_limit_window_seconds: int = 60
     mission_rate_limit_max: int = 5
     mission_rate_limit_window_seconds: int = 60
+    shadowing_rate_limit_max: int = 20
+    shadowing_rate_limit_window_seconds: int = 60
 
     livekit_url: str = ""
     livekit_api_key: str = ""
@@ -64,6 +67,7 @@ class Settings(BaseSettings):
     deepseek_conversation_max_tokens: int = 400
     deepseek_debrief_max_tokens: int = 900
     deepseek_mission_max_tokens: int = 500  # a mission brief is short structured JSON
+    deepseek_shadowing_max_tokens: int = 300  # a target phrase + short coaching
     debrief_max_errors: int = 5  # errors surfaced to the learner per debrief
     session_history_page_size: int = 20
     # Literal-validated: a typo (e.g. "deepsek") or a not-yet-implemented
@@ -72,6 +76,8 @@ class Settings(BaseSettings):
     debrief_engine: DebriefEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
     # Compiles a pasted job offer / CV / pitch into a tailored simulation brief.
     mission_engine: MissionEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
+    # Generates shadowing target phrases and coaches pronunciation attempts.
+    shadowing_engine: ShadowingEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
 
     # Text-to-speech: "device" = on-device system voice (default, robotic);
     # "edge" = free Microsoft Edge neural voices synthesized server-side and
@@ -102,7 +108,13 @@ class Settings(BaseSettings):
         if "*" in self.cors_origins_list and self.cors_allow_credentials:
             raise ValueError("CORS_ALLOW_ORIGINS=* cannot be used with credentials in production")
         if (
-            ENGINE_DEEPSEEK in (self.voice_engine, self.debrief_engine, self.mission_engine)
+            ENGINE_DEEPSEEK
+            in (
+                self.voice_engine,
+                self.debrief_engine,
+                self.mission_engine,
+                self.shadowing_engine,
+            )
             and not self.deepseek_api_key
         ):
             raise ValueError("DEEPSEEK_API_KEY is required when DeepSeek is enabled")

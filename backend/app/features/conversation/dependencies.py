@@ -45,6 +45,15 @@ def get_stt_provider() -> SttProvider:
     return provider
 
 
+def get_tts_provider() -> TtsProvider:
+    """Server-side neural TTS. 404 when TTS_ENGINE=device: the client speaks with
+    its on-device voice and must not reach a server TTS endpoint."""
+    settings = get_settings()
+    if settings.tts_engine != "edge":
+        raise NotFoundError("Server-side text-to-speech is not enabled")
+    return EdgeTtsProvider()
+
+
 def get_conversation_turn_service(
     db: AsyncSession = Depends(get_db),
 ) -> ConversationTurnService:

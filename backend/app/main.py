@@ -14,6 +14,7 @@ from app.features.debrief.router import router as debrief_router
 from app.features.missions.router import router as missions_router
 from app.features.profile.router import router as profile_router
 from app.features.sessions.router import router as sessions_router
+from app.features.shadowing.router import router as shadowing_router
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -38,6 +39,7 @@ app.include_router(sessions_router)
 app.include_router(missions_router)
 app.include_router(conversation_router)
 app.include_router(stt_router)
+app.include_router(shadowing_router)
 app.include_router(debrief_router)
 
 
@@ -57,6 +59,8 @@ async def public_config() -> dict[str, bool]:
         "debrief_demo_mode": s.debrief_engine == ENGINE_FAKE,
         # When true, missions are compiled by the fake engine (generic brief).
         "mission_demo_mode": s.mission_engine == ENGINE_FAKE,
+        # When true, shadowing phrases/coaching come from the fake engine.
+        "shadowing_demo_mode": s.shadowing_engine == ENGINE_FAKE,
         # When true, the backend streams synthesized neural audio; the client
         # plays it instead of speaking with the on-device system voice.
         "server_tts": s.tts_engine != "device",
