@@ -20,6 +20,7 @@ from app.domain.exceptions import (
 )
 from app.features.auth.repository import UserRepository
 from app.features.conversation.repository import TranscriptRepository
+from app.features.missions.repository import MissionRepository
 from app.features.sessions.models import ConversationSession
 from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
@@ -63,6 +64,7 @@ class SessionService:
         token_issuer: RoomTokenIssuer | None = None,
         voice_engine: str = ENGINE_FAKE,
         history_page_size: int = DEFAULT_HISTORY_PAGE_SIZE,
+        missions: MissionRepository | None = None,
     ) -> None:
         self._sessions = sessions
         self._users = users
@@ -71,8 +73,15 @@ class SessionService:
         self._token_issuer = token_issuer or LiveKitRoomTokenIssuer()
         self._voice_engine = voice_engine
         self._history_page_size = history_page_size
+        self._missions = missions
 
-    async def start(self, user_id: int, mode: str, scenario_id: str | None) -> StartedSession:
+    async def start(
+        self,
+        user_id: int,
+        mode: str,
+        scenario_id: str | None,
+        mission_id: int | None = None,
+    ) -> StartedSession:
         # Lock the user row for the whole use case -> serializes concurrent starts.
         user = await self._users.lock(user_id)
         if user is None:
@@ -82,10 +91,16 @@ class SessionService:
         if await self._sessions.get_active_for_user(user_id) is not None:
             raise ActiveSessionExistsError("A session is already in progress")
 
+        # Never trust the client's claim to own the mission: re-check here. A
+        # missing/foreign mission id is a 404 (does not reveal existence).
+        if mission_id is not None and not await self._owns_mission(mission_id, user_id):
+            raise NotFoundError("Mission not found")
+
         session = ConversationSession(
             user_id=user_id,
             mode=mode,
             scenario_id=scenario_id,
+            mission_id=mission_id,
             room_name=f"apm-{user_id}-{uuid4().hex}",
             voice_engine=self._voice_engine,  # record the engine that served it
         )
@@ -94,6 +109,11 @@ class SessionService:
 
         token = self._token_issuer.issue(identity=f"user-{user_id}", room=session.room_name)
         return StartedSession(session=session, livekit_token=token)
+
+    async def _owns_mission(self, mission_id: int, user_id: int) -> bool:
+        if self._missions is None:
+            return False
+        return await self._missions.get_owned(mission_id, user_id) is not None
 
     async def active(self, user_id: int) -> ActiveSession | None:
         """The user's in-progress session with its transcript so far, or None.

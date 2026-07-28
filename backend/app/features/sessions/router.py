@@ -33,7 +33,9 @@ async def start_session(
     current_user: User = Depends(get_current_user),
     service: SessionService = Depends(get_session_service),
 ) -> SessionStartOut:
-    started = await service.start(current_user.id, payload.mode, payload.scenario_id)
+    started = await service.start(
+        current_user.id, payload.mode, payload.scenario_id, payload.mission_id
+    )
     return SessionStartOut(
         session_id=started.session.id,
         room_name=started.session.room_name,

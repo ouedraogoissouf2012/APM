@@ -4,7 +4,12 @@ from typing import Literal
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.engines import ENGINE_DEEPSEEK, DebriefEngineName, VoiceEngineName
+from app.core.engines import (
+    ENGINE_DEEPSEEK,
+    DebriefEngineName,
+    MissionEngineName,
+    VoiceEngineName,
+)
 
 EXAMPLE_JWT_SECRET = "change-me-in-production-use-a-long-random-string"
 
@@ -35,6 +40,8 @@ class Settings(BaseSettings):
     conversation_rate_limit_window_seconds: int = 60
     debrief_rate_limit_max: int = 5
     debrief_rate_limit_window_seconds: int = 60
+    mission_rate_limit_max: int = 5
+    mission_rate_limit_window_seconds: int = 60
 
     livekit_url: str = ""
     livekit_api_key: str = ""
@@ -56,12 +63,15 @@ class Settings(BaseSettings):
     deepseek_max_retries: int = 1
     deepseek_conversation_max_tokens: int = 400
     deepseek_debrief_max_tokens: int = 900
+    deepseek_mission_max_tokens: int = 500  # a mission brief is short structured JSON
     debrief_max_errors: int = 5  # errors surfaced to the learner per debrief
     session_history_page_size: int = 20
     # Literal-validated: a typo (e.g. "deepsek") or a not-yet-implemented
     # engine fails at startup instead of silently degrading or 502-ing.
     voice_engine: VoiceEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
     debrief_engine: DebriefEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
+    # Compiles a pasted job offer / CV / pitch into a tailored simulation brief.
+    mission_engine: MissionEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
 
     # Text-to-speech: "device" = on-device system voice (default, robotic);
     # "edge" = free Microsoft Edge neural voices synthesized server-side and
@@ -92,7 +102,7 @@ class Settings(BaseSettings):
         if "*" in self.cors_origins_list and self.cors_allow_credentials:
             raise ValueError("CORS_ALLOW_ORIGINS=* cannot be used with credentials in production")
         if (
-            ENGINE_DEEPSEEK in (self.voice_engine, self.debrief_engine)
+            ENGINE_DEEPSEEK in (self.voice_engine, self.debrief_engine, self.mission_engine)
             and not self.deepseek_api_key
         ):
             raise ValueError("DEEPSEEK_API_KEY is required when DeepSeek is enabled")

@@ -20,7 +20,9 @@ from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER, Messag
 from app.features.conversation.prompt import PromptContext, build_system_prompt
 from app.features.conversation.providers.interfaces import LlmProvider, TtsProvider
 from app.features.conversation.repository import TranscriptRepository
+from app.features.missions.repository import MissionRepository
 from app.features.profile.repository import ProfileRepository
+from app.features.sessions.models import ConversationSession
 from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
 
@@ -72,6 +74,7 @@ class ConversationTurnService:
         llm: LlmProvider,
         corrector: TurnCorrector | None = None,
         tts: TtsProvider | None = None,
+        missions: MissionRepository | None = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
@@ -79,6 +82,7 @@ class ConversationTurnService:
         self._llm = llm
         self._corrector = corrector
         self._tts = tts
+        self._missions = missions
 
     async def take_turn(self, session_id: int, user: User, text: str) -> TurnResult:
         turns, system_prompt, history = await self._prepare(session_id, user, text)
@@ -144,12 +148,26 @@ class ConversationTurnService:
         existing = await self._transcripts.get_by_session(session_id)
         turns: list[dict] = list(existing.turns) if existing is not None else []
 
+        system_prompt = await self._system_prompt_for(session, user)
+        history = [Message(role=t["role"], content=t["content"]) for t in turns]
+        history.append(Message(role=ROLE_USER, content=text))
+        return turns, system_prompt, history
+
+    async def _system_prompt_for(self, session: ConversationSession, user: User) -> str:
+        """A mission session is driven by the mission's stored, server-computed
+        system prompt (persona role-play). Any other session uses the profile-based
+        prompt. Falling back to the profile prompt if the mission vanished keeps a
+        turn from breaking mid-conversation."""
+        if session.mission_id is not None and self._missions is not None:
+            mission = await self._missions.get_owned(session.mission_id, user.id)
+            if mission is not None and mission.system_prompt:
+                return mission.system_prompt
+
         profile = await self._profiles.get_by_user_id(user.id)
         interests = list(profile.interests) if profile is not None else []
         goal = profile.goal if profile is not None and profile.goal else ""
         memory_summary = profile.memory_summary if profile is not None else ""
-
-        system_prompt = build_system_prompt(
+        return build_system_prompt(
             PromptContext(
                 cefr_level=user.cefr_level,
                 scenario_id=session.scenario_id,
@@ -158,9 +176,6 @@ class ConversationTurnService:
                 goal=goal,
             )
         )
-        history = [Message(role=t["role"], content=t["content"]) for t in turns]
-        history.append(Message(role=ROLE_USER, content=text))
-        return turns, system_prompt, history
 
     async def _persist(
         self, session_id: int, turns: list[dict], text: str, reply: str

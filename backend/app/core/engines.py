@@ -14,3 +14,4 @@ ENGINE_DEEPSEEK = "deepseek"
 # then, configuring it fails at startup instead of 502-ing on every turn.
 VoiceEngineName = Literal["fake", "deepseek"]
 DebriefEngineName = Literal["fake", "deepseek"]
+MissionEngineName = Literal["fake", "deepseek"]

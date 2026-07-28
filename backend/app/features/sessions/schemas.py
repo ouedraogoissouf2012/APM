@@ -1,11 +1,23 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SessionStartIn(BaseModel):
-    mode: str = Field(pattern="^(scenario|free)$")
+    mode: str = Field(pattern="^(scenario|free|mission)$")
     scenario_id: str | None = None
+    # Required when mode="mission", forbidden otherwise. Ownership is still
+    # re-checked server-side in SessionService.start — this only rejects
+    # obviously malformed requests early.
+    mission_id: int | None = None
+
+    @model_validator(mode="after")
+    def _mission_id_matches_mode(self) -> "SessionStartIn":
+        if self.mode == "mission" and self.mission_id is None:
+            raise ValueError("mission_id is required when mode is 'mission'")
+        if self.mode != "mission" and self.mission_id is not None:
+            raise ValueError("mission_id is only allowed when mode is 'mission'")
+        return self
 
 
 class SessionStartOut(BaseModel):

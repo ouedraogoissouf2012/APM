@@ -10,6 +10,7 @@ from app.features.auth.router import router as auth_router
 from app.features.conversation.router import router as conversation_router
 from app.features.conversation.stt_router import router as stt_router
 from app.features.debrief.router import router as debrief_router
+from app.features.missions.router import router as missions_router
 from app.features.profile.router import router as profile_router
 from app.features.sessions.router import router as sessions_router
 
@@ -32,6 +33,7 @@ register_exception_handlers(app)
 app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(sessions_router)
+app.include_router(missions_router)
 app.include_router(conversation_router)
 app.include_router(stt_router)
 app.include_router(debrief_router)
@@ -51,6 +53,8 @@ async def public_config() -> dict[str, bool]:
     return {
         "demo_mode": s.voice_engine == ENGINE_FAKE,
         "debrief_demo_mode": s.debrief_engine == ENGINE_FAKE,
+        # When true, missions are compiled by the fake engine (generic brief).
+        "mission_demo_mode": s.mission_engine == ENGINE_FAKE,
         # When true, the backend streams synthesized neural audio; the client
         # plays it instead of speaking with the on-device system voice.
         "server_tts": s.tts_engine != "device",

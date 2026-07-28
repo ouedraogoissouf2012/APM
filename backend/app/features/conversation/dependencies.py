@@ -12,6 +12,7 @@ from app.features.conversation.providers.stt import build_stt_provider
 from app.features.conversation.providers.tts import EdgeTtsProvider
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
+from app.features.missions.repository import SqlAlchemyMissionRepository
 from app.features.profile.repository import SqlAlchemyProfileRepository
 from app.features.sessions.repository import SqlAlchemySessionRepository
 
@@ -70,4 +71,6 @@ def get_conversation_turn_service(
         # parallel with the reply. Fake engine -> no correction (honest).
         corrector=TurnCorrector(llm),
         tts=tts,
+        # Drives a mission session with the mission's stored persona prompt.
+        missions=SqlAlchemyMissionRepository(db),
     )

@@ -10,6 +10,7 @@ from app.features.conversation.repository import (
     SqlAlchemyTranscriptRepository,
     TranscriptRepository,
 )
+from app.features.missions.repository import MissionRepository, SqlAlchemyMissionRepository
 from app.features.sessions.repository import SessionRepository, SqlAlchemySessionRepository
 from app.features.sessions.service import SessionService
 
@@ -22,10 +23,15 @@ def get_transcript_repository(db: AsyncSession = Depends(get_db)) -> TranscriptR
     return SqlAlchemyTranscriptRepository(db)
 
 
+def get_mission_repository(db: AsyncSession = Depends(get_db)) -> MissionRepository:
+    return SqlAlchemyMissionRepository(db)
+
+
 def get_session_service(
     sessions: SessionRepository = Depends(get_session_repository),
     users: UserRepository = Depends(get_user_repository),
     transcripts: TranscriptRepository = Depends(get_transcript_repository),
+    missions: MissionRepository = Depends(get_mission_repository),
 ) -> SessionService:
     settings = get_settings()
     return SessionService(
@@ -36,4 +42,5 @@ def get_session_service(
         token_issuer=LiveKitRoomTokenIssuer(),
         voice_engine=settings.voice_engine,
         history_page_size=settings.session_history_page_size,
+        missions=missions,
     )
