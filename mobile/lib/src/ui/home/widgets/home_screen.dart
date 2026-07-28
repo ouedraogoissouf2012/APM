@@ -41,6 +41,8 @@ class HomeScreen extends ConsumerWidget {
               _ResumeCard(
                 onTap: () => context.go(Routes.scenarios),
               ),
+              const SizedBox(height: AppSpacing.md),
+              _EchoCard(onTap: () => context.go(Routes.echo)),
               const Spacer(),
             ],
           ),
@@ -158,6 +160,51 @@ class _ResumeCard extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(shape: BoxShape.circle, color: color),
       );
+}
+
+/// Entry to Mode Écho (shadowing): hear a phrase, record yourself, compare.
+class _EchoCard extends StatelessWidget {
+  const _EchoCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return GestureDetector(
+      key: const Key('start_echo_button'),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        decoration: BoxDecoration(
+          color: colors.surfaceAlt,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          border: Border.all(color: colors.border),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.graphic_eq, color: colors.accent),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  OverlineText('entraîne ton accent', color: colors.textMuted),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Mode Écho',
+                    style: AppType.body(colors.textPrimary),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: colors.textMuted),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Bottom navigation — four sections (DESIGN_SPEC §6.3). "Parler" active.

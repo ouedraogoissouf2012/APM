@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:apm/src/core/audio/audio_playback_service.dart';
 import 'package:apm/src/core/audio/audio_recording_service.dart';
+import 'package:apm/src/core/audio/providers.dart';
 import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/speech/speech_service.dart';

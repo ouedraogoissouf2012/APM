@@ -7,6 +7,7 @@ import '../../ui/auth/widgets/login_screen.dart';
 import '../../ui/auth/widgets/register_screen.dart';
 import '../../ui/conversation/widgets/conversation_screen.dart';
 import '../../ui/debrief/widgets/debrief_screen.dart';
+import '../../ui/echo/widgets/echo_screen.dart';
 import '../../ui/history/widgets/session_history_screen.dart';
 import '../../ui/home/widgets/home_screen.dart';
 import '../../ui/onboarding/widgets/onboarding_screen.dart';
@@ -66,6 +67,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: Routes.scenarios,
         builder: (_, _) => const ScenariosScreen(),
       ),
+      GoRoute(path: Routes.echo, builder: (_, _) => const EchoScreen()),
       if (kDebugMode)
         GoRoute(
           path: Routes.devGallery,

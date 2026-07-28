@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/audio/audio_playback_service.dart';
-import '../../../core/audio/audio_recording_service.dart';
+import '../../../core/audio/providers.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
 import '../../../core/speech/speech_service.dart';
@@ -23,14 +22,6 @@ final speechServiceProvider = Provider<SpeechService>(
 
 final conversationRepositoryProvider = Provider<ConversationRepository>(
   (ref) => ConversationRepository(ref.watch(authenticatedApiClientProvider)),
-);
-
-final audioPlaybackProvider = Provider<AudioPlaybackService>(
-  (ref) => DeviceAudioPlaybackService(),
-);
-
-final audioRecordingProvider = Provider<AudioRecordingService>(
-  (ref) => DeviceAudioRecordingService(),
 );
 
 final conversationViewModelProvider =
