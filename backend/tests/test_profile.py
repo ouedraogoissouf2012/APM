@@ -33,3 +33,27 @@ async def test_update_profile_persists(client):
 
     again = await client.get("/me/profile", headers=headers)
     assert again.json()["interests"] == ["football", "cinema"]
+
+
+@pytest.mark.asyncio
+async def test_update_profile_accepts_valid_correction_intensity(client):
+    headers = await _auth_header(client)
+    resp = await client.put(
+        "/me/profile", headers=headers, json={"correction_intensity": "detailed"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["correction_intensity"] == "detailed"
+
+
+@pytest.mark.asyncio
+async def test_update_profile_rejects_unknown_correction_intensity(client):
+    headers = await _auth_header(client)
+    resp = await client.put("/me/profile", headers=headers, json={"correction_intensity": "brutal"})
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_profile_rejects_unknown_accent(client):
+    headers = await _auth_header(client)
+    resp = await client.put("/me/profile", headers=headers, json={"accent": "fr"})
+    assert resp.status_code == 422, resp.text

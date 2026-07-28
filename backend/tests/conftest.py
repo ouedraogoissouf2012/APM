@@ -1,11 +1,16 @@
 import os
 
-# Force the fake LLM engines for the whole test run BEFORE the app (and its
-# cached settings) are imported. Env vars take precedence over the .env file, so
-# tests never call the real (paid) DeepSeek API and stay independent of whatever
-# VOICE_ENGINE/DEBRIEF_ENGINE a developer has set locally.
+# Force the local (no-network) engines for the whole test run BEFORE the app
+# (and its cached settings) are imported. Env vars take precedence over the .env
+# file, so tests never hit a real external API and stay independent of whatever
+# engines a developer has set locally. This must cover EVERY networked engine:
+# VOICE/DEBRIEF (DeepSeek) and also STT/TTS (Groq/edge) — otherwise a dev .env
+# with STT_ENGINE=groq leaks in and tests make real calls (e.g. the /transcribe
+# test then gets a 502 from Groq instead of the expected 404).
 os.environ["VOICE_ENGINE"] = "fake"
 os.environ["DEBRIEF_ENGINE"] = "fake"
+os.environ["STT_ENGINE"] = "device"
+os.environ["TTS_ENGINE"] = "device"
 
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402

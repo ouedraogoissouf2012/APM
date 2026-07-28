@@ -1,8 +1,11 @@
-"""Text-based conversation turn.
+"""Conversation turn: LLM reply, optional server-side voice, live correction.
 
-The mobile app does speech-to-text and text-to-speech ON DEVICE (free, no keys),
-so the backend only needs the LLM turn: take the user's recognized text, reply
-with the LLM (DeepSeek), and keep the transcript. No audio, no LiveKit.
+The turn is driven by text — the client sends the learner's recognized words and
+the backend replies with the LLM (DeepSeek), keeping the transcript. Speech I/O
+can run either on-device (free, no keys) OR server-side: when a `TtsProvider` is
+configured the reply is synthesized to neural audio here (see `AudioChunk`), and
+a separate STT endpoint transcribes recorded audio. A grammar correction of the
+learner's utterance is computed in parallel and streamed last. No LiveKit.
 """
 
 import asyncio
@@ -37,9 +40,11 @@ class ReplyChunk:
 
 @dataclass(frozen=True)
 class AudioChunk:
-    """Base64-encoded synthesized audio for one reply sentence, emitted right
-    after its text so the client plays a real neural voice instead of the
-    robotic on-device one. Only produced when a server-side TTS is configured."""
+    """Base64-encoded synthesized audio for the WHOLE reply as a single clip,
+    emitted after the reply text so the client plays a real neural voice instead
+    of the robotic on-device one. It is one clip (not one per sentence) because
+    playing many short clips back-to-back cuts sentences off on the client. Only
+    produced when a server-side TTS is configured."""
 
     audio_b64: str
     mime: str = "audio/mpeg"
@@ -53,8 +58,8 @@ class CorrectionReady:
     correction: TurnCorrection
 
 
-# What `stream_turn` yields: per sentence a text chunk (+ optional audio), then
-# at most one correction.
+# What `stream_turn` yields: a text chunk per sentence, then (optionally) one
+# audio clip for the whole reply, then at most one correction.
 TurnStreamEvent = ReplyChunk | AudioChunk | CorrectionReady
 
 
