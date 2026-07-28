@@ -9,6 +9,10 @@ result is far more accurate on a non-native accent than the browser recognizer.
 from typing import Any
 
 from app.domain.exceptions import LlmProviderError
+from app.features.conversation.providers.interfaces import (
+    TranscriptWord,
+    VerboseTranscript,
+)
 
 
 class GroqSttProvider:
@@ -33,6 +37,41 @@ class GroqSttProvider:
         except Exception as exc:
             raise LlmProviderError("Transcription failed") from exc
         return (result.text or "").strip()
+
+    async def transcribe_verbose(self, audio: bytes) -> VerboseTranscript:
+        """verbose_json with word granularity: Whisper returns per-word segments,
+        each carrying a `probability` (how confident it was in that word) — our
+        pronunciation-clarity signal, at zero extra dependency."""
+        try:
+            result = await self._client.audio.transcriptions.create(
+                model=self._model,
+                file=("speech.webm", audio),
+                language="en",
+                response_format="verbose_json",
+                timestamp_granularities=["word"],
+            )
+        except Exception as exc:
+            raise LlmProviderError("Transcription failed") from exc
+        text = (getattr(result, "text", "") or "").strip()
+        raw_words = getattr(result, "words", None) or []
+        words = [
+            TranscriptWord(word=str(w.get("word", "")).strip(), probability=_prob(w))
+            for w in (_as_dict(rw) for rw in raw_words)
+            if str(w.get("word", "")).strip()
+        ]
+        return VerboseTranscript(text=text, words=words)
+
+
+def _as_dict(word: Any) -> dict[str, Any]:
+    if isinstance(word, dict):
+        return word
+    # openai SDK returns pydantic-ish objects; fall back to attribute access.
+    return {"word": getattr(word, "word", ""), "probability": getattr(word, "probability", None)}
+
+
+def _prob(word: dict[str, Any]) -> float | None:
+    value = word.get("probability")
+    return float(value) if isinstance(value, (int, float)) else None
 
 
 def build_stt_provider(engine: str, api_key: str, base_url: str, model: str) -> Any | None:

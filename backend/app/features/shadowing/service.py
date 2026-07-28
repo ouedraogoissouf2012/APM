@@ -7,9 +7,10 @@ the missed words. Nothing is persisted — the audio never touches the database
 """
 
 from app.features.conversation.providers.interfaces import SttProvider
+from app.features.pronunciation.scorer import score_words
 from app.features.shadowing.coach import ShadowingCoach
 from app.features.shadowing.diff import compare_words, missed_words
-from app.features.shadowing.domain import AttemptResult, ShadowingPhrase
+from app.features.shadowing.domain import AttemptResult, ShadowingPhrase, WordComparison
 from app.features.shadowing.generator import PhraseGenerator
 
 
@@ -32,13 +33,35 @@ class ShadowingService:
     async def score_attempt(self, target: str, audio: bytes, native_language: str) -> AttemptResult:
         if self._stt is None:
             raise RuntimeError("Scoring an attempt requires a speech-to-text provider")
-        transcript = await self._stt.transcribe(audio) if audio else ""
-        comparisons = compare_words(target, transcript)
-        missed = missed_words(comparisons)
+        if not audio:
+            return AttemptResult(transcript="", words=[], missed_words=[], coaching="")
+
+        # One verbose call gives us both the text (for the heard/missed diff) and
+        # per-word confidence (for the clarity score).
+        verbose = await self._stt.transcribe_verbose(audio)
+        heard = compare_words(target, verbose.text)
+        scores = score_words(target, verbose)
+        comparisons = _merge(heard, scores)
+        missed = missed_words(heard)
         coaching = await self._coach.coach(target, missed, native_language)
         return AttemptResult(
-            transcript=transcript,
+            transcript=verbose.text,
             words=comparisons,
             missed_words=missed,
             coaching=coaching,
         )
+
+
+def _merge(heard: list[WordComparison], scores: list) -> list[WordComparison]:
+    """Attach each word's clarity score to its heard/missed verdict. Both lists
+    derive from the same target phrase, so they align one-to-one by position."""
+    by_position = list(zip(heard, scores, strict=False))
+    return [
+        WordComparison(
+            target=h.target,
+            heard=h.heard,
+            score=s.score,
+            confidence=s.confidence,
+        )
+        for h, s in by_position
+    ]

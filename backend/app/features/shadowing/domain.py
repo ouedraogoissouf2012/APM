@@ -32,10 +32,16 @@ class ShadowingPhrase:
 
 @dataclass(frozen=True)
 class WordComparison:
-    """One target word and whether the recognizer heard it."""
+    """One target word: whether the recognizer heard it, and how clearly.
+
+    `score` (0..1) is the pronunciation-clarity score for the word (None when
+    unknown); `confidence` (0..1) is how much to trust it (None = treat as
+    reliable). These come from the pronunciation scorer (#111)."""
 
     target: str
     heard: bool
+    score: float | None = None
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)
