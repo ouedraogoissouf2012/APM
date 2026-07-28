@@ -9,6 +9,7 @@ import os
 # test then gets a 502 from Groq instead of the expected 404).
 os.environ["VOICE_ENGINE"] = "fake"
 os.environ["DEBRIEF_ENGINE"] = "fake"
+os.environ["MISSION_ENGINE"] = "fake"
 os.environ["STT_ENGINE"] = "device"
 os.environ["TTS_ENGINE"] = "device"
 
@@ -30,6 +31,7 @@ from app.features.auth.dependencies import (  # noqa: E402
 )
 from app.features.conversation.dependencies import get_conversation_rate_limiter  # noqa: E402
 from app.features.debrief.dependencies import get_debrief_rate_limiter  # noqa: E402
+from app.features.missions.dependencies import get_mission_rate_limiter  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -72,6 +74,7 @@ async def client(_engine, _setup_db) -> AsyncClient:
     app.dependency_overrides[get_refresh_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_conversation_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_debrief_rate_limiter] = lambda: NoOpRateLimiter()
+    app.dependency_overrides[get_mission_rate_limiter] = lambda: NoOpRateLimiter()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

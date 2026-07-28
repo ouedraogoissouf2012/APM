@@ -23,6 +23,7 @@ class _FakeSessions:
         class _S:
             user_id = self._owner_id
             scenario_id = None
+            mission_id = None
             ended_at = "2026-01-01" if self._ended else None
 
         return _S()
