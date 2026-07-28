@@ -34,6 +34,10 @@ class AuthenticationError(DomainError):
     """The caller is not authenticated (missing/invalid token, unknown user)."""
 
 
+class AuthorizationError(DomainError):
+    """The caller is authenticated but not permitted to perform this action."""
+
+
 class QuotaExhaustedError(DomainError):
     """The user's daily free quota is exhausted."""
 

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
 from app.database import get_db
-from app.domain.exceptions import AuthenticationError
+from app.domain.exceptions import AuthenticationError, AuthorizationError
 from app.features.auth.models import User
 from app.features.auth.repository import (
     RefreshTokenRepository,
@@ -69,3 +69,11 @@ async def get_current_user(
     if credentials is None:
         raise AuthenticationError("Not authenticated")
     return await service.get_authenticated_user(credentials.credentials)
+
+
+async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Like get_current_user, but rejects non-admins with 403. Guards admin-only
+    endpoints (e.g. changing a user's tier)."""
+    if not current_user.is_admin:
+        raise AuthorizationError("Admin privileges required")
+    return current_user
