@@ -7,6 +7,7 @@ from app.config import get_settings
 from app.core.engines import ENGINE_FAKE
 from app.core.logging import configure_logging
 from app.features.auth.router import router as auth_router
+from app.features.billing.router import router as billing_router
 from app.features.conversation.router import router as conversation_router
 from app.features.conversation.stt_router import router as stt_router
 from app.features.debrief.router import router as debrief_router
@@ -31,6 +32,7 @@ app.add_middleware(
 register_exception_handlers(app)
 
 app.include_router(auth_router)
+app.include_router(billing_router)
 app.include_router(profile_router)
 app.include_router(sessions_router)
 app.include_router(missions_router)

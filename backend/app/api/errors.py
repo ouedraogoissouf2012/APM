@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.domain.exceptions import (
     AuthenticationError,
+    AuthorizationError,
     ConflictError,
     DebriefAnalysisError,
     DomainError,
@@ -25,6 +26,7 @@ from app.domain.exceptions import (
 _STATUS_BY_EXCEPTION: list[tuple[type[DomainError], int]] = [
     (AuthenticationError, status.HTTP_401_UNAUTHORIZED),
     (InvalidCredentialsError, status.HTTP_401_UNAUTHORIZED),
+    (AuthorizationError, status.HTTP_403_FORBIDDEN),
     (NotFoundError, status.HTTP_404_NOT_FOUND),
     (QuotaExhaustedError, status.HTTP_402_PAYMENT_REQUIRED),
     (RateLimitedError, status.HTTP_429_TOO_MANY_REQUESTS),
