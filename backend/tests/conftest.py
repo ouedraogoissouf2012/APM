@@ -10,6 +10,7 @@ import os
 os.environ["VOICE_ENGINE"] = "fake"
 os.environ["DEBRIEF_ENGINE"] = "fake"
 os.environ["MISSION_ENGINE"] = "fake"
+os.environ["SHADOWING_ENGINE"] = "fake"
 os.environ["STT_ENGINE"] = "device"
 os.environ["TTS_ENGINE"] = "device"
 

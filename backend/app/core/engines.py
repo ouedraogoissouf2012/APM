@@ -15,3 +15,4 @@ ENGINE_DEEPSEEK = "deepseek"
 VoiceEngineName = Literal["fake", "deepseek"]
 DebriefEngineName = Literal["fake", "deepseek"]
 MissionEngineName = Literal["fake", "deepseek"]
+ShadowingEngineName = Literal["fake", "deepseek"]
