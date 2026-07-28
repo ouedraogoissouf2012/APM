@@ -1,11 +1,36 @@
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.features.conversation.messages import Message
 
 
+@dataclass(frozen=True)
+class TranscriptWord:
+    """One recognized word with the recognizer's confidence in it (0..1), used to
+    score how clearly it was pronounced. `probability` is None when the STT
+    backend does not expose per-word confidence."""
+
+    word: str
+    probability: float | None = None
+
+
+@dataclass(frozen=True)
+class VerboseTranscript:
+    """A transcript plus per-word confidence, for pronunciation scoring."""
+
+    text: str
+    words: list[TranscriptWord] = field(default_factory=list)
+
+
 class SttProvider(Protocol):
     async def transcribe(self, audio: bytes) -> str: ...
+
+    async def transcribe_verbose(self, audio: bytes) -> VerboseTranscript:
+        """Transcribe with per-word confidence (for pronunciation scoring). A
+        provider that cannot supply word confidence returns words with
+        probability=None (or an empty word list)."""
+        ...
 
 
 class TextCompletionProvider(Protocol):

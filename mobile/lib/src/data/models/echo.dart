@@ -14,16 +14,32 @@ class ShadowingPhrase {
   );
 }
 
-/// One target word and whether the recognizer heard it.
+/// One target word: whether the recognizer heard it, and how clearly.
+/// [score] (0..1, null = unknown) is the pronunciation-clarity score;
+/// [confidence] (0..1, null = treat as reliable) is how much to trust it.
 class ShadowingWord {
-  const ShadowingWord({required this.target, required this.heard});
+  const ShadowingWord({
+    required this.target,
+    required this.heard,
+    this.score,
+    this.confidence,
+  });
 
   final String target;
   final bool heard;
+  final double? score;
+  final double? confidence;
+
+  /// Whether the score is trustworthy enough to color the word (mirrors the
+  /// debrief's PronunciationScore.hasReliableScore rule).
+  bool get hasReliableScore =>
+      score != null && (confidence == null || confidence! >= 0.5);
 
   factory ShadowingWord.fromJson(Map<String, dynamic> json) => ShadowingWord(
     target: json['target'] as String? ?? '',
     heard: json['heard'] as bool? ?? false,
+    score: (json['score'] as num?)?.toDouble(),
+    confidence: (json['confidence'] as num?)?.toDouble(),
   );
 }
 

@@ -1,6 +1,10 @@
 from collections.abc import AsyncIterator
 
 from app.features.conversation.messages import Message
+from app.features.conversation.providers.interfaces import (
+    TranscriptWord,
+    VerboseTranscript,
+)
 
 
 class FakeStt:
@@ -14,6 +18,11 @@ class FakeStt:
         text = self._transcripts[min(self._i, len(self._transcripts) - 1)]
         self._i += 1
         return text
+
+    async def transcribe_verbose(self, audio: bytes) -> VerboseTranscript:
+        text = await self.transcribe(audio)
+        words = [TranscriptWord(word=w, probability=0.9) for w in text.split()]
+        return VerboseTranscript(text=text, words=words)
 
 
 class FakeLlm:

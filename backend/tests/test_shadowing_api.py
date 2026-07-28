@@ -21,11 +21,21 @@ async def _register(client, email="shadow@b.com"):
 
 
 class _FakeStt:
-    def __init__(self, transcript: str) -> None:
+    def __init__(self, transcript: str, prob: float = 0.9) -> None:
         self._transcript = transcript
+        self._prob = prob
 
     async def transcribe(self, audio: bytes) -> str:
         return self._transcript
+
+    async def transcribe_verbose(self, audio: bytes):
+        from app.features.conversation.providers.interfaces import (
+            TranscriptWord,
+            VerboseTranscript,
+        )
+
+        words = [TranscriptWord(w, self._prob) for w in self._transcript.split()]
+        return VerboseTranscript(text=self._transcript, words=words)
 
 
 class _FakeTts:
@@ -95,6 +105,10 @@ async def test_attempt_flags_missed_words_and_coaches(client):
         assert body["missed_words"] == ["ship"]
         assert body["coaching"]  # missed words -> coaching present
         assert body["transcript"] == "the sheep is sinking"
+        # Pronunciation scores (#111): the missed word scores 0, a heard word scores high.
+        by_word = {w["target"]: w for w in body["words"]}
+        assert by_word["ship"]["score"] == 0.0
+        assert by_word["The"]["score"] is not None and by_word["The"]["score"] > 0.5
     finally:
         app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
 

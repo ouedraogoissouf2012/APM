@@ -119,4 +119,33 @@ void main() {
     );
     expect(find.byKey(const Key('echo_unavailable')), findsOneWidget);
   });
+
+  testWidgets('colors words by pronunciation score after scoring', (tester) async {
+    await _pump(
+      tester,
+      EchoState(
+        phrase: phrase,
+        phase: EchoPhase.reviewing,
+        result: const AttemptResult(
+          transcript: 'the sheep is sinking',
+          words: [
+            ShadowingWord(target: 'The', heard: true, score: 0.95, confidence: 0.8),
+            ShadowingWord(target: 'ship', heard: false, score: 0.0, confidence: 0.8),
+            ShadowingWord(target: 'is', heard: true, score: 0.9, confidence: 0.8),
+            ShadowingWord(target: 'sinking', heard: true, score: 0.9, confidence: 0.8),
+          ],
+          missedWords: ['ship'],
+          coaching: 'Short i in ship.',
+        ),
+      ),
+    );
+    // The phrase renders as rich text with per-word colored spans.
+    final richText = tester.widget<Text>(find.byKey(const Key('echo_phrase')));
+    final span = richText.textSpan! as TextSpan;
+    final children = span.children!.cast<TextSpan>();
+    // "ship" (score 0) is colored (needs-practice); a well-scored word too, but
+    // both differ from the default (null-styled) spacing spans.
+    final shipSpan = children.firstWhere((s) => s.text == 'ship');
+    expect(shipSpan.style?.color, isNotNull);
+  });
 }

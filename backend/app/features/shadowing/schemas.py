@@ -10,6 +10,10 @@ class PhraseOut(BaseModel):
 class WordOut(BaseModel):
     target: str
     heard: bool
+    # Pronunciation clarity (#111): score 0..1 (null = unknown), confidence 0..1
+    # (null = treat as reliable). The mobile map hides scores with low confidence.
+    score: float | None = None
+    confidence: float | None = None
 
 
 class AttemptOut(BaseModel):

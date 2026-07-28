@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/echo.dart';
+import '../../../data/models/pronunciation_scoring.dart';
 import '../../../design_system/atoms/app_button.dart';
 import '../../../design_system/atoms/overline_text.dart';
 import '../../../design_system/organisms/voice_orb.dart';
@@ -170,25 +171,35 @@ class _PhraseText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final missed = <String>{...?result?.missedWords.map((w) => w.toLowerCase())};
+
+    // Color each word by its pronunciation-clarity score (#111), matching the
+    // scored words to the target by position. A word with no reliable score
+    // stays uncolored — an honest display, not a guessed one.
+    Color? colorFor(int index) {
+      final words = result?.words;
+      if (words == null || index >= words.length) return null;
+      final w = words[index];
+      if (!w.hasReliableScore) return null;
+      final score = w.score!;
+      if (score >= kPronunciationStrongThreshold) return colors.positive;
+      if (score >= kPronunciationReviewThreshold) return colors.correction;
+      return colors.accent; // needs practice
+    }
 
     List<InlineSpan> spans() {
-      if (result == null) {
-        return [TextSpan(text: phrase.text)];
+      final targetWords = phrase.text.split(RegExp(r'\s+'));
+      final out = <InlineSpan>[];
+      for (var i = 0; i < targetWords.length; i++) {
+        final color = result == null ? null : colorFor(i);
+        out.add(TextSpan(
+          text: targetWords[i],
+          style: color == null
+              ? null
+              : TextStyle(color: color, fontWeight: FontWeight.w600),
+        ));
+        out.add(const TextSpan(text: ' '));
       }
-      return phrase.text.split(RegExp(r'\s+')).expand((word) {
-        final normalized = word.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toLowerCase();
-        final isMissed = missed.contains(normalized);
-        return [
-          TextSpan(
-            text: word,
-            style: isMissed
-                ? TextStyle(color: colors.correction, fontWeight: FontWeight.w600)
-                : null,
-          ),
-          const TextSpan(text: ' '),
-        ];
-      }).toList();
+      return out;
     }
 
     return Text.rich(

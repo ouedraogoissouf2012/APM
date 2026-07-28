@@ -72,7 +72,10 @@ async def score_attempt(
     )
     return AttemptOut(
         transcript=result.transcript,
-        words=[WordOut(target=w.target, heard=w.heard) for w in result.words],
+        words=[
+            WordOut(target=w.target, heard=w.heard, score=w.score, confidence=w.confidence)
+            for w in result.words
+        ],
         missed_words=result.missed_words,
         coaching=result.coaching,
     )
