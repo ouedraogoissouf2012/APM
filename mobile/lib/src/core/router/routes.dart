@@ -11,6 +11,7 @@ abstract final class Routes {
   static const conversation = '/conversation';
   static const profile = '/profile';
   static const scenarios = '/scenarios';
+  static const echo = '/echo';
 
   /// Galerie du design system — enregistrée uniquement en debug.
   static const devGallery = '/dev/gallery';

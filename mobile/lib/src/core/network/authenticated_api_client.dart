@@ -20,6 +20,7 @@ class AuthenticatedApiClient {
     required List<int> bytes,
     required String field,
     required String filename,
+    Map<String, String>? fields,
   }) =>
       _withRefresh(
         (bearer) => _api.postBytes(
@@ -27,6 +28,7 @@ class AuthenticatedApiClient {
           bytes: bytes,
           field: field,
           filename: filename,
+          fields: fields,
           bearer: bearer,
         ),
       );

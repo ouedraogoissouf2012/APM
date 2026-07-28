@@ -1,0 +1,122 @@
+import 'package:apm/src/core/network/providers.dart';
+import 'package:apm/src/data/models/echo.dart';
+import 'package:apm/src/core/theme/app_theme.dart';
+import 'package:apm/src/design_system/organisms/voice_orb.dart';
+import 'package:apm/src/ui/echo/view_model/echo_state.dart';
+import 'package:apm/src/ui/echo/view_model/echo_view_model.dart';
+import 'package:apm/src/ui/echo/widgets/echo_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// Stub view-model: fixed state, no network/mic. Its lifecycle methods are
+/// no-ops so initState's loadPhrase/markUnavailable don't do real work.
+class _StubEchoViewModel extends EchoViewModel {
+  _StubEchoViewModel(this._initial);
+  final EchoState _initial;
+  bool recordCalled = false;
+
+  @override
+  EchoState build() => _initial;
+  @override
+  Future<void> loadPhrase() async {}
+  @override
+  void markUnavailable() {}
+  @override
+  Future<void> record() async {
+    recordCalled = true;
+  }
+
+  @override
+  Future<void> playModel() async {}
+}
+
+Future<_StubEchoViewModel> _pump(
+  WidgetTester tester,
+  EchoState state, {
+  bool serverTts = true,
+  bool serverStt = true,
+}) async {
+  final stub = _StubEchoViewModel(state);
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        echoViewModelProvider.overrideWith(() => stub),
+        serverTtsProvider.overrideWith((ref) async => serverTts),
+        serverSttProvider.overrideWith((ref) async => serverStt),
+      ],
+      child: MaterialApp(theme: AppTheme.dark(), home: const EchoScreen()),
+    ),
+  );
+  await tester.pump(const Duration(milliseconds: 100));
+  return stub;
+}
+
+void main() {
+  const phrase = ShadowingPhrase(text: 'The ship is sinking', focus: 'ship_sheep', tip: 'short i');
+
+  testWidgets('shows the target phrase and the orb when a phrase is loaded', (tester) async {
+    await _pump(tester, const EchoState(phrase: phrase, modelAudioB64: 'X'));
+
+    expect(find.byKey(const Key('echo_phrase')), findsOneWidget);
+    expect(find.byType(VoiceOrb), findsOneWidget);
+    // OverlineText upper-cases its content, so match case-insensitively.
+    expect(find.textContaining(RegExp('round 1 / 5', caseSensitive: false)), findsOneWidget);
+  });
+
+  testWidgets('recording phase maps the orb to listening', (tester) async {
+    await _pump(
+      tester,
+      const EchoState(phrase: phrase, modelAudioB64: 'X', phase: EchoPhase.recording),
+    );
+    final orb = tester.widget<VoiceOrb>(find.byType(VoiceOrb));
+    expect(orb.state, VoiceOrbState.listening);
+  });
+
+  testWidgets('tapping the orb (idle) starts recording', (tester) async {
+    final stub = await _pump(tester, const EchoState(phrase: phrase, modelAudioB64: 'X'));
+    await tester.tap(find.byKey(const Key('echo_orb')));
+    expect(stub.recordCalled, isTrue);
+  });
+
+  testWidgets('after scoring, shows A/B buttons and coaching', (tester) async {
+    await _pump(
+      tester,
+      EchoState(
+        phrase: phrase,
+        phase: EchoPhase.reviewing,
+        result: const AttemptResult(
+          transcript: 'the sheep is sinking',
+          missedWords: ['ship'],
+          coaching: 'Short i in ship.',
+        ),
+      ),
+    );
+    expect(find.text('Modèle'), findsOneWidget);
+    expect(find.text('Ma voix'), findsOneWidget);
+    expect(find.byKey(const Key('echo_coaching')), findsOneWidget);
+  });
+
+  testWidgets('a perfect attempt shows the success message, no coaching box', (tester) async {
+    await _pump(
+      tester,
+      const EchoState(
+        phrase: phrase,
+        phase: EchoPhase.reviewing,
+        result: AttemptResult(transcript: 'the ship is sinking'),
+      ),
+    );
+    expect(find.byKey(const Key('echo_perfect')), findsOneWidget);
+    expect(find.byKey(const Key('echo_coaching')), findsNothing);
+  });
+
+  testWidgets('shows the unavailable message when there is no server voice', (tester) async {
+    await _pump(
+      tester,
+      const EchoState(unavailable: true),
+      serverTts: false,
+      serverStt: false,
+    );
+    expect(find.byKey(const Key('echo_unavailable')), findsOneWidget);
+  });
+}

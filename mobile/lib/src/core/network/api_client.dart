@@ -13,17 +13,20 @@ class ApiClient {
 
   Dio get raw => _dio;
 
-  /// POSTs raw bytes as a single multipart file field (used to upload recorded
-  /// audio to /transcribe).
+  /// POSTs raw bytes as a multipart file field (used to upload recorded audio to
+  /// /transcribe). Optional [fields] add plain text form fields alongside the
+  /// file — e.g. the target phrase for /shadowing/attempt.
   Future<Map<String, dynamic>> postBytes(
     String path, {
     required List<int> bytes,
     required String field,
     required String filename,
+    Map<String, String>? fields,
     String? bearer,
   }) async {
     try {
       final form = FormData.fromMap({
+        ...?fields,
         field: MultipartFile.fromBytes(bytes, filename: filename),
       });
       final response = await _dio.post<Map<String, dynamic>>(
