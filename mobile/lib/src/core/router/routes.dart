@@ -12,6 +12,7 @@ abstract final class Routes {
   static const profile = '/profile';
   static const scenarios = '/scenarios';
   static const echo = '/echo';
+  static const minimalPairs = '/minimal-pairs';
 
   /// Galerie du design system — enregistrée uniquement en debug.
   static const devGallery = '/dev/gallery';
