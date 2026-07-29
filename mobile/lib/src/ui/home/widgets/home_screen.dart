@@ -42,7 +42,21 @@ class HomeScreen extends ConsumerWidget {
                 onTap: () => context.go(Routes.scenarios),
               ),
               const SizedBox(height: AppSpacing.md),
-              _EchoCard(onTap: () => context.go(Routes.echo)),
+              _DrillCard(
+                key: const Key('start_echo_button'),
+                overline: 'entraîne ton accent',
+                title: 'Mode Écho',
+                icon: Icons.graphic_eq,
+                onTap: () => context.go(Routes.echo),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _DrillCard(
+                key: const Key('start_minimal_pairs_button'),
+                overline: 'sons qui piègent',
+                title: 'Paires minimales',
+                icon: Icons.hearing,
+                onTap: () => context.go(Routes.minimalPairs),
+              ),
               const Spacer(),
             ],
           ),
@@ -162,17 +176,26 @@ class _ResumeCard extends StatelessWidget {
       );
 }
 
-/// Entry to Mode Écho (shadowing): hear a phrase, record yourself, compare.
-class _EchoCard extends StatelessWidget {
-  const _EchoCard({required this.onTap});
+/// A secondary practice-mode card (Écho, Paires minimales, ...): a surface card
+/// with an overline, a title, a leading icon and a chevron.
+class _DrillCard extends StatelessWidget {
+  const _DrillCard({
+    super.key,
+    required this.overline,
+    required this.title,
+    required this.icon,
+    required this.onTap,
+  });
 
+  final String overline;
+  final String title;
+  final IconData icon;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     return GestureDetector(
-      key: const Key('start_echo_button'),
       onTap: onTap,
       child: Container(
         width: double.infinity,
@@ -184,18 +207,15 @@ class _EchoCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.graphic_eq, color: colors.accent),
+            Icon(icon, color: colors.accent),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  OverlineText('entraîne ton accent', color: colors.textMuted),
+                  OverlineText(overline, color: colors.textMuted),
                   const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    'Mode Écho',
-                    style: AppType.body(colors.textPrimary),
-                  ),
+                  Text(title, style: AppType.body(colors.textPrimary)),
                 ],
               ),
             ),
