@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
@@ -113,12 +111,12 @@ class EchoViewModel extends Notifier<EchoState> {
     }
   }
 
-  /// A/B: replays the learner's own recording (base64-encoded on the fly and
-  /// played through the same data-URL path as the model clip).
+  /// A/B: replays the learner's own recording. Uses playBytes (a blob: URL on
+  /// web) — a data: URL of recorded WebM/Opus fails to decode in Chrome.
   Future<void> playMine() async {
     final bytes = state.myRecording;
     if (bytes == null || bytes.isEmpty) return;
-    await ref.read(audioPlaybackProvider).playClip(base64Encode(bytes), 'audio/webm');
+    await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
   }
 
   /// Moves to the next round (up to [kEchoTotalRounds]) and loads a new phrase.

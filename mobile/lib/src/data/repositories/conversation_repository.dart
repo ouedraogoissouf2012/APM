@@ -158,7 +158,7 @@ class ConversationRepository {
       '/transcribe',
       bytes: audioBytes,
       field: 'audio',
-      filename: 'speech.webm',
+      filename: 'speech.wav',
     );
     return json['text'] as String? ?? '';
   }

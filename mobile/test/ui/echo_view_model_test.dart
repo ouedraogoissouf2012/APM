@@ -13,11 +13,14 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockEchoRepository extends Mock implements EchoRepository {}
 
-/// Records the base64 of every clip played, so A/B can be asserted.
+/// Records what was played, so A/B can be asserted: model clips by their base64,
+/// the learner's own recording as the marker 'MINE'.
 class _FakeAudio implements AudioPlaybackService {
   final List<String> played = [];
   @override
   Future<void> playClip(String audioB64, String mime) async => played.add(audioB64);
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async => played.add('MINE');
   @override
   Future<void> stop() async {}
 }
@@ -120,9 +123,9 @@ void main() {
 
     await _vm(c).playMine();
 
-    // The learner's own recording is base64([9,9,9]) = "CQkJ", not the model.
-    expect(audio.played, isNotEmpty);
-    expect(audio.played.first, isNot('MODELB64'));
+    // The learner's own recording is played via playBytes ('MINE'), not the model clip.
+    expect(audio.played, contains('MINE'));
+    expect(audio.played, isNot(contains('MODELB64')));
   });
 
   test('nextRound advances the round and loads a new phrase', () async {

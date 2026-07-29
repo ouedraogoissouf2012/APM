@@ -33,6 +33,11 @@ class _FakeAudio implements AudioPlaybackService {
   }
 
   @override
+  Future<void> playBytes(Uint8List bytes, String mime) async {
+    played.add('bytes');
+  }
+
+  @override
   Future<void> stop() async {}
 }
 
