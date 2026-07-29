@@ -104,8 +104,8 @@ Mobile :
 Le backend lit `backend/.env`. Exemple :
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://apm:apm_dev_password@localhost:5434/apm
-DATABASE_URL_TEST=postgresql+asyncpg://apm:apm_dev_password@localhost:5434/apm_test
+DATABASE_URL=postgresql+asyncpg://apm:apm_dev_password@localhost:6544/apm
+DATABASE_URL_TEST=postgresql+asyncpg://apm:apm_dev_password@localhost:6544/apm_test
 
 JWT_SECRET=change-me-in-production-use-a-long-random-string
 JWT_ALGORITHM=HS256
@@ -145,7 +145,9 @@ Depuis la racine du repo :
 docker compose up -d postgres
 ```
 
-Le service PostgreSQL ecoute sur le port hote `5434`.
+Le service PostgreSQL ecoute sur le port hote `6544` (5432 = PostgreSQL local,
+5433 = autre projet ; et la plage 5433-5532 est reservee par Windows/WinNAT, ou
+Docker ne peut pas se lier — d'ou 6544). `backend/.env` doit utiliser ce meme port.
 
 ### 2. Backend
 
