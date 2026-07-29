@@ -21,9 +21,15 @@ class AppConfig {
 
   static String _resolveApiBaseUrl() {
     if (_apiBaseUrlOverride.isNotEmpty) return _apiBaseUrlOverride;
-    // Dev defaults: on web/desktop/iOS simulator the backend runs at
-    // localhost:8000; Android emulators reach the host machine via 10.0.2.2.
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    // Dev defaults. On web, call the backend on the SAME host the page was served
+    // from (localhost vs 127.0.0.1 are different origins to the browser — a
+    // hardcoded host would trip CORS). Android emulators reach the host machine
+    // via 10.0.2.2; other native/desktop platforms use localhost.
+    if (kIsWeb) {
+      final host = Uri.base.host.isEmpty ? 'localhost' : Uri.base.host;
+      return 'http://$host:8000';
+    }
+    if (defaultTargetPlatform == TargetPlatform.android) {
       return 'http://10.0.2.2:8000';
     }
     return 'http://localhost:8000';
