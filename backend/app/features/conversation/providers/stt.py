@@ -30,7 +30,7 @@ class GroqSttProvider:
         try:
             result = await self._client.audio.transcriptions.create(
                 model=self._model,
-                file=("speech.webm", audio),
+                file=("speech.wav", audio),
                 language="en",
                 response_format="json",
             )
@@ -45,7 +45,7 @@ class GroqSttProvider:
         try:
             result = await self._client.audio.transcriptions.create(
                 model=self._model,
-                file=("speech.webm", audio),
+                file=("speech.wav", audio),
                 language="en",
                 response_format="verbose_json",
                 timestamp_granularities=["word"],

@@ -39,7 +39,7 @@ class EchoRepository {
       '/shadowing/attempt',
       bytes: audioBytes,
       field: 'audio',
-      filename: 'speech.webm',
+      filename: 'speech.wav',
       fields: {'target_text': targetText},
     );
     return AttemptResult.fromJson(json);

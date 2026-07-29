@@ -22,11 +22,13 @@ class DeviceAudioRecordingService implements AudioRecordingService {
   @override
   Future<bool> start() async {
     if (!await _recorder.hasPermission()) return false;
-    // Opus in a WebM container: recorded natively by the browser and accepted
-    // by Whisper. `path` is ignored on web (records to an in-memory blob).
+    // WAV (PCM): a complete, self-describing container with a duration header.
+    // Whisper (Groq) accepts it, AND it replays cleanly for A/B — unlike the
+    // browser's streamed WebM/Opus, whose missing duration header makes players
+    // refuse it ("DEMUXER_ERROR_COULD_NOT_OPEN"). `path` is ignored on web.
     await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.opus),
-      path: 'speech.webm',
+      const RecordConfig(encoder: AudioEncoder.wav),
+      path: 'speech.wav',
     );
     return true;
   }
