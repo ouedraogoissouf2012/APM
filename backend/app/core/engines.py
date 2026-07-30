@@ -16,3 +16,8 @@ VoiceEngineName = Literal["fake", "deepseek"]
 DebriefEngineName = Literal["fake", "deepseek"]
 MissionEngineName = Literal["fake", "deepseek"]
 ShadowingEngineName = Literal["fake", "deepseek"]
+
+# Pronunciation (#111 step 2): "fake" makes no phonetic claim (default, no extra
+# service); "gop" calls the wav2vec2 pronunciation microservice over HTTP.
+ENGINE_GOP = "gop"
+PronunciationEngineName = Literal["fake", "gop"]

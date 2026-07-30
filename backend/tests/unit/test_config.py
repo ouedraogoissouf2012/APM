@@ -82,3 +82,26 @@ def test_production_allows_deepseek_with_safe_config():
     )
 
     assert settings.app_env == "production"
+
+
+def test_production_rejects_gop_engine_without_service_url():
+    with pytest.raises(ValidationError, match="GOP_SERVICE_URL is required"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            pronunciation_engine="gop",
+            gop_service_url="",
+        )
+
+
+def test_production_allows_gop_engine_with_service_url():
+    settings = _settings(
+        app_env="production",
+        jwt_secret="a-secure-production-secret-32-bytes",
+        cors_allow_origins="https://app.example.com",
+        pronunciation_engine="gop",
+        gop_service_url="http://pronunciation:8100",
+    )
+
+    assert settings.pronunciation_engine == "gop"

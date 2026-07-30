@@ -9,6 +9,8 @@ scoring — that is issue #111 (GOP/wav2vec2).
 from dataclasses import dataclass, field
 from typing import Literal
 
+from app.features.pronunciation.domain import PhonemeScore
+
 # Which phonetic trap a target phrase drills, for French speakers of English.
 # Kept as a closed set so the generator can't invent unstable labels.
 PhoneticFocus = Literal[
@@ -46,9 +48,14 @@ class WordComparison:
 
 @dataclass(frozen=True)
 class AttemptResult:
-    """The outcome of one spoken attempt at a target phrase."""
+    """The outcome of one spoken attempt at a target phrase.
+
+    `phonemes` (#111 step 2) is the fine phoneme-level GOP signal from the
+    pronunciation microservice — empty when the engine is "fake" (no service
+    configured). It complements the word-level `words`; it does not replace it."""
 
     transcript: str
     words: list[WordComparison] = field(default_factory=list)
     missed_words: list[str] = field(default_factory=list)
     coaching: str = ""
+    phonemes: list[PhonemeScore] = field(default_factory=list)

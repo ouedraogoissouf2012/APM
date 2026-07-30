@@ -21,3 +21,21 @@ class WordScore:
     word: str
     score: float | None = None
     confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class PhonemeScore:
+    """Goodness-of-Pronunciation for one expected phoneme (#111 step 2).
+
+    Produced by the GOP microservice (wav2vec2), a finer signal than WordScore:
+    it says how well one IPA phoneme was pronounced, e.g. the /θ/ in "think".
+
+    - `phoneme`: the expected IPA phoneme, e.g. "θ".
+    - `score` in [0,1]: goodness of pronunciation (higher = clearer).
+
+    Honest limitation carried from the engine: this is a raw ACOUSTIC score, not
+    calibrated on French-speaker voices — the UI must show it with uncertainty,
+    never as an absolute verdict (see the microservice README's tracked debt)."""
+
+    phoneme: str
+    score: float

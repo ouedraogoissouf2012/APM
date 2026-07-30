@@ -73,13 +73,14 @@ async def test_generate_phrase_requires_auth(client):
 # ---- /shadowing/attempt -----------------------------------------------------
 
 
-def _override_service_with(stt_transcript: str):
+def _override_service_with(stt_transcript: str, pronunciation=None):
     def _override():
         llm = _CoachLlm()
         return ShadowingService(
             generator=PhraseGenerator(llm),
             coach=ShadowingCoach(llm),
             stt=_FakeStt(stt_transcript),
+            pronunciation=pronunciation,
         )
 
     return _override
@@ -131,6 +132,57 @@ async def test_attempt_perfect_has_no_misses_and_no_coaching(client):
         body = resp.json()
         assert body["missed_words"] == []
         assert body["coaching"] == ""  # nothing missed -> no coaching
+    finally:
+        app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
+
+
+@pytest.mark.asyncio
+async def test_attempt_surfaces_phoneme_scores_when_gop_engine_wired(client):
+    from app.features.pronunciation.domain import PhonemeScore
+
+    class _StubPron:
+        async def score_phonemes(self, audio, target_text):
+            return [PhonemeScore(phoneme="θ", score=0.08), PhonemeScore(phoneme="k", score=0.9)]
+
+    token = await _register(client, email="gop@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_shadowing_service_with_stt] = _override_service_with(
+        "think", pronunciation=_StubPron()
+    )
+    try:
+        resp = await client.post(
+            "/shadowing/attempt",
+            headers=headers,
+            data={"target_text": "think"},
+            files={"audio": ("speech.webm", b"xxxx", "audio/webm")},
+        )
+        assert resp.status_code == 200, resp.text
+        phonemes = resp.json()["phonemes"]
+        assert phonemes == [
+            {"phoneme": "θ", "score": 0.08},
+            {"phoneme": "k", "score": 0.9},
+        ]
+    finally:
+        app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
+
+
+@pytest.mark.asyncio
+async def test_attempt_has_empty_phonemes_by_default(client):
+    # No pronunciation provider wired -> phonemes is an empty list, not absent.
+    token = await _register(client, email="nogop@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_shadowing_service_with_stt] = _override_service_with(
+        "the ship is sinking"
+    )
+    try:
+        resp = await client.post(
+            "/shadowing/attempt",
+            headers=headers,
+            data={"target_text": "The ship is sinking"},
+            files={"audio": ("speech.webm", b"xxxx", "audio/webm")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["phonemes"] == []
     finally:
         app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
 

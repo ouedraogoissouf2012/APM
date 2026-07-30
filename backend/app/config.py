@@ -6,8 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.engines import (
     ENGINE_DEEPSEEK,
+    ENGINE_GOP,
     DebriefEngineName,
     MissionEngineName,
+    PronunciationEngineName,
     ShadowingEngineName,
     VoiceEngineName,
 )
@@ -92,6 +94,13 @@ class Settings(BaseSettings):
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_stt_model: str = "whisper-large-v3-turbo"
 
+    # Pronunciation scoring (#111 step 2): "fake" (default) makes no phonetic
+    # claim; "gop" calls the wav2vec2 pronunciation microservice at gop_service_url.
+    # Kept optional so the backend runs standalone without the ML service.
+    pronunciation_engine: PronunciationEngineName = "fake"
+    gop_service_url: str = "http://localhost:8100"
+    gop_timeout_seconds: float = 15.0
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
@@ -118,6 +127,8 @@ class Settings(BaseSettings):
             and not self.deepseek_api_key
         ):
             raise ValueError("DEEPSEEK_API_KEY is required when DeepSeek is enabled")
+        if self.pronunciation_engine == ENGINE_GOP and not self.gop_service_url.strip():
+            raise ValueError("GOP_SERVICE_URL is required when PRONUNCIATION_ENGINE=gop")
 
         return self
 

@@ -14,6 +14,7 @@ from app.features.shadowing.dependencies import (
 )
 from app.features.shadowing.schemas import (
     AttemptOut,
+    PhonemeOut,
     PhraseOut,
     TtsIn,
     TtsOut,
@@ -78,4 +79,5 @@ async def score_attempt(
         ],
         missed_words=result.missed_words,
         coaching=result.coaching,
+        phonemes=[PhonemeOut(phoneme=p.phoneme, score=p.score) for p in result.phonemes],
     )
