@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/audio/providers.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
+import '../../../data/models/echo.dart';
 import '../../../data/repositories/echo_repository.dart';
 import 'echo_state.dart';
 
@@ -95,19 +96,45 @@ class EchoViewModel extends Notifier<EchoState> {
         state = state.copyWith(phase: EchoPhase.idle);
         return;
       }
-      state = state.copyWith(phase: EchoPhase.scoring, myRecording: bytes);
+      state = state.copyWith(
+        phase: EchoPhase.scoring,
+        myRecording: bytes,
+        clearCoaching: true,
+      );
       final result = await _repo.scoreAttempt(
         audioBytes: bytes,
         targetText: state.phrase!.text,
       );
       if (!ref.mounted) return;
+      // Show the score immediately (fast: STT + phonemes). Coaching is fetched
+      // afterwards, in the background, so the slow LLM never blocks this display.
       state = state.copyWith(result: result, phase: EchoPhase.reviewing);
+      _fetchCoaching(result);
     } on ApiException catch (e) {
       _fail(e.message);
     } catch (_) {
       _fail('Could not score your attempt. Please try again.');
     } finally {
       _busy = false;
+    }
+  }
+
+  /// Fetches coaching for the missed words AFTER the score is shown, so the slow
+  /// coaching LLM never blocks the reactive display. A perfect attempt (no misses)
+  /// needs no coaching. A failure here is silent — the score already stands.
+  Future<void> _fetchCoaching(AttemptResult result) async {
+    if (result.missedWords.isEmpty) return;
+    state = state.copyWith(coachingLoading: true);
+    try {
+      final tip = await _repo.coachAttempt(
+        targetText: state.phrase!.text,
+        missedWords: result.missedWords,
+      );
+      if (!ref.mounted) return;
+      state = state.copyWith(coaching: tip, coachingLoading: false);
+    } catch (_) {
+      if (!ref.mounted) return;
+      state = state.copyWith(coachingLoading: false); // score stands without a tip
     }
   }
 

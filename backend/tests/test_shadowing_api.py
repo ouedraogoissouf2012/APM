@@ -87,7 +87,7 @@ def _override_service_with(stt_transcript: str, pronunciation=None):
 
 
 @pytest.mark.asyncio
-async def test_attempt_flags_missed_words_and_coaches(client):
+async def test_attempt_flags_missed_words_without_blocking_on_coaching(client):
     token = await _register(client, email="attempt@b.com")
     headers = {"Authorization": f"Bearer {token}"}
     # The recognizer heard "sheep" instead of "ship" -> "ship" missed.
@@ -104,7 +104,9 @@ async def test_attempt_flags_missed_words_and_coaches(client):
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["missed_words"] == ["ship"]
-        assert body["coaching"]  # missed words -> coaching present
+        # Responsiveness: the attempt returns fast and does NOT wait on the coaching
+        # LLM — coaching is empty here, fetched separately via /shadowing/coach.
+        assert body["coaching"] == ""
         assert body["transcript"] == "the sheep is sinking"
         # Pronunciation scores (#111): the missed word scores 0, a heard word scores high.
         by_word = {w["target"]: w for w in body["words"]}
@@ -112,6 +114,29 @@ async def test_attempt_flags_missed_words_and_coaches(client):
         assert by_word["The"]["score"] is not None and by_word["The"]["score"] > 0.5
     finally:
         app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
+
+
+@pytest.mark.asyncio
+async def test_coach_endpoint_returns_advice_for_missed_words(client):
+    token = await _register(client, email="coach@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = await client.post(
+        "/shadowing/coach",
+        headers=headers,
+        json={"target_text": "The ship is sinking", "missed_words": ["ship"]},
+    )
+    assert resp.status_code == 200, resp.text
+    # Fake shadowing LLM returns coaching for missed words.
+    assert resp.json()["coaching"]
+
+
+@pytest.mark.asyncio
+async def test_coach_endpoint_requires_auth(client):
+    resp = await client.post(
+        "/shadowing/coach",
+        json={"target_text": "hi", "missed_words": ["hi"]},
+    )
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio

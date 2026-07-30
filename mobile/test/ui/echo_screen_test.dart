@@ -79,7 +79,8 @@ void main() {
     expect(stub.recordCalled, isTrue);
   });
 
-  testWidgets('after scoring, shows A/B buttons and coaching', (tester) async {
+  testWidgets('after scoring, shows A/B buttons and the coaching once it arrives',
+      (tester) async {
     await _pump(
       tester,
       EchoState(
@@ -88,13 +89,30 @@ void main() {
         result: const AttemptResult(
           transcript: 'the sheep is sinking',
           missedWords: ['ship'],
-          coaching: 'Short i in ship.',
         ),
+        // Coaching arrives via a separate deferred call -> lives on the state.
+        coaching: 'Short i in ship.',
       ),
     );
     expect(find.text('Modèle'), findsOneWidget);
     expect(find.text('Ma voix'), findsOneWidget);
     expect(find.byKey(const Key('echo_coaching')), findsOneWidget);
+  });
+
+  testWidgets('shows a coaching loader while the deferred tip is in flight', (tester) async {
+    await _pump(
+      tester,
+      EchoState(
+        phrase: phrase,
+        phase: EchoPhase.reviewing,
+        result: const AttemptResult(transcript: 'the sheep is sinking', missedWords: ['ship']),
+        coachingLoading: true, // score already shown, coaching still loading
+      ),
+    );
+    // The result (A/B) is already interactive; only the coaching is pending.
+    expect(find.text('Modèle'), findsOneWidget);
+    expect(find.byKey(const Key('echo_coaching_loading')), findsOneWidget);
+    expect(find.byKey(const Key('echo_coaching')), findsNothing);
   });
 
   testWidgets('a perfect attempt shows the success message, no coaching box', (tester) async {

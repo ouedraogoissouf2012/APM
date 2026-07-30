@@ -62,14 +62,24 @@ class ShadowingService:
         scores = score_words(target, verbose)
         comparisons = _merge(heard, scores)
         missed = missed_words(heard)
-        coaching = await self._coach.coach(target, missed, native_language)
+        # Coaching (a slow LLM call, 3-8 s) is intentionally NOT done here: scoring
+        # must return fast so the UI shows the colored words + phonemes immediately.
+        # The client fetches coaching afterwards via coach_attempt (using the
+        # missed_words returned here), so the slow call never blocks the display.
         return AttemptResult(
             transcript=verbose.text,
             words=comparisons,
             missed_words=missed,
-            coaching=coaching,
+            coaching="",
             phonemes=phonemes,
         )
+
+    async def coach_attempt(
+        self, target: str, missed_words: list[str], native_language: str
+    ) -> str:
+        """Short coaching tip on the missed words. A separate, deferred call so the
+        slow coaching LLM never blocks the reactive score display."""
+        return await self._coach.coach(target, missed_words, native_language)
 
     async def _score_phonemes(self, target: str, audio: bytes) -> list[PhonemeScore]:
         """GOP scores when an engine is configured, else empty. A provider failure
