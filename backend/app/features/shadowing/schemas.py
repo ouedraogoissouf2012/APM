@@ -16,11 +16,21 @@ class WordOut(BaseModel):
     confidence: float | None = None
 
 
+class PhonemeOut(BaseModel):
+    """One expected phoneme and its GOP score (#111 step 2). Empty list when no
+    pronunciation engine is configured. The score is a raw acoustic measure — the
+    client must present it with uncertainty, not as an absolute verdict."""
+
+    phoneme: str
+    score: float
+
+
 class AttemptOut(BaseModel):
     transcript: str
     words: list[WordOut]
     missed_words: list[str]
     coaching: str
+    phonemes: list[PhonemeOut] = []
 
 
 class TtsIn(BaseModel):

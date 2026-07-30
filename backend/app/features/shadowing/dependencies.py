@@ -11,6 +11,10 @@ from app.features.conversation.providers.interfaces import (
 from app.features.conversation.providers.interfaces import (
     TextCompletionProvider as LlmProvider,
 )
+from app.features.pronunciation.provider import (
+    PronunciationProvider,
+    shared_pronunciation_provider,
+)
 from app.features.shadowing.coach import ShadowingCoach
 from app.features.shadowing.fake_llm import FakeShadowingLlm
 from app.features.shadowing.generator import PhraseGenerator
@@ -50,9 +54,25 @@ def get_shadowing_service() -> ShadowingService:
     return ShadowingService(generator=PhraseGenerator(llm), coach=ShadowingCoach(llm))
 
 
+def _pronunciation_provider() -> PronunciationProvider:
+    settings = get_settings()
+    return shared_pronunciation_provider(
+        engine=settings.pronunciation_engine,
+        service_url=settings.gop_service_url,
+        timeout_seconds=settings.gop_timeout_seconds,
+    )
+
+
 def get_shadowing_service_with_stt(
     stt: SttProvider = Depends(get_stt_provider),
 ) -> ShadowingService:
-    """Service for scoring an attempt — requires a server STT (404 when device)."""
+    """Service for scoring an attempt — requires a server STT (404 when device).
+    The pronunciation engine (GOP) is attached too; it is "fake" by default, so
+    phoneme scores are empty unless PRONUNCIATION_ENGINE=gop is configured."""
     llm = _shadowing_llm()
-    return ShadowingService(generator=PhraseGenerator(llm), coach=ShadowingCoach(llm), stt=stt)
+    return ShadowingService(
+        generator=PhraseGenerator(llm),
+        coach=ShadowingCoach(llm),
+        stt=stt,
+        pronunciation=_pronunciation_provider(),
+    )
