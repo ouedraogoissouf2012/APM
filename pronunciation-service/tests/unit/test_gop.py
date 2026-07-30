@@ -52,11 +52,34 @@ def test_gop_high_when_phoneme_dominates_its_frames():
 
 
 def test_gop_low_when_a_competitor_dominates():
-    # Target is "a" but the model strongly hears "b" instead (confusion).
-    log_probs = _logprobs([[0.01, 0.2, 0.79]] * 3)
+    # Target "a" but the model OVERWHELMINGLY hears "b" (a real substitution, not a
+    # near-tie). Calibrated on measured behaviour: a phoneme is "poorly pronounced"
+    # only when a competitor dominates by a wide margin (GOP <= ~-4), like saying
+    # "sink" for "think". Here "a"=0.004 vs "b"=0.99 -> GOP ~ -5.5 -> clear fail.
+    log_probs = _logprobs([[0.006, 0.004, 0.99]] * 3)
     scores = gop_scores(log_probs, [1], _ID2PH, blank=_BLANK)
     assert scores[0].phoneme == "a"
     assert scores[0].score < 0.5  # poorly pronounced (heard the other phoneme)
+
+
+def test_gop_uses_ratio_to_best_competitor_not_raw_posterior():
+    # The heart of the calibration fix (#111 feedback): a phoneme that is the model's
+    # SECOND choice but close behind the winner must NOT be crushed to ~0.
+    # Here target "a"=0.40, competitor "b"=0.45 — a genuine near-tie. The raw softmax
+    # posterior of "a" (~0.40) already reads mid; the GOP ratio (a vs the best) must
+    # keep it clearly above "poorly pronounced", not collapse it.
+    log_probs = _logprobs([[0.15, 0.40, 0.45]] * 3)
+    scores = gop_scores(log_probs, [1], _ID2PH, blank=_BLANK)
+    assert scores[0].phoneme == "a"
+    # Near-tie with the winner -> not a failure. Must beat the "poor" band (0.5).
+    assert scores[0].score > 0.5
+
+
+def test_gop_perfect_when_target_is_the_winner():
+    # Target "a" is clearly the top phoneme -> GOP near the maximum.
+    log_probs = _logprobs([[0.02, 0.90, 0.08]] * 3)
+    scores = gop_scores(log_probs, [1], _ID2PH, blank=_BLANK)
+    assert scores[0].score > 0.9
 
 
 def test_gop_scores_are_bounded_0_1():

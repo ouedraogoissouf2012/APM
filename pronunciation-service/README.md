@@ -82,12 +82,23 @@ PHONEMIZER_ESPEAK_LIBRARY="/c/Program Files/eSpeak NG/libespeak-ng.dll" \
 `POST /score` — multipart: `audio` (file) + `target_text` (form field).
 Returns `{ "phonemes": [ { "phoneme", "score", "start", "end" }, ... ] }`.
 
+## Calibration
+
+The score is a **calibrated GOP** (Witt & Young): per frame, `log P(target) −
+log P(best competitor)`, averaged over the aligned frames, then mapped to `[0,1]`
+by a logistic centered from measured behaviour (`ml/gop.py::_gop_to_score`). This
+matters because the multilingual model splits probability mass between confusable
+phonemes: a correctly-pronounced `/θ/` in "think" emits a raw posterior of only
+~0.08 (it "leaks" to `/f/`), yet its GOP (~−2.1) is clearly separable from a truly
+wrong one — saying "sink" scores GOP ~−4.8. After calibration these read **0.79
+(good) vs 0.06 (needs practice)** — the same sound, correctly discriminated.
+
 ## Tracked debt (honest limitations)
 
-- **The GOP score is a raw ACOUSTIC score, not calibrated on real French-speaker
-  voices.** On short/TTS clips a correctly-pronounced phoneme can still score low
-  (observed `/θ/` ≈ 0.08 on a synthetic "think"). Before showing it as a judgment
-  to a learner, it needs thresholding/normalization and must be displayed **with
-  uncertainty** — never as an absolute verdict.
+- **The logistic is calibrated on the model's own behaviour, not yet on a corpus
+  of real French-speaker recordings.** The `/θ/`-vs-`/f/` boundary was measured, but
+  a full per-phoneme reference table (many phonemes, many speakers) would make the
+  bands more reliable across all sounds. The UI still shows the score **with an
+  uncertainty note**, never as an absolute verdict.
 - Running this locally means **two services** (backend + this one) — added infra
   complexity, accepted for the deployment/scaling isolation it buys.

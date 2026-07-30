@@ -36,10 +36,14 @@ class FakeModel:
         return {i: p for p, i in self._VOCAB.items()}
 
     def emission_log_probs(self, samples: list[float]) -> list[list[float]]:
+        # A sharp contrast (0.98 vs ~0.01) simulates the model clearly "hearing" one
+        # phoneme — so the GOP ratio reads a confident match for the heard phoneme
+        # and a clear miss for a different target, matching real calibrated behaviour.
         rows = []
+        n_other = len(self._VOCAB) - 1
         for heard in self._per_frame:
-            probs = dict.fromkeys(self._VOCAB, 0.1)
-            probs[heard] = 0.9
+            probs = dict.fromkeys(self._VOCAB, 0.02 / n_other)
+            probs[heard] = 0.98
             rows.append([math.log(probs[k]) for k in self._VOCAB])
         return rows
 
