@@ -161,7 +161,9 @@ class _RoundView extends ConsumerWidget {
         EchoPhase.idle => 'touche pour t’enregistrer',
         EchoPhase.playingModel => 'écoute le modèle',
         EchoPhase.recording => 'je t’écoute — touche pour arrêter',
-        EchoPhase.scoring => 'analyse…',
+        // Scoring runs STT + the GOP acoustic model (~2-3 s on CPU); tell the
+        // learner their sounds are being analyzed so the wait is understood.
+        EchoPhase.scoring => 'analyse de tes sons…',
         EchoPhase.reviewing => 'compare ta voix au modèle',
       };
 }

@@ -17,6 +17,25 @@ def test_flattens_multiple_words():
     assert split_phonemes("ð ə  ʃ ɪ p") == ["ð", "ə", "ʃ", "ɪ", "p"]
 
 
+def test_word_boundary_marker_does_not_fuse_phonemes():
+    # Regression (real bug): with word separator "|", the phonemes at word
+    # boundaries must stay separate, not fuse (e.g. "s|ɪ" was becoming "sɪ", an
+    # unknown token the model dropped, so a whole sentence collapsed to a few
+    # phonemes). The "|" is a boundary marker, dropped like whitespace.
+    assert split_phonemes("ð ɪ s | ɪ z | m aɪ | h aʊ s") == [
+        "ð",
+        "ɪ",
+        "s",
+        "ɪ",
+        "z",
+        "m",
+        "aɪ",
+        "h",
+        "aʊ",
+        "s",
+    ]
+
+
 def test_ignores_empty_tokens_and_newlines():
     assert split_phonemes("  θ \n ɪ  ") == ["θ", "ɪ"]
 
