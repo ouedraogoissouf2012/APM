@@ -10,36 +10,11 @@ import wave
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.conftest import FakeModel
 
 from pronunciation.api.routes import router
 from pronunciation.dependencies import get_scoring_service
 from pronunciation.services.scoring_service import ScoringService
-
-
-class _FakeModel:
-    """3-symbol model (blank/a/b); 'hears' the phoneme scripted per frame."""
-
-    def __init__(self, per_frame: list[str]) -> None:
-        self._per_frame = per_frame
-        self._vocab = {"<pad>": 0, "a": 1, "b": 2}
-
-    @property
-    def blank_id(self) -> int:
-        return 0
-
-    def phoneme_to_id(self, phoneme: str) -> int | None:
-        return self._vocab.get(phoneme)
-
-    def id_to_phoneme(self) -> dict[int, str]:
-        return {i: p for p, i in self._vocab.items()}
-
-    def emission_log_probs(self, samples: list[float]) -> list[list[float]]:
-        rows = []
-        for heard in self._per_frame:
-            probs = {"<pad>": 0.1, "a": 0.1, "b": 0.1}
-            probs[heard] = 0.9
-            rows.append([math.log(probs[k]) for k in ("<pad>", "a", "b")])
-        return rows
 
 
 def _wav_16k_mono(seconds: float = 0.1) -> bytes:
@@ -62,7 +37,7 @@ def _wav_16k_mono(seconds: float = 0.1) -> bytes:
 def _client(per_frame: list[str], phonemes: list[str]) -> TestClient:
     app = FastAPI()
     app.include_router(router)
-    service = ScoringService(model=_FakeModel(per_frame), phonemizer=lambda _t, _l: phonemes)
+    service = ScoringService(model=FakeModel(per_frame), phonemizer=lambda _t, _l: phonemes)
     app.dependency_overrides[get_scoring_service] = lambda: service
     return TestClient(app)
 
