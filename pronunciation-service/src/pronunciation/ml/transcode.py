@@ -8,12 +8,11 @@ so importing this module (e.g. for the pure validation path) never pulls them in
 
 import io
 
+from pronunciation.ml.domain import TARGET_SAMPLE_RATE
+
 
 class TranscodeError(Exception):
     """The audio could not be decoded/resampled."""
-
-
-_TARGET_SR = 16_000
 
 
 def to_pcm_16k_mono(audio: bytes, max_bytes: int = 10 * 1024 * 1024) -> list[float]:
@@ -29,8 +28,8 @@ def to_pcm_16k_mono(audio: bytes, max_bytes: int = 10 * 1024 * 1024) -> list[flo
     import librosa  # lazy: keeps the pure validation path torch/librosa-free
 
     try:
-        # sr=16000 resamples; mono=True down-mixes; librosa returns float32 in [-1, 1].
-        samples, _ = librosa.load(io.BytesIO(audio), sr=_TARGET_SR, mono=True)
+        # sr resamples; mono=True down-mixes; librosa returns float32 in [-1, 1].
+        samples, _ = librosa.load(io.BytesIO(audio), sr=TARGET_SAMPLE_RATE, mono=True)
     except Exception as exc:
         raise TranscodeError("Could not decode audio") from exc
     return samples.tolist()

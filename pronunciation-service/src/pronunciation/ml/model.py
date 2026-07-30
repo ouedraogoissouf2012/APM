@@ -9,6 +9,8 @@ imported lazily and loaded once.
 
 from typing import Protocol
 
+from pronunciation.ml.domain import TARGET_SAMPLE_RATE
+
 
 class PhonemeAcousticModel(Protocol):
     """A CTC phoneme model: audio -> per-frame log-probs over a phoneme alphabet."""
@@ -68,7 +70,7 @@ class Wav2Vec2PhonemeModel:
     def emission_log_probs(self, samples: list[float]) -> list[list[float]]:
         torch = self._torch
         inputs = self._processor(
-            samples, sampling_rate=16_000, return_tensors="pt"
+            samples, sampling_rate=TARGET_SAMPLE_RATE, return_tensors="pt"
         ).input_values.to(self._device)
         with torch.no_grad():
             logits = self._model(inputs).logits[0]  # (frames, alphabet)
