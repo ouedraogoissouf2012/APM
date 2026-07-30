@@ -20,5 +20,31 @@ services:
       timeout: 5s
       retries: 10
 
+  # Phoneme-level pronunciation scoring (GOP via wav2vec2). Heavy (~2-3 GB image),
+  # so it is opt-in behind the `ml` profile: `docker compose --profile ml up`.
+  # The main stack (postgres, backend) runs without it.
+  pronunciation:
+    build:
+      context: ./pronunciation-service
+    container_name: apm-pronunciation
+    profiles: ["ml"]
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    environment:
+      APP_ENV: dev
+      LOG_LEVEL: info
+      DEVICE: cpu
+    # Cache HuggingFace weights across restarts so the model downloads only once.
+    volumes:
+      - apm_hf_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8100/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
 volumes:
   apm_pgdata:
+  apm_hf_cache:

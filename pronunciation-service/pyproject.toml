@@ -1,0 +1,65 @@
+[project]
+name = "apm-pronunciation-service"
+version = "0.1.0"
+description = "Pronunciation scoring microservice — phoneme-level GOP via wav2vec2 (open-source, no Azure)"
+requires-python = ">=3.12"
+dependencies = [
+    # Lightweight core: the web layer only. The heavy ML stack lives in the
+    # optional `ml` group so lint/type/pure-logic CI stays fast and the base
+    # install is small. torch/transformers/librosa/phonemizer are imported
+    # LAZILY (inside functions/__init__), so all modules import without them.
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.6",
+    "python-multipart>=0.0.12",
+]
+
+[project.optional-dependencies]
+# The real ML stack. Heavy (~2-3 GB with the model), but isolated here so the
+# main APM backend stays light. Installed in the Docker image and locally for
+# the audio/e2e tests; NOT needed for ruff/mypy/pure-logic tests.
+ml = [
+    "torch>=2.5",
+    "transformers>=4.46",
+    "librosa>=0.10",          # decode + resample any WAV to 16 kHz mono float32
+    "soundfile>=0.12",        # WAV decode backend for librosa
+    "phonemizer>=3.3",        # target text -> expected phonemes (espeak backend)
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's DI idiom calls these in argument defaults on purpose.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Form", "fastapi.Query"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true          # torch/transformers/librosa ship no stubs
+mypy_path = "src"

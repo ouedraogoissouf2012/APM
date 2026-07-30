@@ -50,6 +50,32 @@ jobs:
       - name: Tests (pytest)
         run: uv run pytest -q
 
+  pronunciation:
+    name: Pronunciation service (lint, types, tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pronunciation-service
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      # Core + dev deps only — NOT the heavy `ml` extra (torch + ~1 GB model).
+      # Lazy imports let ruff/mypy/pure-logic tests run without it; the audio/e2e
+      # tests skip cleanly when the ML stack is absent (they run locally/in Docker).
+      - name: Install dependencies (no ML stack)
+        run: uv sync
+      - name: Lint (ruff)
+        run: uv run ruff check src tests scripts
+      - name: Format check (ruff)
+        run: uv run ruff format --check src tests scripts
+      - name: Type check (mypy)
+        run: uv run mypy src
+      - name: Tests (pure logic; audio/e2e skip without ML stack)
+        run: uv run pytest -q
+
   mobile:
     name: Mobile (analyze, test)
     runs-on: ubuntu-latest

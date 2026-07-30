@@ -1,0 +1,11 @@
+# Never ship the local venv (~3 GB) or caches into the build context.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+scripts/
+*.md
+.env
