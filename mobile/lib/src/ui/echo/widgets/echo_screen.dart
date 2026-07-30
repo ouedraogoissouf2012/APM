@@ -146,7 +146,12 @@ class _RoundView extends ConsumerWidget {
           ),
           const SizedBox(height: AppSpacing.md),
         ],
-        if (state.result != null) _Feedback(state: state),
+        // The feedback (coaching + per-phoneme detail) can be tall on small
+        // screens; let it scroll instead of overflowing the fixed column.
+        if (state.result != null)
+          Flexible(
+            child: SingleChildScrollView(child: _Feedback(state: state)),
+          ),
         _Controls(state: state),
       ],
     );
@@ -269,7 +274,72 @@ class _Feedback extends ConsumerWidget {
             textAlign: TextAlign.center,
           ),
         ],
+        if (result.phonemes.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          _PhonemeDetail(phonemes: result.phonemes),
+        ],
         const SizedBox(height: AppSpacing.md),
+      ],
+    );
+  }
+}
+
+/// Per-phoneme pronunciation detail (#111 step 2): one colored chip per expected
+/// phoneme, so the learner sees exactly which sound (e.g. /θ/) needs work — finer
+/// than the word-level highlighting. Only shown when the backend's GOP engine is
+/// on; empty otherwise.
+///
+/// Honest by design: the GOP score is a raw acoustic measure, not calibrated on
+/// French-speaker voices, so we label it "à titre indicatif" rather than present
+/// it as a verdict (tracked debt from the pronunciation microservice).
+class _PhonemeDetail extends StatelessWidget {
+  const _PhonemeDetail({required this.phonemes});
+
+  final List<EchoPhonemeScore> phonemes;
+
+  Color _colorFor(EchoPhonemeScore p, AppSemanticColors colors) {
+    if (p.isStrong) return colors.positive;
+    if (!p.needsPractice) return colors.correction; // review band
+    return colors.accent; // needs practice
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Column(
+      key: const Key('echo_phonemes'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        OverlineText('Sons', color: colors.textSecondary),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            for (final p in phonemes)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: _colorFor(p, colors).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(color: _colorFor(p, colors)),
+                ),
+                child: Text(
+                  '/${p.phoneme}/',
+                  style: AppType.body(_colorFor(p, colors)),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'À titre indicatif : score acoustique, pas encore calibré sur des voix francophones.',
+          key: const Key('echo_phonemes_uncertainty'),
+          style: AppType.label(colors.textSecondary),
+        ),
       ],
     );
   }

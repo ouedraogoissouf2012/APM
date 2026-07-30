@@ -120,6 +120,43 @@ void main() {
     expect(find.byKey(const Key('echo_unavailable')), findsOneWidget);
   });
 
+  testWidgets('shows per-phoneme detail with an uncertainty note when GOP scores exist',
+      (tester) async {
+    await _pump(
+      tester,
+      EchoState(
+        phrase: phrase,
+        phase: EchoPhase.reviewing,
+        result: const AttemptResult(
+          transcript: 'think',
+          phonemes: [
+            EchoPhonemeScore(phoneme: 'θ', score: 0.08),
+            EchoPhonemeScore(phoneme: 'k', score: 0.9),
+          ],
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('echo_phonemes')), findsOneWidget);
+    // Each phoneme is shown in IPA slashes.
+    expect(find.text('/θ/'), findsOneWidget);
+    expect(find.text('/k/'), findsOneWidget);
+    // The honest uncertainty note is always present (tracked debt: uncalibrated).
+    expect(find.byKey(const Key('echo_phonemes_uncertainty')), findsOneWidget);
+  });
+
+  testWidgets('shows no phoneme detail when GOP scores are absent (fake engine)',
+      (tester) async {
+    await _pump(
+      tester,
+      const EchoState(
+        phrase: phrase,
+        phase: EchoPhase.reviewing,
+        result: AttemptResult(transcript: 'the ship is sinking'),
+      ),
+    );
+    expect(find.byKey(const Key('echo_phonemes')), findsNothing);
+  });
+
   testWidgets('colors words by pronunciation score after scoring', (tester) async {
     await _pump(
       tester,
