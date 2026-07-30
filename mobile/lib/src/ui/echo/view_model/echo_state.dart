@@ -30,6 +30,8 @@ class EchoState {
     this.modelMime = 'audio/mpeg',
     this.myRecording,
     this.result,
+    this.coaching,
+    this.coachingLoading = false,
     this.round = 1,
     this.error,
     this.unavailable = false,
@@ -47,6 +49,13 @@ class EchoState {
   final Uint8List? myRecording;
 
   final AttemptResult? result;
+
+  /// Coaching tip on the missed words, fetched AFTER the result is shown so the
+  /// slow coaching LLM never blocks the reactive score display. Null until it
+  /// arrives; [coachingLoading] is true while the deferred call is in flight.
+  final String? coaching;
+  final bool coachingLoading;
+
   final int round;
   final String? error;
 
@@ -65,12 +74,15 @@ class EchoState {
     String? modelMime,
     Uint8List? myRecording,
     AttemptResult? result,
+    String? coaching,
+    bool? coachingLoading,
     int? round,
     String? error,
     bool? unavailable,
     bool clearError = false,
     bool clearResult = false,
     bool clearMyRecording = false,
+    bool clearCoaching = false,
   }) {
     return EchoState(
       phase: phase ?? this.phase,
@@ -79,6 +91,8 @@ class EchoState {
       modelMime: modelMime ?? this.modelMime,
       myRecording: clearMyRecording ? null : (myRecording ?? this.myRecording),
       result: clearResult ? null : (result ?? this.result),
+      coaching: clearCoaching ? null : (coaching ?? this.coaching),
+      coachingLoading: coachingLoading ?? this.coachingLoading,
       round: round ?? this.round,
       error: clearError ? null : (error ?? this.error),
       unavailable: unavailable ?? this.unavailable,

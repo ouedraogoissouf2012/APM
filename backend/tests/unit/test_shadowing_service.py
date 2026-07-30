@@ -107,3 +107,38 @@ async def test_empty_audio_returns_empty_result_and_skips_provider():
     assert result.phonemes == []
     assert result.words == []
     assert pron.calls == []  # no audio -> provider never called
+
+
+class _RecordingCoach:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[str], str]] = []
+
+    async def coach(self, target: str, missed: list[str], native_language: str) -> str:
+        self.calls.append((target, missed, native_language))
+        return "Say ship with a short i."
+
+
+@pytest.mark.asyncio
+async def test_score_attempt_does_not_call_the_coach():
+    # Responsiveness fix: scoring returns fast (STT + GOP, ~1s) and NEVER waits on
+    # the slow coaching LLM. missed_words is still populated so the client can ask
+    # for coaching afterwards, but no coaching call happens during scoring.
+    coach = _RecordingCoach()
+    service = ShadowingService(generator=None, coach=coach, stt=_FakeStt("the sheep"))
+    result = await service.score_attempt(target="the ship", audio=b"WAV", native_language="fr")
+    assert coach.calls == []  # scoring never blocks on the coaching LLM
+    assert result.coaching == ""  # coaching is fetched separately, later
+    assert "ship" in result.missed_words  # but the misses are known
+
+
+@pytest.mark.asyncio
+async def test_coach_attempt_calls_the_coach_separately():
+    # The coaching is a second, independent call the client makes after showing
+    # the result — so the slow LLM never blocks the reactive score display.
+    coach = _RecordingCoach()
+    service = ShadowingService(generator=None, coach=coach, stt=_FakeStt("x"))
+    text = await service.coach_attempt(
+        target="the ship", missed_words=["ship"], native_language="fr"
+    )
+    assert text == "Say ship with a short i."
+    assert coach.calls == [("the ship", ["ship"], "fr")]
