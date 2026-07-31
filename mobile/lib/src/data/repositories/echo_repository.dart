@@ -30,7 +30,8 @@ class EchoRepository {
   }
 
   /// Scores a spoken attempt: uploads the recording + the target phrase, gets
-  /// back the missed words and coaching.
+  /// back the transcript, per-word and per-phoneme scores, and the missed words.
+  /// Coaching is fetched separately (see [coachAttempt]) so this returns fast.
   Future<AttemptResult> scoreAttempt({
     required List<int> audioBytes,
     required String targetText,
@@ -43,5 +44,18 @@ class EchoRepository {
       fields: {'target_text': targetText},
     );
     return AttemptResult.fromJson(json);
+  }
+
+  /// A short coaching tip on the missed words. A separate, deferred call so the
+  /// slow coaching LLM never blocks the reactive score display.
+  Future<String> coachAttempt({
+    required String targetText,
+    required List<String> missedWords,
+  }) async {
+    final json = await _api.postJson(
+      '/shadowing/coach',
+      body: {'target_text': targetText, 'missed_words': missedWords},
+    );
+    return json['coaching'] as String? ?? '';
   }
 }

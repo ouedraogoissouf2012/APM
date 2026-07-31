@@ -33,6 +33,18 @@ class AttemptOut(BaseModel):
     phonemes: list[PhonemeOut] = []
 
 
+class CoachIn(BaseModel):
+    """Ask for coaching on a scored attempt's misses. Sent AFTER the attempt is
+    displayed, so the slow coaching LLM never blocks the score UI."""
+
+    target_text: str = Field(min_length=1, max_length=300)
+    missed_words: list[str] = Field(default_factory=list, max_length=50)
+
+
+class CoachOut(BaseModel):
+    coaching: str
+
+
 class TtsIn(BaseModel):
     """Text to synthesize for a shadowing model voice. Bounded so a huge payload
     cannot blow up synthesis time/cost."""

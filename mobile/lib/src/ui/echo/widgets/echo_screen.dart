@@ -252,7 +252,7 @@ class _Feedback extends ConsumerWidget {
             ),
           ],
         ),
-        if (result.coaching.isNotEmpty) ...[
+        if (state.coaching != null && state.coaching!.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.md),
           Container(
             padding: const EdgeInsets.all(AppSpacing.md),
@@ -262,10 +262,26 @@ class _Feedback extends ConsumerWidget {
               border: Border.all(color: colors.correctionBorder),
             ),
             child: Text(
-              result.coaching,
+              state.coaching!,
               key: const Key('echo_coaching'),
               style: AppType.body(colors.textPrimary),
             ),
+          ),
+        ] else if (state.coachingLoading) ...[
+          // The score is already shown; the coaching tip is still loading.
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            key: const Key('echo_coaching_loading'),
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2, color: colors.textMuted),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text('conseil en préparation…', style: AppType.label(colors.textMuted)),
+            ],
           ),
         ] else if (result.isPerfect) ...[
           const SizedBox(height: AppSpacing.md),
