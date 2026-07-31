@@ -10,7 +10,8 @@ learner's utterance is computed in parallel and streamed last. No LiveKit.
 
 import asyncio
 import base64
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
 from app.domain.exceptions import ConflictError
@@ -75,6 +76,7 @@ class ConversationTurnService:
         corrector: TurnCorrector | None = None,
         tts: TtsProvider | None = None,
         missions: MissionRepository | None = None,
+        meter: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
@@ -83,11 +85,15 @@ class ConversationTurnService:
         self._corrector = corrector
         self._tts = tts
         self._missions = missions
+        # Called once per turn to meter the quota per turn (#119). Injected (DIP)
+        # so this service stays decoupled from the session/quota logic. Best-effort:
+        # a metering failure must never break a turn.
+        self._meter = meter
 
     async def take_turn(self, session_id: int, user: User, text: str) -> TurnResult:
         turns, system_prompt, history, _intensity = await self._prepare(session_id, user, text)
         reply = await self._llm.complete(system_prompt, history)
-        turns = await self._persist(session_id, turns, text, reply)
+        turns = await self._persist(session_id, user, turns, text, reply)
         return TurnResult(reply=reply, turns=turns)
 
     async def stream_turn(
@@ -118,7 +124,7 @@ class ConversationTurnService:
                         )
                     )
             full_reply = " ".join(parts)
-            await self._persist(session_id, turns, text, full_reply)
+            await self._persist(session_id, user, turns, text, full_reply)
             # Speak the whole reply as one clean clip. TTS failure must not break
             # the turn (the text reply already succeeded).
             if self._tts is not None and full_reply:
@@ -187,7 +193,7 @@ class ConversationTurnService:
         return system_prompt, intensity
 
     async def _persist(
-        self, session_id: int, turns: list[dict], text: str, reply: str
+        self, session_id: int, user: User, turns: list[dict], text: str, reply: str
     ) -> list[dict]:
         turns = [
             *turns,
@@ -195,4 +201,13 @@ class ConversationTurnService:
             {"role": ROLE_ASSISTANT, "content": reply},
         ]
         await self._transcripts.save(session_id, turns)
+        # Meter the quota per turn (#119). Best-effort: never break a turn if it
+        # fails — the transcript is already saved.
+        if self._meter is not None:
+            try:
+                await self._meter(session_id, user.id)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Per-turn quota metering failed for session %s", session_id, exc_info=True
+                )
         return turns

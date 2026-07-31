@@ -5,6 +5,7 @@ from app.config import get_settings
 from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
 from app.database import get_db
 from app.domain.exceptions import NotFoundError
+from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.correction import TurnCorrector
 from app.features.conversation.factory import shared_llm_provider
 from app.features.conversation.providers.interfaces import SttProvider, TtsProvider
@@ -14,6 +15,7 @@ from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
 from app.features.missions.repository import SqlAlchemyMissionRepository
 from app.features.profile.repository import SqlAlchemyProfileRepository
+from app.features.sessions.dependencies import build_session_service
 from app.features.sessions.repository import SqlAlchemySessionRepository
 
 _settings = get_settings()
@@ -71,8 +73,13 @@ def get_conversation_turn_service(
     # Server-side neural voice when TTS_ENGINE=edge; None keeps the on-device
     # system voice (default), so nothing changes until it is switched on.
     tts: TtsProvider | None = EdgeTtsProvider() if settings.tts_engine == "edge" else None
+    sessions = SqlAlchemySessionRepository(db)
+    # A SessionService sharing this request's db session, used ONLY to meter the
+    # quota per turn (#119) via record_turn_activity — so an abandoned session
+    # can't run unlimited free turns.
+    session_service = build_session_service(sessions, SqlAlchemyUserRepository(db))
     return ConversationTurnService(
-        sessions=SqlAlchemySessionRepository(db),
+        sessions=sessions,
         transcripts=SqlAlchemyTranscriptRepository(db),
         profiles=SqlAlchemyProfileRepository(db),
         llm=llm,
@@ -82,4 +89,5 @@ def get_conversation_turn_service(
         tts=tts,
         # Drives a mission session with the mission's stored persona prompt.
         missions=SqlAlchemyMissionRepository(db),
+        meter=session_service.record_turn_activity,
     )

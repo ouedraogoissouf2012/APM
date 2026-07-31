@@ -29,5 +29,11 @@ class ConversationSession(Base):
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Bumped on every turn (#119) so per-turn metering charges the real gap and a
+    # lazy reaper can auto-close a session abandoned without /end. Defaults to the
+    # start time for rows created before this column existed.
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)

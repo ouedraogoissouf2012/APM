@@ -18,9 +18,11 @@ from app.domain.exceptions import (
     NotFoundError,
     QuotaExhaustedError,
 )
+from app.features.auth.models import User
 from app.features.auth.repository import UserRepository
 from app.features.conversation.repository import TranscriptRepository
 from app.features.missions.repository import MissionRepository
+from app.features.sessions.activity import elapsed_minutes, is_stale
 from app.features.sessions.models import ConversationSession
 from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
@@ -65,6 +67,8 @@ class SessionService:
         voice_engine: str = ENGINE_FAKE,
         history_page_size: int = DEFAULT_HISTORY_PAGE_SIZE,
         missions: MissionRepository | None = None,
+        inactivity_timeout_minutes: float = 30.0,
+        turn_meter_cap_minutes: float = 5.0,
     ) -> None:
         self._sessions = sessions
         self._users = users
@@ -74,6 +78,8 @@ class SessionService:
         self._voice_engine = voice_engine
         self._history_page_size = history_page_size
         self._missions = missions
+        self._inactivity_timeout = inactivity_timeout_minutes
+        self._turn_meter_cap = turn_meter_cap_minutes
 
     async def start(
         self,
@@ -88,8 +94,17 @@ class SessionService:
             raise NotFoundError("User not found")
         if quota.remaining_minutes(user, self._free_daily, date.today()) <= 0:
             raise QuotaExhaustedError("Daily free quota exhausted")
-        if await self._sessions.get_active_for_user(user_id) is not None:
-            raise ActiveSessionExistsError("A session is already in progress")
+        active = await self._sessions.get_active_for_user(user_id)
+        if active is not None:
+            # Lazy reaper (#119): a session abandoned without /end would lock the
+            # user out forever. If it has been idle past the timeout, auto-close it
+            # (billing its usage) so this start can proceed; otherwise it is a real
+            # concurrent session and we still reject.
+            now = datetime.now(UTC)
+            if is_stale(_as_utc(active.last_activity_at), now, self._inactivity_timeout):
+                await self._close_session(active, user, now)
+            else:
+                raise ActiveSessionExistsError("A session is already in progress")
 
         # Never trust the client's claim to own the mission: re-check here. A
         # missing/foreign mission id is a 404 (does not reveal existence).
@@ -102,6 +117,10 @@ class SessionService:
             scenario_id=scenario_id,
             mission_id=mission_id,
             room_name=f"apm-{user_id}-{uuid4().hex}",
+            # Set explicitly (not only via server_default) so last_activity_at is
+            # never None on the in-memory object between add() and refresh.
+            started_at=datetime.now(UTC),
+            last_activity_at=datetime.now(UTC),
             voice_engine=self._voice_engine,  # record the engine that served it
         )
         await self._sessions.add(session)
@@ -136,16 +155,45 @@ class SessionService:
         if session.ended_at is not None:
             return session  # idempotent: ending an already-ended session is a no-op
 
-        now = datetime.now(UTC)
-        duration = max(0.0, (now - _as_utc(session.started_at)).total_seconds() / 60.0)
-        session.ended_at = now
-        session.duration_minutes = duration
-
         user = await self._users.get_by_id(user_id)
-        if user is not None:
-            quota.record_usage(user, duration, date.today())
+        await self._close_session(session, user, datetime.now(UTC))
         await self._sessions.commit()
         return session
+
+    async def record_turn_activity(self, session_id: int, user_id: int) -> None:
+        """Meter the quota per turn (#119) and mark the session active NOW.
+
+        Called on every conversation turn so usage accrues even if the client
+        never calls /end — closing the "unlimited free turns" hole. The charge is
+        the gap since the last activity, capped so one long pause can't over-bill.
+        Best-effort: a metering failure must never break a turn, so callers ignore
+        errors."""
+        session = await self._sessions.get(session_id)
+        if session is None or session.user_id != user_id or session.ended_at is not None:
+            return
+        now = datetime.now(UTC)
+        minutes = elapsed_minutes(_as_utc(session.last_activity_at), now, cap=self._turn_meter_cap)
+        session.last_activity_at = now
+        user = await self._users.get_by_id(user_id)
+        if user is not None and minutes > 0:
+            quota.record_usage(user, minutes, date.today())
+        await self._sessions.commit()
+
+    async def _close_session(
+        self, session: ConversationSession, user: User | None, now: datetime
+    ) -> None:
+        """Mark a session ended and bill the total server-side duration. Shared by
+        the explicit /end and the lazy reaper. Note: per-turn metering already
+        charged most of it; the small residual since the last turn is billed here.
+        To avoid double-charging the whole session, we bill only the gap since the
+        last recorded activity."""
+        residual = elapsed_minutes(_as_utc(session.last_activity_at), now, cap=self._turn_meter_cap)
+        session.ended_at = now
+        session.duration_minutes = max(
+            0.0, (now - _as_utc(session.started_at)).total_seconds() / 60.0
+        )
+        if user is not None and residual > 0:
+            quota.record_usage(user, residual, date.today())
 
     async def history(self, user_id: int, limit: int | None = None) -> list[SessionHistoryItem]:
         page_size = limit if limit is not None else self._history_page_size
