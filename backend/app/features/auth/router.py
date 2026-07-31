@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, Request, status
 
+from app.api.client_ip import client_ip
+from app.config import get_settings
 from app.core.rate_limit import RateLimiter
 from app.core.security import hash_token
 from app.features.auth.dependencies import (
@@ -32,7 +34,7 @@ def _to_token_out(result: AuthResult) -> TokenOut:
 
 
 def _client_host(request: Request) -> str:
-    return request.client.host if request.client else "anonymous"
+    return client_ip(request, get_settings().trust_proxy_headers)
 
 
 @router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)

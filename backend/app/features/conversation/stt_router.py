@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
+from app.api.client_ip import client_ip
+from app.config import get_settings
 from app.core.rate_limit import RateLimiter
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
@@ -28,9 +30,21 @@ async def transcribe(
     """Transcribe one recorded utterance with the server-side STT (Whisper via
     Groq). Used instead of the browser recognizer for far better accuracy on a
     non-native accent."""
-    client_host = request.client.host if request.client else "anonymous"
+    settings = get_settings()
+    client_host = client_ip(request, settings.trust_proxy_headers)
     await limiter.check(f"transcribe:{client_host}:user:{current_user.id}")
+
+    # Reject an oversized upload (#120). Check the declared Content-Length first so
+    # we refuse before reading; the header can be absent or lie, so also enforce on
+    # the bytes actually read.
+    max_bytes = settings.max_upload_bytes
+    declared = request.headers.get("Content-Length")
+    if declared is not None and declared.isdigit() and int(declared) > max_bytes:
+        raise HTTPException(status_code=413, detail="Audio upload too large")
+
     data = await audio.read()
+    if len(data) > max_bytes:
+        raise HTTPException(status_code=413, detail="Audio upload too large")
     if not data:
         return TranscribeOut(text="")  # silence -> empty, the client stays idle
     text = await stt.transcribe(data)

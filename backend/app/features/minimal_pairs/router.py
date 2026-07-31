@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 
+from app.api.client_ip import client_ip
+from app.config import get_settings
 from app.core.rate_limit import RateLimiter
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
@@ -25,7 +27,7 @@ async def score_attempt(
 ) -> PairAttemptOut:
     """Score a spoken minimal-pair attempt: did the learner say the target word,
     or the other (confused) word of the pair? The audio is used then discarded."""
-    client_host = request.client.host if request.client else "anonymous"
+    client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"minimal-pairs:{client_host}:user:{current_user.id}")
     data = await audio.read()
     result = await service.score_attempt(

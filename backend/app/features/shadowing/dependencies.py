@@ -2,7 +2,8 @@ from fastapi import Depends
 
 from app.config import get_settings
 from app.core.engines import ENGINE_DEEPSEEK
-from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
+from app.core.rate_limit import RateLimiter
+from app.core.rate_limit_factory import build_rate_limiter
 from app.features.conversation.dependencies import get_stt_provider
 from app.features.conversation.factory import shared_llm_provider
 from app.features.conversation.providers.interfaces import (
@@ -23,9 +24,11 @@ from app.features.shadowing.service import ShadowingService
 _settings = get_settings()
 
 # Process-wide limiter. Swap for RedisRateLimiter to scale across instances.
-_shadowing_rate_limiter = InMemoryRateLimiter(
+_shadowing_rate_limiter = build_rate_limiter(
+    namespace="shadowing",
     max_hits=_settings.shadowing_rate_limit_max,
     window_seconds=_settings.shadowing_rate_limit_window_seconds,
+    redis_url=_settings.redis_url,
 )
 
 
