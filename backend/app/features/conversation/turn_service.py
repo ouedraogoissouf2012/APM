@@ -85,7 +85,7 @@ class ConversationTurnService:
         self._missions = missions
 
     async def take_turn(self, session_id: int, user: User, text: str) -> TurnResult:
-        turns, system_prompt, history = await self._prepare(session_id, user, text)
+        turns, system_prompt, history, _intensity = await self._prepare(session_id, user, text)
         reply = await self._llm.complete(system_prompt, history)
         turns = await self._persist(session_id, turns, text, reply)
         return TurnResult(reply=reply, turns=turns)
@@ -99,7 +99,7 @@ class ConversationTurnService:
         back-to-back on the client cuts sentences off. A grammar correction for
         the learner's utterance is computed IN PARALLEL and emitted last, so the
         gold chip never breaks the flow."""
-        turns, system_prompt, history = await self._prepare(session_id, user, text)
+        turns, system_prompt, history, intensity = await self._prepare(session_id, user, text)
         correction_task: asyncio.Future[TurnCorrection | None] | None = None
         try:
             parts: list[str] = []
@@ -113,7 +113,9 @@ class ConversationTurnService:
                 # time.
                 if correction_task is None and self._corrector is not None:
                     correction_task = asyncio.ensure_future(
-                        self._corrector.correct(text, user.cefr_level, user.native_language)
+                        self._corrector.correct(
+                            text, user.cefr_level, user.native_language, intensity
+                        )
                     )
             full_reply = " ".join(parts)
             await self._persist(session_id, turns, text, full_reply)
@@ -138,9 +140,10 @@ class ConversationTurnService:
 
     async def _prepare(
         self, session_id: int, user: User, text: str
-    ) -> tuple[list[dict], str, list[Message]]:
-        """Validate ownership/state, load history, and build the system prompt
-        from the learner's profile. Shared by take_turn and stream_turn."""
+    ) -> tuple[list[dict], str, list[Message], str]:
+        """Validate ownership/state, load history, and build the system prompt from
+        the learner's profile. Also surfaces the learner's correction_intensity so
+        the corrector honours it (#114). Shared by take_turn and stream_turn."""
         session = await get_owned_session(self._sessions, session_id, user.id)
         if session.ended_at is not None:
             raise ConflictError("Session already ended")
@@ -148,26 +151,31 @@ class ConversationTurnService:
         existing = await self._transcripts.get_by_session(session_id)
         turns: list[dict] = list(existing.turns) if existing is not None else []
 
-        system_prompt = await self._system_prompt_for(session, user)
+        system_prompt, intensity = await self._prompt_and_intensity_for(session, user)
         history = [Message(role=t["role"], content=t["content"]) for t in turns]
         history.append(Message(role=ROLE_USER, content=text))
-        return turns, system_prompt, history
+        return turns, system_prompt, history, intensity
 
-    async def _system_prompt_for(self, session: ConversationSession, user: User) -> str:
-        """A mission session is driven by the mission's stored, server-computed
-        system prompt (persona role-play). Any other session uses the profile-based
-        prompt. Falling back to the profile prompt if the mission vanished keeps a
-        turn from breaking mid-conversation."""
+    async def _prompt_and_intensity_for(
+        self, session: ConversationSession, user: User
+    ) -> tuple[str, str]:
+        """The system prompt plus the learner's correction intensity, from a single
+        profile load. A mission session is driven by the mission's stored,
+        server-computed system prompt (persona role-play); any other session uses
+        the profile-based prompt. Falling back to the profile prompt if the mission
+        vanished keeps a turn from breaking mid-conversation."""
+        profile = await self._profiles.get_by_user_id(user.id)
+        intensity = profile.correction_intensity if profile is not None else "gentle"
+
         if session.mission_id is not None and self._missions is not None:
             mission = await self._missions.get_owned(session.mission_id, user.id)
             if mission is not None and mission.system_prompt:
-                return mission.system_prompt
+                return mission.system_prompt, intensity
 
-        profile = await self._profiles.get_by_user_id(user.id)
         interests = list(profile.interests) if profile is not None else []
         goal = profile.goal if profile is not None and profile.goal else ""
         memory_summary = profile.memory_summary if profile is not None else ""
-        return build_system_prompt(
+        system_prompt = build_system_prompt(
             PromptContext(
                 cefr_level=user.cefr_level,
                 scenario_id=session.scenario_id,
@@ -176,6 +184,7 @@ class ConversationTurnService:
                 goal=goal,
             )
         )
+        return system_prompt, intensity
 
     async def _persist(
         self, session_id: int, turns: list[dict], text: str, reply: str

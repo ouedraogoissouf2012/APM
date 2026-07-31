@@ -60,6 +60,7 @@ class _FakeDebriefs:
 
 class _FakeProfile:
     memory_summary = ""
+    correction_intensity = "gentle"
 
 
 class _FakeProfiles:

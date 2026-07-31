@@ -23,7 +23,7 @@ from app.main import app
 
 
 class _CannedCorrector:
-    async def correct(self, text, cefr_level, native_language):
+    async def correct(self, text, cefr_level, native_language, intensity="gentle"):
         return TurnCorrection(
             original="i is happy",
             correction="I am happy",

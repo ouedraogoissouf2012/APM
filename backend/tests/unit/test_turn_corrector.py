@@ -9,9 +9,11 @@ class _JsonLlm:
     def __init__(self, payload: str) -> None:
         self._payload = payload
         self.seen_history = None
+        self.seen_system_prompt = None
 
     async def complete(self, system_prompt, history):
         self.seen_history = history
+        self.seen_system_prompt = system_prompt
         return self._payload
 
 
@@ -20,8 +22,16 @@ class _ExplodingLlm:
         raise RuntimeError("provider down")
 
 
-async def _correct(payload: str, text: str = "i is happy"):
-    return await TurnCorrector(_JsonLlm(payload)).correct(text, "A2", "fr")
+async def _correct(payload: str, text: str = "i is happy", intensity: str = "gentle"):
+    return await TurnCorrector(_JsonLlm(payload)).correct(text, "A2", "fr", intensity)
+
+
+@pytest.mark.asyncio
+async def test_intensity_directive_is_included_in_the_prompt():
+    # #114: the learner's correction_intensity must actually reach the prompt.
+    llm = _JsonLlm('{"has_error": false}')
+    await TurnCorrector(llm).correct("i is happy", "A2", "fr", "detailed")
+    assert "detailed" in llm.seen_system_prompt.lower()
 
 
 @pytest.mark.asyncio
