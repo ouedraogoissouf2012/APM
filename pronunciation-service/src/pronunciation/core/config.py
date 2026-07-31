@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     # Bound the audio a caller may send, so a huge upload cannot exhaust memory.
     max_audio_bytes: int = 10 * 1024 * 1024  # 10 MB
 
+    # Concurrency control for the CPU-bound inference (see core/concurrency.py).
+    # 1 = serialise inferences: the right default for a single CPU instance, where
+    # overlapping torch runs over-subscribe the cores and thrash. Raise on a bigger
+    # box / GPU. 0 or negative is rejected by InferenceGate.
+    max_concurrent_inferences: int = 1
+    # Cap torch's intra-op thread pool. 0 = leave torch's default (num cores). With
+    # serialised inferences one run may use several threads without contention.
+    torch_num_threads: int = 0
+
 
 @lru_cache
 def get_settings() -> Settings:
