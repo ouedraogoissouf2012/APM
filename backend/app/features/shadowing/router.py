@@ -14,6 +14,8 @@ from app.features.shadowing.dependencies import (
 )
 from app.features.shadowing.schemas import (
     AttemptOut,
+    CoachIn,
+    CoachOut,
     PhonemeOut,
     PhraseOut,
     TtsIn,
@@ -81,3 +83,24 @@ async def score_attempt(
         coaching=result.coaching,
         phonemes=[PhonemeOut(phoneme=p.phoneme, score=p.score) for p in result.phonemes],
     )
+
+
+@router.post("/shadowing/coach", response_model=CoachOut)
+async def coach_attempt(
+    payload: CoachIn,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    limiter: RateLimiter = Depends(get_shadowing_rate_limiter),
+    service: ShadowingService = Depends(get_shadowing_service),
+) -> CoachOut:
+    """Coaching tip on a scored attempt's missed words. Called AFTER /shadowing/attempt
+    so the slow coaching LLM never blocks the reactive score display. Does not need
+    STT (uses the phrase-only service)."""
+    client_host = request.client.host if request.client else "anonymous"
+    await limiter.check(f"shadowing-coach:{client_host}:user:{current_user.id}")
+    text = await service.coach_attempt(
+        target=payload.target_text,
+        missed_words=payload.missed_words,
+        native_language=current_user.native_language,
+    )
+    return CoachOut(coaching=text)
