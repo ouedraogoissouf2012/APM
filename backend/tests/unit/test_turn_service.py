@@ -111,7 +111,7 @@ def _user() -> User:
     return u
 
 
-def _service(sessions, transcripts, llm, profiles=None, corrector=None, tts=None):
+def _service(sessions, transcripts, llm, profiles=None, corrector=None, tts=None, meter=None):
     return ConversationTurnService(
         sessions,
         transcripts,
@@ -119,6 +119,7 @@ def _service(sessions, transcripts, llm, profiles=None, corrector=None, tts=None
         llm,
         corrector=corrector,
         tts=tts,
+        meter=meter,
     )
 
 
@@ -155,6 +156,33 @@ async def test_take_turn_appends_user_and_assistant_and_persists():
         {"role": "assistant", "content": "Hi there!"},
     ]
     assert transcripts.saved == (1, result.turns)
+
+
+@pytest.mark.asyncio
+async def test_take_turn_meters_the_quota_once_per_turn():
+    # #119: every turn meters the quota, so an abandoned session (no /end) is still
+    # bounded. The meter is called with (session_id, user_id).
+    calls: list[tuple[int, int]] = []
+
+    async def _meter(session_id: int, user_id: int) -> None:
+        calls.append((session_id, user_id))
+
+    service = _service(_FakeSessions(owner_id=7), _FakeTranscripts(), _CannedLlm(), meter=_meter)
+    await service.take_turn(1, _user(), "hello")
+    assert calls == [(1, 7)]
+
+
+@pytest.mark.asyncio
+async def test_take_turn_survives_a_metering_failure():
+    # Metering is best-effort: if it raises, the turn still succeeds.
+    async def _boom(session_id: int, user_id: int) -> None:
+        raise RuntimeError("db down")
+
+    service = _service(
+        _FakeSessions(owner_id=7), _FakeTranscripts(), _CannedLlm("Hi!"), meter=_boom
+    )
+    result = await service.take_turn(1, _user(), "hello")
+    assert result.reply == "Hi!"  # the turn is unaffected
 
 
 @pytest.mark.asyncio

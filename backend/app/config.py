@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     livekit_token_ttl_seconds: int = 120
 
     free_tier_daily_minutes: int = 10
+    # A session idle longer than this is auto-closed on the user's next start (#119),
+    # so an abandoned session (no /end) never locks the user out.
+    session_inactivity_timeout_minutes: int = 30
+    # A single turn can never bill more than this many minutes of quota, bounding a
+    # long client pause between turns.
+    session_turn_meter_cap_minutes: float = 5.0
 
     log_level: str = "INFO"
     # Comma-separated list of allowed CORS origins ("*" = all, dev only).
