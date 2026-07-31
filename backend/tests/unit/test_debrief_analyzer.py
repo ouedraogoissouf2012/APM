@@ -119,6 +119,40 @@ async def test_analyze_falls_back_on_invalid_cefr():
 
 
 @pytest.mark.asyncio
+async def test_intensity_reaches_the_prompt_and_caps_errors():
+    # #114: correction_intensity must actually change the debrief. "gentle" reports
+    # at most one error and its directive appears in the prompt.
+    reply = (
+        '{"cefr_estimate": "A2", "summary": "s", "errors": ['
+        '  {"original": "I go to school yesterday", "correction": "I went to school yesterday",'
+        '   "rule": "past", "error_type": "verb_tense"},'
+        '  {"original": "i eats lunch", "correction": "I eat lunch",'
+        '   "rule": "SVA", "error_type": "subject_verb_agreement"}'
+        " ]}"
+    )
+    llm = _CannedLlm(reply)
+    analyzer = DebriefAnalyzer(llm, max_errors=5)
+    result = await analyzer.analyze(_TURNS, native_language="fr", intensity="gentle")
+    assert "gentle" in (llm.seen_system or "").lower()
+    assert len(result.errors) == 1  # gentle caps at one, even though two were returned
+
+
+@pytest.mark.asyncio
+async def test_detailed_intensity_allows_more_errors():
+    reply = (
+        '{"cefr_estimate": "A2", "summary": "s", "errors": ['
+        '  {"original": "I go to school yesterday", "correction": "I went to school yesterday",'
+        '   "rule": "past", "error_type": "verb_tense"},'
+        '  {"original": "i eats lunch", "correction": "I eat lunch",'
+        '   "rule": "SVA", "error_type": "subject_verb_agreement"}'
+        " ]}"
+    )
+    analyzer = DebriefAnalyzer(_CannedLlm(reply), max_errors=5)
+    result = await analyzer.analyze(_TURNS, native_language="fr", intensity="detailed")
+    assert len(result.errors) == 2  # detailed surfaces more
+
+
+@pytest.mark.asyncio
 async def test_analyze_passes_native_language_and_only_learner_text():
     llm = _CannedLlm('{"cefr_estimate": "B1", "summary": "", "errors": []}')
     analyzer = DebriefAnalyzer(llm)

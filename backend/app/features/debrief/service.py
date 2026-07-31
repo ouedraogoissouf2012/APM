@@ -40,8 +40,15 @@ class DebriefService:
         transcript = await self._transcripts.get_by_session(session_id)
         if transcript is None:
             raise NotFoundError("No transcript for this session")
+        # Honour the learner's correction_intensity (#114): it sets the debrief's
+        # tone and how many errors to surface. Default gentle when no profile.
+        intensity = "gentle"
+        if self._profiles is not None:
+            profile = await self._profiles.get_by_user_id(user.id)
+            if profile is not None:
+                intensity = profile.correction_intensity
         result = await self._analyzer.analyze(
-            transcript.turns, native_language=user.native_language
+            transcript.turns, native_language=user.native_language, intensity=intensity
         )
         # Adaptive difficulty: nudge the learner's level one step toward the
         # session estimate.

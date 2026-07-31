@@ -13,6 +13,7 @@ from typing import Any
 
 from app.features.conversation.messages import ROLE_USER, Message
 from app.features.conversation.providers.interfaces import TextCompletionProvider
+from app.features.profile.correction_style import style_for_intensity
 
 _MAX_ALTERNATIVES = 2
 _MAX_FIELD_CHARS = 400
@@ -26,12 +27,14 @@ class TurnCorrection:
     alternatives: list[str] = field(default_factory=list)
 
 
-def _build_prompt(cefr_level: str, native_language: str) -> str:
+def _build_prompt(cefr_level: str, native_language: str, intensity: str) -> str:
+    directive = style_for_intensity(intensity).prompt_directive
     return (
         "You are an English tutor. The learner just SAID one utterance during a "
         f"spoken conversation. Decide whether it contains a clear English mistake "
         f"worth correcting for a CEFR {cefr_level.upper()} learner. Ignore minor "
         "speech-recognition artifacts and acceptable informal speech. "
+        f"{directive} "
         "Reply with ONLY a JSON object, no prose. If there is NO worthwhile "
         'mistake: {"has_error": false}. Otherwise: '
         '{"has_error": true, "original": "<exact fault, verbatim from the utterance>", '
@@ -49,9 +52,9 @@ class TurnCorrector:
         self._llm = llm
 
     async def correct(
-        self, text: str, cefr_level: str, native_language: str
+        self, text: str, cefr_level: str, native_language: str, intensity: str = "gentle"
     ) -> TurnCorrection | None:
-        prompt = _build_prompt(cefr_level, native_language)
+        prompt = _build_prompt(cefr_level, native_language, intensity)
         try:
             raw = await self._llm.complete(prompt, [Message(role=ROLE_USER, content=text)])
         except Exception:

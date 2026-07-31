@@ -55,10 +55,13 @@ class _FakeTranscripts:
 
 
 class _FakeProfiles:
-    def __init__(self, interests=None, goal=None, memory_summary="") -> None:
+    def __init__(
+        self, interests=None, goal=None, memory_summary="", correction_intensity="gentle"
+    ) -> None:
         self._interests = interests
         self._goal = goal
         self._memory_summary = memory_summary
+        self._correction_intensity = correction_intensity
 
     async def get_by_user_id(self, user_id):
         if self._interests is None and self._goal is None and not self._memory_summary:
@@ -68,6 +71,7 @@ class _FakeProfiles:
             interests = self._interests or []
             goal = self._goal
             memory_summary = self._memory_summary
+            correction_intensity = self._correction_intensity
 
         return _P()
 
@@ -126,12 +130,15 @@ class _FakeTts:
 
 
 class _CannedCorrector:
-    """Stands in for TurnCorrector; returns a fixed correction (or None)."""
+    """Stands in for TurnCorrector; returns a fixed correction (or None) and
+    records the intensity it was called with (#114)."""
 
     def __init__(self, correction) -> None:
         self._correction = correction
+        self.seen_intensity = None
 
-    async def correct(self, text, cefr_level, native_language):
+    async def correct(self, text, cefr_level, native_language, intensity="gentle"):
+        self.seen_intensity = intensity
         return self._correction
 
 
@@ -267,6 +274,22 @@ async def test_stream_turn_emits_a_correction_after_the_reply():
     assert isinstance(events[0], ReplyChunk)
     assert isinstance(events[-1], CorrectionReady)
     assert events[-1].correction == correction
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_passes_profile_correction_intensity_to_the_corrector():
+    # #114: the learner's stored intensity must reach the corrector, not a default.
+    corrector = _CannedCorrector(None)
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _StreamingLlm(["Nice."]),
+        corrector=corrector,
+        profiles=_FakeProfiles(memory_summary="x", correction_intensity="detailed"),
+    )
+
+    _ = [c async for c in service.stream_turn(1, _user(), "i is happy")]
+    assert corrector.seen_intensity == "detailed"
 
 
 @pytest.mark.asyncio
