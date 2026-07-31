@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # (single process). Set to redis://host:port/db in a multi-instance deployment.
     redis_url: str = ""
 
+    # Content-addressed TTS cache size (#123): reuse audio for repeated lines
+    # (e.g. identical openings). 0 disables the cache.
+    tts_cache_max_entries: int = 256
+    # Per-turn correction (#123 cost control). Off -> no 2nd LLM call at all.
+    # When on, skip utterances shorter than correction_min_words (cheap turns).
+    correction_enabled: bool = True
+    correction_min_words: int = 3
+
     livekit_url: str = ""
     livekit_api_key: str = ""
     livekit_api_secret: str = ""

@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 
@@ -74,6 +75,12 @@ async def stream_turn(
             yield _sse("done", {})
         except LlmProviderError:
             yield _sse("error", {"message": "LLM provider failed"})
+        except Exception:
+            # Any other failure (TTS, DB, unexpected) must still close the stream
+            # with a typed error event — never a silently broken frame that leaves
+            # the client hanging (#123). Logged for diagnosis.
+            logging.getLogger(__name__).exception("Unexpected error during turn stream")
+            yield _sse("error", {"message": "Turn failed"})
 
     return StreamingResponse(
         event_stream(),

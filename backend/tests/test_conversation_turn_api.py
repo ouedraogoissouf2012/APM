@@ -134,6 +134,36 @@ async def test_turn_stream_emits_a_correction_event_after_the_reply(client):
         app.dependency_overrides.pop(get_conversation_turn_service, None)
 
 
+class _ExplodingService:
+    """A turn service whose stream raises an UNEXPECTED error (not LlmProviderError),
+    to prove the SSE loop still emits a typed `error` event instead of a broken
+    frame that leaves the client hanging (#123)."""
+
+    async def stream_turn(self, session_id, user, text):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover - makes this an async generator
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_emits_error_event_on_unexpected_failure(client):
+    app.dependency_overrides[get_conversation_turn_service] = lambda: _ExplodingService()
+    try:
+        headers = await _auth_header(client, email="boom@b.com")
+        start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+        session_id = start.json()["session_id"]
+
+        resp = await client.post(
+            f"/sessions/{session_id}/turn/stream",
+            headers=headers,
+            json={"text": "hi"},
+        )
+        assert resp.status_code == 200
+        # The stream degrades to a typed error event, never a silently broken frame.
+        assert "event: error" in resp.text
+    finally:
+        app.dependency_overrides.pop(get_conversation_turn_service, None)
+
+
 @pytest.mark.asyncio
 async def test_turn_stream_requires_auth(client):
     resp = await client.post("/sessions/1/turn/stream", json={"text": "hi"})
