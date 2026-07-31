@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.engines import ENGINE_DEEPSEEK
-from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
+from app.core.rate_limit import RateLimiter
+from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.factory import shared_llm_provider
@@ -22,9 +23,11 @@ _settings = get_settings()
 
 # Process-wide limiter. Swap for RedisRateLimiter to scale across instances;
 # the RateLimiter interface and route callers stay unchanged.
-_debrief_rate_limiter = InMemoryRateLimiter(
+_debrief_rate_limiter = build_rate_limiter(
+    namespace="debrief",
     max_hits=_settings.debrief_rate_limit_max,
     window_seconds=_settings.debrief_rate_limit_window_seconds,
+    redis_url=_settings.redis_url,
 )
 
 

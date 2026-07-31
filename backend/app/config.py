@@ -48,6 +48,17 @@ class Settings(BaseSettings):
     shadowing_rate_limit_max: int = 20
     shadowing_rate_limit_window_seconds: int = 60
 
+    # Trust X-Forwarded-For for the client IP (#120). Enable ONLY when a trusted
+    # reverse proxy sits in front (it sets the header); otherwise a client could
+    # forge it to dodge per-IP rate limits. Off by default (direct connections).
+    trust_proxy_headers: bool = False
+    # Reject an audio upload larger than this before reading it into memory (#120),
+    # so a huge/streamed body cannot exhaust the server. 10 MB ~ minutes of speech.
+    max_upload_bytes: int = 10 * 1024 * 1024
+    # Redis URL for a cross-instance rate limiter (#120). Empty -> in-memory limiter
+    # (single process). Set to redis://host:port/db in a multi-instance deployment.
+    redis_url: str = ""
+
     livekit_url: str = ""
     livekit_api_key: str = ""
     livekit_api_secret: str = ""

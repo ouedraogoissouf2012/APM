@@ -5,6 +5,8 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
+from app.api.client_ip import client_ip
+from app.config import get_settings
 from app.core.rate_limit import RateLimiter
 from app.domain.exceptions import LlmProviderError
 from app.features.auth.dependencies import get_current_user
@@ -33,7 +35,7 @@ async def take_turn(
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
     service: ConversationTurnService = Depends(get_conversation_turn_service),
 ) -> TurnOut:
-    client_host = request.client.host if request.client else "anonymous"
+    client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
     result = await service.take_turn(session_id, current_user, payload.text)
     return TurnOut(reply=result.reply)
@@ -57,7 +59,7 @@ async def stream_turn(
     so the client speaks it immediately, then at most one `correction` event
     (the learner's mistake + fix + rule + alternatives), a final `done`, or an
     `error`. Ownership/quota checks happen before streaming begins."""
-    client_host = request.client.host if request.client else "anonymous"
+    client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
 
     async def event_stream() -> AsyncIterator[str]:

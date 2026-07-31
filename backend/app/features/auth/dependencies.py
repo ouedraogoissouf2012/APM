@@ -3,7 +3,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.rate_limit import InMemoryRateLimiter, RateLimiter
+from app.core.rate_limit import RateLimiter
+from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
 from app.domain.exceptions import AuthenticationError, AuthorizationError
 from app.features.auth.models import User
@@ -19,19 +20,25 @@ _bearer = HTTPBearer(auto_error=False)
 
 _settings = get_settings()
 
-# Process-wide limiters. Swap any of these for RedisRateLimiter to scale across
-# instances; the RateLimiter interface and route callers stay unchanged.
-_register_rate_limiter = InMemoryRateLimiter(
+# Process-wide limiters, backend chosen from config (Redis when REDIS_URL is set,
+# else in-memory). The RateLimiter interface and route callers stay unchanged.
+_register_rate_limiter = build_rate_limiter(
+    namespace="register",
     max_hits=_settings.register_rate_limit_max,
     window_seconds=_settings.register_rate_limit_window_seconds,
+    redis_url=_settings.redis_url,
 )
-_login_rate_limiter = InMemoryRateLimiter(
+_login_rate_limiter = build_rate_limiter(
+    namespace="login",
     max_hits=_settings.login_rate_limit_max,
     window_seconds=_settings.login_rate_limit_window_seconds,
+    redis_url=_settings.redis_url,
 )
-_refresh_rate_limiter = InMemoryRateLimiter(
+_refresh_rate_limiter = build_rate_limiter(
+    namespace="refresh",
     max_hits=_settings.refresh_rate_limit_max,
     window_seconds=_settings.refresh_rate_limit_window_seconds,
+    redis_url=_settings.redis_url,
 )
 
 

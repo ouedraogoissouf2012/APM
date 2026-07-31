@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, Request, status
 
+from app.api.client_ip import client_ip
+from app.config import get_settings
 from app.core.rate_limit import RateLimiter
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
@@ -18,7 +20,7 @@ async def generate_debrief(
     limiter: RateLimiter = Depends(get_debrief_rate_limiter),
     service: DebriefService = Depends(get_debrief_service),
 ) -> DebriefOut:
-    client_host = request.client.host if request.client else "anonymous"
+    client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"debrief:{client_host}:user:{current_user.id}")
     debrief = await service.generate(session_id, current_user)
     return DebriefOut.model_validate(debrief)

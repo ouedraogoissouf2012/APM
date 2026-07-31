@@ -49,6 +49,32 @@ async def test_transcribe_empty_audio_returns_empty_text(client):
 
 
 @pytest.mark.asyncio
+async def test_transcribe_rejects_oversized_upload(client, monkeypatch):
+    # #120: an upload larger than max_upload_bytes is rejected with 413 (payload
+    # too large) rather than read wholesale into memory.
+    from app.features.conversation import stt_router
+
+    monkeypatch.setattr(stt_router, "get_settings", lambda: _SettingsWithCap(max_upload_bytes=10))
+    app.dependency_overrides[get_stt_provider] = lambda: _FakeStt()
+    try:
+        headers = await _auth_header(client, email="big@b.com")
+        resp = await client.post(
+            "/transcribe",
+            headers=headers,
+            files={"audio": ("speech.webm", b"x" * 50, "audio/webm")},
+        )
+        assert resp.status_code == 413, resp.text
+    finally:
+        app.dependency_overrides.pop(get_stt_provider, None)
+
+
+class _SettingsWithCap:
+    def __init__(self, max_upload_bytes: int) -> None:
+        self.max_upload_bytes = max_upload_bytes
+        self.trust_proxy_headers = False
+
+
+@pytest.mark.asyncio
 async def test_transcribe_requires_auth(client):
     resp = await client.post("/transcribe", files={"audio": ("speech.webm", b"x", "audio/webm")})
     assert resp.status_code == 401
