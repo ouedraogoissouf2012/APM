@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 from tests.conftest import FakeModel
 
 from pronunciation.api.routes import router
-from pronunciation.dependencies import get_scoring_service
+from pronunciation.core.concurrency import InferenceGate
+from pronunciation.dependencies import get_inference_gate, get_scoring_service
 from pronunciation.services.scoring_service import ScoringService
 
 
@@ -39,6 +40,9 @@ def _client(per_frame: list[str], phonemes: list[str]) -> TestClient:
     app.include_router(router)
     service = ScoringService(model=FakeModel(per_frame), phonemizer=lambda _t, _l: phonemes)
     app.dependency_overrides[get_scoring_service] = lambda: service
+    # The route runs scoring through the gate; a real gate works fine in tests and
+    # exercises the actual gated code path (off-loop + serialised).
+    app.dependency_overrides[get_inference_gate] = lambda: InferenceGate(max_concurrent=1)
     return TestClient(app)
 
 
