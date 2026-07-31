@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +11,7 @@ from app.domain.exceptions import NotFoundError
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.correction import TurnCorrector
 from app.features.conversation.factory import shared_llm_provider
+from app.features.conversation.providers.caching_tts import CachingTtsProvider
 from app.features.conversation.providers.interfaces import SttProvider, TtsProvider
 from app.features.conversation.providers.stt import build_stt_provider
 from app.features.conversation.providers.tts import EdgeTtsProvider
@@ -50,13 +53,26 @@ def get_stt_provider() -> SttProvider:
     return provider
 
 
+@lru_cache(maxsize=1)
+def _shared_tts_provider() -> TtsProvider:
+    """One process-wide TTS provider, wrapped in a content-addressed cache (#123)
+    so repeated lines (identical openings, replays) are not re-synthesized. Shared
+    across requests/users — that's what makes the cache pay off. Caching disabled
+    when tts_cache_max_entries == 0."""
+    settings = get_settings()
+    base = EdgeTtsProvider()
+    if settings.tts_cache_max_entries <= 0:
+        return base
+    return CachingTtsProvider(base, max_entries=settings.tts_cache_max_entries)
+
+
 def get_tts_provider() -> TtsProvider:
     """Server-side neural TTS. 404 when TTS_ENGINE=device: the client speaks with
     its on-device voice and must not reach a server TTS endpoint."""
     settings = get_settings()
     if settings.tts_engine != "edge":
         raise NotFoundError("Server-side text-to-speech is not enabled")
-    return EdgeTtsProvider()
+    return _shared_tts_provider()
 
 
 def get_conversation_turn_service(
@@ -74,21 +90,26 @@ def get_conversation_turn_service(
         max_tokens=settings.deepseek_conversation_max_tokens,
     )
     # Server-side neural voice when TTS_ENGINE=edge; None keeps the on-device
-    # system voice (default), so nothing changes until it is switched on.
-    tts: TtsProvider | None = EdgeTtsProvider() if settings.tts_engine == "edge" else None
+    # system voice (default). Same cached provider as the /tts endpoint (#123).
+    tts: TtsProvider | None = _shared_tts_provider() if settings.tts_engine == "edge" else None
     sessions = SqlAlchemySessionRepository(db)
     # A SessionService sharing this request's db session, used ONLY to meter the
     # quota per turn (#119) via record_turn_activity — so an abandoned session
     # can't run unlimited free turns.
     session_service = build_session_service(sessions, SqlAlchemyUserRepository(db))
+    # The correction is a second, bounded LLM call in parallel with the reply
+    # (#123 cost control): disabled entirely by config, else skips short utterances.
+    corrector = (
+        TurnCorrector(llm, min_words=settings.correction_min_words)
+        if settings.correction_enabled
+        else None
+    )
     return ConversationTurnService(
         sessions=sessions,
         transcripts=SqlAlchemyTranscriptRepository(db),
         profiles=SqlAlchemyProfileRepository(db),
         llm=llm,
-        # Same shared provider: the correction is a second, bounded call run in
-        # parallel with the reply. Fake engine -> no correction (honest).
-        corrector=TurnCorrector(llm),
+        corrector=corrector,
         tts=tts,
         # Drives a mission session with the mission's stored persona prompt.
         missions=SqlAlchemyMissionRepository(db),

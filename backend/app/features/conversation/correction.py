@@ -48,12 +48,19 @@ def _build_prompt(cefr_level: str, native_language: str, intensity: str) -> str:
 class TurnCorrector:
     """Extracts at most one correction for a single learner utterance."""
 
-    def __init__(self, llm: TextCompletionProvider) -> None:
+    def __init__(self, llm: TextCompletionProvider, min_words: int = 1) -> None:
         self._llm = llm
+        # Skip the 2nd LLM call on utterances shorter than this (#123 cost control):
+        # very short turns ("yes", "ok thanks") rarely carry a worthwhile mistake.
+        self._min_words = min_words
 
     async def correct(
         self, text: str, cefr_level: str, native_language: str, intensity: str = "gentle"
     ) -> TurnCorrection | None:
+        # Cheap gate BEFORE the LLM call: too-short utterances aren't worth a
+        # second round-trip. Halves the per-turn LLM cost on chatty short replies.
+        if len(text.split()) < self._min_words:
+            return None
         prompt = _build_prompt(cefr_level, native_language, intensity)
         try:
             raw = await self._llm.complete(prompt, [Message(role=ROLE_USER, content=text)])

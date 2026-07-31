@@ -35,6 +35,26 @@ async def test_intensity_directive_is_included_in_the_prompt():
 
 
 @pytest.mark.asyncio
+async def test_skips_the_llm_for_very_short_utterances():
+    # #123 cost control: a 1-2 word utterance ("yes", "ok thanks") rarely has a
+    # worthwhile correction; skip the 2nd LLM call entirely.
+    llm = _JsonLlm('{"has_error": true, "original": "ok", "correction": "OK", "rule": "r"}')
+    result = await TurnCorrector(llm, min_words=3).correct("ok thanks", "A2", "fr")
+    assert result is None
+    assert llm.seen_system_prompt is None  # the LLM was never called
+
+
+@pytest.mark.asyncio
+async def test_corrects_normally_when_utterance_is_long_enough():
+    llm = _JsonLlm(
+        '{"has_error": true, "original": "i is happy", "correction": "I am happy", "rule": "r"}'
+    )
+    result = await TurnCorrector(llm, min_words=3).correct("i is happy today", "A2", "fr")
+    assert result is not None
+    assert llm.seen_system_prompt is not None  # long enough -> LLM was called
+
+
+@pytest.mark.asyncio
 async def test_returns_correction_when_a_real_mistake_is_present():
     result = await _correct(
         '{"has_error": true, "original": "i is happy", '
