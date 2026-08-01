@@ -1,0 +1,98 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/audio/providers.dart';
+import 'conversation_host.dart';
+import 'conversation_providers.dart';
+import 'conversation_state.dart';
+import 'reply_playback.dart';
+
+/// Push-to-talk input (server STT / Whisper via Groq): tap to record, tap again
+/// to stop → transcribe server-side → respond (#121).
+///
+/// Extracted from ConversationViewModel. Unlike the hands-free loop, this is a
+/// single recording per response, so accurate transcription gets a clean full
+/// take. It owns its `_recording` flag and reuses [ReplyPlayback] for the reply —
+/// no shared concurrency flag with the loop.
+class PushToTalkController {
+  PushToTalkController(this._ref, this._host, this._playback);
+
+  final Ref _ref;
+  final ConversationHost _host;
+  final ReplyPlayback _playback;
+
+  bool _recording = false;
+
+  /// True while recording the learner's utterance, so the view-model routes a
+  /// stop tap here and cancels the recording on end().
+  bool get isRecording => _recording;
+
+  /// Starts recording the learner's voice.
+  Future<void> startRecording() async {
+    final started = await _ref.read(audioRecordingProvider).start();
+    if (!_host.mounted) return;
+    if (!started) {
+      _host.state = _host.state.copyWith(error: 'Microphone is not available');
+      return;
+    }
+    _recording = true;
+    _host.state = _host.state.copyWith(
+      status: ConversationStatus.listening,
+      clearError: true,
+      clearPartial: true,
+    );
+  }
+
+  /// Stops recording, transcribes the audio server-side, then responds.
+  Future<void> stopAndRespond() async {
+    _recording = false;
+    final sessionId = _host.state.sessionId;
+    final bytes = await _ref.read(audioRecordingProvider).stop();
+    if (!_host.mounted || sessionId == null) return;
+    if (bytes == null || bytes.isEmpty) {
+      _host.state = _host.state.copyWith(status: ConversationStatus.idle);
+      return;
+    }
+    _host.state = _host.state.copyWith(
+      status: ConversationStatus.thinking,
+      clearPartial: true,
+    );
+    final String heard;
+    try {
+      heard = (await _ref.read(conversationRepositoryProvider).transcribe(bytes)).trim();
+    } catch (_) {
+      if (_host.mounted) {
+        _host.state = _host.state.copyWith(
+          status: ConversationStatus.idle,
+          error: 'Could not understand you — try again',
+        );
+      }
+      return;
+    }
+    if (!_host.mounted) return;
+    if (heard.isEmpty) {
+      _host.state = _host.state.copyWith(status: ConversationStatus.idle);
+      return;
+    }
+    _host.state = _host.state.copyWith(
+      turns: [..._host.state.turns, ConversationTurn(kRoleUser, heard)],
+      status: ConversationStatus.thinking,
+    );
+    // Single response: live as long as the notifier is mounted.
+    try {
+      await _playback.streamReplyAndSpeak(sessionId, heard, isLive: () => _host.mounted);
+    } finally {
+      if (_host.mounted &&
+          _host.state.sessionId != null &&
+          _host.state.status != ConversationStatus.idle) {
+        _host.state = _host.state.copyWith(status: ConversationStatus.idle);
+      }
+    }
+  }
+
+  /// Cancels an in-flight recording (used by end()).
+  Future<void> cancel() async {
+    if (!_recording) return;
+    _recording = false;
+    await _ref.read(audioRecordingProvider).cancel();
+  }
+}
