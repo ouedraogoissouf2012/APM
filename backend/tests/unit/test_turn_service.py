@@ -256,7 +256,11 @@ async def test_stream_turn_yields_sentences_then_persists_full_reply():
 
 
 @pytest.mark.asyncio
-async def test_stream_turn_speaks_whole_reply_as_one_clip_after_the_text():
+async def test_stream_turn_speaks_each_sentence_as_it_is_produced():
+    # Latency fix: audio is synthesized PER SENTENCE and emitted while the reply is
+    # still being generated, so the voice starts after the first sentence (~1-2 s)
+    # instead of after the whole reply + its synthesis (~5 s). The client plays the
+    # clips sequentially (await playClip), so they don't cut each other off.
     import base64
 
     service = _service(
@@ -268,13 +272,17 @@ async def test_stream_turn_speaks_whole_reply_as_one_clip_after_the_text():
 
     events = [c async for c in service.stream_turn(1, _user(), "hello")]
 
-    # All the text chunks stream first; then ONE audio clip for the full reply
-    # (never per-sentence clips, which cut each other off on the client).
+    # One audio clip per sentence, and the first audio arrives before the whole
+    # text is done (so the voice starts early).
+    audios = [e for e in events if isinstance(e, AudioChunk)]
+    assert len(audios) == 2
+    clips = [base64.b64decode(a.audio_b64) for a in audios]
+    assert clips == [b"audio::Hi there.", b"audio::How are you?"]
+    # The FIRST audio clip is emitted before the SECOND sentence's text — proving
+    # the voice can start speaking sentence 1 while sentence 2 is still streaming.
     kinds = [type(e).__name__ for e in events]
-    assert kinds == ["ReplyChunk", "ReplyChunk", "AudioChunk"]
-    audio = next(e for e in events if isinstance(e, AudioChunk))
-    assert base64.b64decode(audio.audio_b64) == b"audio::Hi there. How are you?"
-    assert audio.mime == "audio/mpeg"
+    assert kinds.index("AudioChunk") < len(kinds) - 1
+    assert audios[0].mime == "audio/mpeg"
 
 
 @pytest.mark.asyncio
