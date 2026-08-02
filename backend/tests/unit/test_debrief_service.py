@@ -189,10 +189,19 @@ async def test_generate_rejects_session_not_owned_by_user():
 
 
 @pytest.mark.asyncio
-async def test_generate_rejects_when_no_transcript():
-    service = _service(owner_id=7, turns=None, debriefs=_FakeDebriefs())
-    with pytest.raises(NotFoundError):
-        await service.generate(session_id=1, user=_user())
+async def test_generate_returns_empty_debrief_when_no_transcript():
+    # A session with no turns (e.g. started then ended without speaking) yields an
+    # EMPTY debrief, not a 404. A 404 made the client retry endlessly (GET->404->
+    # POST->404->...). An empty debrief is persisted, so the next call is a cache hit.
+    debriefs = _FakeDebriefs()
+    service = _service(owner_id=7, turns=None, debriefs=debriefs)
+
+    result = await service.generate(session_id=1, user=_user())
+
+    assert result.errors == []
+    assert result.summary  # a neutral, non-empty message
+    # It was persisted, so a repeat call hits the cache instead of regenerating.
+    assert debriefs.saved is not None
 
 
 @pytest.mark.asyncio
