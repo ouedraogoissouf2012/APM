@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
@@ -159,4 +160,9 @@ class ConversationViewModel extends Notifier<ConversationState>
     }
     state = const ConversationState();
   }
+
+  /// Test hook: await any in-flight background audio playback. Production code
+  /// never blocks a turn on playback (it runs in the background by design).
+  @visibleForTesting
+  Future<void> awaitPlaybackForTest() => _playback.awaitPlayback();
 }

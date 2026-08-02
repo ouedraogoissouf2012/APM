@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
@@ -37,7 +39,6 @@ class ReplyPlayback {
     required bool Function() isLive,
   }) async {
     final speech = _ref.read(speechServiceProvider);
-    final audio = _ref.read(audioPlaybackProvider);
     // Server-side neural voice? Then the reply arrives as audio clips to play;
     // otherwise fall back to the on-device system voice. Defaults to false
     // (on-device) if the backend/config is unreachable.
@@ -56,8 +57,12 @@ class ReplyPlayback {
             // Only speak on-device when the backend is NOT sending audio.
             if (!serverTts) await speech.speak(text);
           case AudioClip(:final audioB64, :final mime):
-            // Real neural voice: play it (awaits until the clip finishes).
-            await audio.playClip(audioB64, mime);
+            // Real neural voice: QUEUE the clip and keep reading the stream. We
+            // must NOT await playback here — a per-sentence clip that plays for a
+            // few seconds would otherwise freeze the text stream (and a stuck clip
+            // would hang the whole turn). The queue plays clips in order, in the
+            // background, while the next sentences keep streaming in.
+            _enqueueClip(audioB64, mime);
           case CorrectionEvent(:final correction):
             // Attach to the learner's turn -> gold chip under their bubble.
             _attachCorrection(correction);
@@ -74,6 +79,41 @@ class ReplyPlayback {
       return false;
     }
     return isLive();
+  }
+
+  // Sequential background player for the neural audio clips. Clips are enqueued
+  // as they arrive and played one after another (await between them) OFF the
+  // stream-reading path, so playback never blocks the text.
+  final List<(String, String)> _clipQueue = [];
+  Future<void>? _playbackTask;
+
+  void _enqueueClip(String audioB64, String mime) {
+    _clipQueue.add((audioB64, mime));
+    _playbackTask ??= _drainClips();
+  }
+
+  Future<void> _drainClips() async {
+    final audio = _ref.read(audioPlaybackProvider);
+    try {
+      while (_clipQueue.isNotEmpty) {
+        final (b64, mime) = _clipQueue.removeAt(0);
+        try {
+          await audio.playClip(b64, mime);
+        } catch (_) {
+          // A failed clip must not stop the queue or the conversation.
+        }
+      }
+    } finally {
+      _playbackTask = null;
+    }
+  }
+
+  /// Awaits any in-flight background playback. Used by callers that need the
+  /// audio finished (e.g. tests) — production never blocks the turn on it.
+  Future<void> awaitPlayback() async {
+    while (_playbackTask != null) {
+      await _playbackTask;
+    }
   }
 
   /// Sets (or replaces) the current assistant turn as its text streams in, and
