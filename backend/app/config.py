@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.engines import (
     ENGINE_DEEPSEEK,
     ENGINE_GOP,
+    ENGINE_GROQ,
     DebriefEngineName,
     MissionEngineName,
     PronunciationEngineName,
@@ -155,6 +156,17 @@ class Settings(BaseSettings):
             and not self.deepseek_api_key
         ):
             raise ValueError("DEEPSEEK_API_KEY is required when DeepSeek is enabled")
+        if (
+            ENGINE_GROQ
+            in (
+                self.voice_engine,
+                self.debrief_engine,
+                self.mission_engine,
+                self.shadowing_engine,
+            )
+            and not self.groq_api_key
+        ):
+            raise ValueError("GROQ_API_KEY is required when Groq is enabled")
         if self.pronunciation_engine == ENGINE_GOP and not self.gop_service_url.strip():
             raise ValueError("GOP_SERVICE_URL is required when PRONUNCIATION_ENGINE=gop")
 
