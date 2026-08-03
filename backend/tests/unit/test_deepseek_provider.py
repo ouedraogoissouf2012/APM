@@ -25,10 +25,11 @@ class _StubCompletions:
         self._recorder = recorder
         self._content = content
 
-    async def create(self, *, model, messages, max_tokens):
+    async def create(self, *, model, messages, max_tokens, extra_body=None, **kwargs):
         self._recorder["model"] = model
         self._recorder["messages"] = messages
         self._recorder["max_tokens"] = max_tokens
+        self._recorder["extra_body"] = extra_body
         return _StubResponse(self._content)
 
 
@@ -43,7 +44,7 @@ class _StubClient:
 
 
 class _FailingCompletions:
-    async def create(self, *, model, messages, max_tokens):
+    async def create(self, *, model, messages, max_tokens, extra_body=None, **kwargs):
         raise RuntimeError("network down")
 
 
@@ -56,7 +57,7 @@ class _FailingClient:
 
 
 class _TimeoutCompletions:
-    async def create(self, *, model, messages, max_tokens):
+    async def create(self, *, model, messages, max_tokens, extra_body=None, **kwargs):
         raise TimeoutError("request timed out")
 
 

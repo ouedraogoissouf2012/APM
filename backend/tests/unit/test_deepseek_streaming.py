@@ -49,7 +49,7 @@ class _StreamingCompletions:
         self._recorder = recorder
         self._deltas = deltas
 
-    async def create(self, *, model, messages, max_tokens, stream):
+    async def create(self, *, model, messages, max_tokens, stream, extra_body=None, **kwargs):
         self._recorder["stream"] = stream
         self._recorder["model"] = model
         return _AsyncStream(self._deltas)
@@ -61,7 +61,7 @@ class _StreamingClient:
 
 
 class _FailingStreamCompletions:
-    async def create(self, *, model, messages, max_tokens, stream):
+    async def create(self, *, model, messages, max_tokens, stream, extra_body=None, **kwargs):
         raise RuntimeError("stream broke")
 
 

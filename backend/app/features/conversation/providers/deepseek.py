@@ -23,10 +23,18 @@ class OpenAiCompatibleLlmProvider:
     time-to-first-token (~0.4 s vs ~2-4 s), which is why it can back the live turn.
     """
 
-    def __init__(self, client: Any, model: str, max_tokens: int) -> None:
+    def __init__(
+        self, client: Any, model: str, max_tokens: int, extra_body: dict[str, Any] | None = None
+    ) -> None:
         self._client = client
         self._model = model
         self._max_tokens = max_tokens
+        # Vendor-specific request params passed through to the API. For DeepSeek we
+        # send {"thinking": {"type": "disabled"}}: its flash model reasons before
+        # answering BY DEFAULT (~14 s time-to-first-token), which is useless for a
+        # live chat — disabling it drops the reply to ~1.5 s. Empty for Groq (which
+        # doesn't accept the param).
+        self._extra_body = extra_body or {}
 
     async def complete(self, system_prompt: str, history: list[Message]) -> str:
         messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -36,6 +44,7 @@ class OpenAiCompatibleLlmProvider:
                 model=self._model,
                 messages=messages,
                 max_tokens=self._max_tokens,
+                extra_body=self._extra_body,
             )
         except Exception as exc:
             logger.warning("LLM provider failed: %s", exc.__class__.__name__)
@@ -54,6 +63,7 @@ class OpenAiCompatibleLlmProvider:
                 messages=messages,
                 max_tokens=self._max_tokens,
                 stream=True,
+                extra_body=self._extra_body,
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content
