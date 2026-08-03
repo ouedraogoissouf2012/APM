@@ -103,6 +103,29 @@ def test_factory_returns_provider_for_groq_engine():
     assert isinstance(provider, DeepSeekLlmProvider)  # the vendor-neutral provider
 
 
+def test_deepseek_engine_disables_thinking_for_low_latency():
+    # DeepSeek flash reasons before answering by default (~14 s TTFT). The factory
+    # must disable it so the live chat replies fast (~1.5 s).
+    provider = build_llm_provider(
+        engine="deepseek",
+        api_key="sk",
+        base_url="https://api.deepseek.com",
+        model="deepseek-v4-flash",
+    )
+    assert provider._extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_groq_engine_does_not_send_the_thinking_param():
+    # Groq doesn't accept DeepSeek's thinking param — must not be sent.
+    provider = build_llm_provider(
+        engine="groq",
+        api_key="gsk",
+        base_url="https://api.groq.com/openai/v1",
+        model="llama-3.3-70b-versatile",
+    )
+    assert provider._extra_body == {}
+
+
 def test_factory_rejects_groq_without_api_key():
     with pytest.raises(LlmProviderError):
         build_llm_provider(

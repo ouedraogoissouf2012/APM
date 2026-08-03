@@ -39,7 +39,12 @@ def build_llm_provider(
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
         )
-        return OpenAiCompatibleLlmProvider(client=client, model=model, max_tokens=max_tokens)
+        # DeepSeek flash reasons before answering by default (~14 s to first token);
+        # disable it for a live chat -> ~1.5 s. Groq has no such param.
+        extra_body = {"thinking": {"type": "disabled"}} if engine == ENGINE_DEEPSEEK else None
+        return OpenAiCompatibleLlmProvider(
+            client=client, model=model, max_tokens=max_tokens, extra_body=extra_body
+        )
     raise LlmProviderError(f"Unsupported LLM engine: {engine!r}")
 
 
