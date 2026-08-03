@@ -27,18 +27,44 @@ configure_logging(settings.log_level)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Warm up the neural TTS once at startup so the FIRST learner doesn't pay Edge's
-    # ~3 s connection cold-start on their first spoken reply. Best-effort: a failure
-    # (offline, endpoint down) is logged and ignored — TTS still works per request.
+    # Warm up the external voice services once at startup so the FIRST learner
+    # doesn't pay their connection cold-start (DNS + TLS, ~1-3 s) on their first
+    # turn. Best-effort: any failure is logged and ignored — the services still
+    # work per request.
+    _log = logging.getLogger("apm")
     if settings.tts_engine == "edge":
         try:
             from app.features.conversation.dependencies import get_tts_provider
 
             await get_tts_provider().synthesize("Hello.")
-            logging.getLogger("apm").info("TTS warm-up done")
+            _log.info("TTS warm-up done")
         except Exception:
-            logging.getLogger("apm").warning("TTS warm-up failed", exc_info=True)
+            _log.warning("TTS warm-up failed", exc_info=True)
+    if settings.stt_engine == "groq":
+        try:
+            from app.features.conversation.dependencies import get_stt_provider
+
+            # A ~50 ms silent WAV: opens the Groq connection (DNS+TLS+pool) so the
+            # first real transcription reuses a warm keep-alive connection.
+            await get_stt_provider().transcribe(_silent_wav())
+            _log.info("STT warm-up done")
+        except Exception:
+            _log.warning("STT warm-up failed", exc_info=True)
     yield
+
+
+def _silent_wav() -> bytes:
+    """A minimal valid WAV (a few ms of silence) to warm the STT connection."""
+    import io
+    import wave
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16_000)
+        w.writeframes(b"\x00\x00" * 800)  # 800 samples ~ 50 ms of silence
+    return buf.getvalue()
 
 
 app = FastAPI(title="APM Backend", lifespan=lifespan)
