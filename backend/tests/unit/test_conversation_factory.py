@@ -89,3 +89,25 @@ def test_factory_rejects_deepseek_with_blank_api_key():
             base_url="https://api.deepseek.com",
             model="deepseek-chat",
         )
+
+
+def test_factory_returns_provider_for_groq_engine():
+    # Groq reuses the same OpenAI-compatible provider, just a different base_url /
+    # model. It backs the live turn because its time-to-first-token is far lower.
+    provider = build_llm_provider(
+        engine="groq",
+        api_key="gsk-test",
+        base_url="https://api.groq.com/openai/v1",
+        model="llama-3.3-70b-versatile",
+    )
+    assert isinstance(provider, DeepSeekLlmProvider)  # the vendor-neutral provider
+
+
+def test_factory_rejects_groq_without_api_key():
+    with pytest.raises(LlmProviderError):
+        build_llm_provider(
+            engine="groq",
+            api_key="",
+            base_url="https://api.groq.com/openai/v1",
+            model="llama-3.3-70b-versatile",
+        )

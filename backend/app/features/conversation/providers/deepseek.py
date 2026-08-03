@@ -14,11 +14,13 @@ logger = logging.getLogger(__name__)
 _SENTENCE_END = re.compile(r'[.!?]+["\')\]]*')
 
 
-class DeepSeekLlmProvider:
-    """LLM stage backed by DeepSeek's OpenAI-compatible API.
+class OpenAiCompatibleLlmProvider:
+    """LLM stage backed by any OpenAI-compatible chat API (DeepSeek, Groq, ...).
 
     The async client is injected so the provider is unit-testable without a key.
-    Use `deepseek-v4-flash` for low latency, not the slower `deepseek-v4-pro`.
+    The provider itself is vendor-neutral — only the injected client's base_url and
+    the `model` differ between DeepSeek and Groq. Groq (Llama 3.3) has a far lower
+    time-to-first-token (~0.4 s vs ~2-4 s), which is why it can back the live turn.
     """
 
     def __init__(self, client: Any, model: str, max_tokens: int) -> None:
@@ -36,7 +38,7 @@ class DeepSeekLlmProvider:
                 max_tokens=self._max_tokens,
             )
         except Exception as exc:
-            logger.warning("DeepSeek provider failed: %s", exc.__class__.__name__)
+            logger.warning("LLM provider failed: %s", exc.__class__.__name__)
             raise LlmProviderError("LLM provider failed") from exc
         return response.choices[0].message.content or ""
 
@@ -68,7 +70,7 @@ class DeepSeekLlmProvider:
                     if sentence:
                         yield sentence
         except Exception as exc:
-            logger.warning("DeepSeek stream failed: %s", exc.__class__.__name__)
+            logger.warning("LLM stream failed: %s", exc.__class__.__name__)
             raise LlmProviderError("LLM provider failed") from exc
         # Flush any trailing text that did not end with punctuation.
         tail = buffer.strip()
@@ -76,10 +78,15 @@ class DeepSeekLlmProvider:
             yield tail
 
 
-def build_deepseek_client(
+# Backwards-compatible alias: the provider is vendor-neutral now, but existing
+# imports/tests still reference the old name.
+DeepSeekLlmProvider = OpenAiCompatibleLlmProvider
+
+
+def build_openai_compatible_client(
     api_key: str, base_url: str, timeout_seconds: float, max_retries: int
 ) -> Any:
-    """Construct the real DeepSeek (OpenAI-compatible) async client."""
+    """Construct an OpenAI-compatible async client (DeepSeek or Groq)."""
     from openai import AsyncOpenAI
 
     return AsyncOpenAI(
@@ -88,3 +95,7 @@ def build_deepseek_client(
         timeout=timeout_seconds,
         max_retries=max_retries,
     )
+
+
+# Backwards-compatible alias.
+build_deepseek_client = build_openai_compatible_client

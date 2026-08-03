@@ -79,12 +79,27 @@ def get_conversation_turn_service(
     db: AsyncSession = Depends(get_db),
 ) -> ConversationTurnService:
     settings = get_settings()
+    # Groq and DeepSeek are both OpenAI-compatible; pick the credentials/model for
+    # the configured engine. Groq (Llama 3.3) has a far lower time-to-first-token,
+    # so VOICE_ENGINE=groq makes the live turn start speaking much sooner.
+    if settings.voice_engine == "groq":
+        api_key, base_url, model = (
+            settings.groq_api_key,
+            settings.groq_base_url,
+            settings.groq_llm_model,
+        )
+    else:
+        api_key, base_url, model = (
+            settings.deepseek_api_key,
+            settings.deepseek_base_url,
+            settings.deepseek_model,
+        )
     # Cached: one LLM client (one connection pool) per configuration, not per request.
     llm = shared_llm_provider(
         engine=settings.voice_engine,
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-        model=settings.deepseek_model,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
         timeout_seconds=settings.deepseek_timeout_seconds,
         max_retries=settings.deepseek_max_retries,
         max_tokens=settings.deepseek_conversation_max_tokens,

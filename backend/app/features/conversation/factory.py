@@ -1,10 +1,10 @@
 from functools import lru_cache
 
-from app.core.engines import ENGINE_DEEPSEEK, ENGINE_FAKE
+from app.core.engines import ENGINE_DEEPSEEK, ENGINE_FAKE, ENGINE_GROQ
 from app.domain.exceptions import LlmProviderError
 from app.features.conversation.providers.deepseek import (
-    DeepSeekLlmProvider,
-    build_deepseek_client,
+    OpenAiCompatibleLlmProvider,
+    build_openai_compatible_client,
 )
 from app.features.conversation.providers.fakes import FakeLlm
 from app.features.conversation.providers.interfaces import LlmProvider
@@ -26,18 +26,20 @@ def build_llm_provider(
     """
     if engine == ENGINE_FAKE:
         return FakeLlm()
-    if engine == ENGINE_DEEPSEEK:
+    if engine in (ENGINE_DEEPSEEK, ENGINE_GROQ):
+        # Both are OpenAI-compatible: same provider, only the injected client's
+        # base_url and the model differ (Groq = faster time-to-first-token).
         if not api_key.strip():
             # Fail cleanly (mapped to 502) instead of letting AsyncOpenAI("")
             # raise a raw error in the DI layer -> generic 500.
-            raise LlmProviderError("DeepSeek API key is not configured")
-        client = build_deepseek_client(
+            raise LlmProviderError(f"{engine} API key is not configured")
+        client = build_openai_compatible_client(
             api_key=api_key,
             base_url=base_url,
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
         )
-        return DeepSeekLlmProvider(client=client, model=model, max_tokens=max_tokens)
+        return OpenAiCompatibleLlmProvider(client=client, model=model, max_tokens=max_tokens)
     raise LlmProviderError(f"Unsupported LLM engine: {engine!r}")
 
 

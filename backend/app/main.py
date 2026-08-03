@@ -50,6 +50,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _log.info("STT warm-up done")
         except Exception:
             _log.warning("STT warm-up failed", exc_info=True)
+    if settings.voice_engine in ("deepseek", "groq"):
+        try:
+            from app.features.conversation.factory import shared_llm_provider
+
+            # A tiny completion opens the LLM connection so the first learner turn
+            # reuses a warm connection (no per-request DNS+TLS on the first reply).
+            engine = settings.voice_engine
+            if engine == "groq":
+                key, url, model = (
+                    settings.groq_api_key,
+                    settings.groq_base_url,
+                    settings.groq_llm_model,
+                )
+            else:
+                key, url, model = (
+                    settings.deepseek_api_key,
+                    settings.deepseek_base_url,
+                    settings.deepseek_model,
+                )
+            llm = shared_llm_provider(
+                engine=engine, api_key=key, base_url=url, model=model, max_tokens=1
+            )
+            await llm.complete("Say hi.", [])
+            _log.info("LLM warm-up done")
+        except Exception:
+            _log.warning("LLM warm-up failed", exc_info=True)
     yield
 
 

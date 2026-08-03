@@ -118,6 +118,9 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_stt_model: str = "whisper-large-v3-turbo"
+    # Groq's LLM for the conversation when VOICE_ENGINE=groq. Llama 3.3 70B keeps
+    # DeepSeek-level quality with a much lower time-to-first-token (~0.4 s).
+    groq_llm_model: str = "llama-3.3-70b-versatile"
 
     # Pronunciation scoring (#111 step 2): "fake" (default) makes no phonetic
     # claim; "gop" calls the wav2vec2 pronunciation microservice at gop_service_url.
