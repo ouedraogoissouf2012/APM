@@ -13,7 +13,7 @@ from app.features.conversation.correction import TurnCorrector
 from app.features.conversation.factory import shared_llm_provider
 from app.features.conversation.providers.caching_tts import CachingTtsProvider
 from app.features.conversation.providers.interfaces import SttProvider, TtsProvider
-from app.features.conversation.providers.stt import build_stt_provider
+from app.features.conversation.providers.stt import shared_stt_provider
 from app.features.conversation.providers.tts import EdgeTtsProvider
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
@@ -42,7 +42,7 @@ def get_stt_provider() -> SttProvider:
     """Server-side transcription provider. 404 when STT_ENGINE=device: the
     client transcribes on-device and must not reach this endpoint."""
     settings = get_settings()
-    provider = build_stt_provider(
+    provider = shared_stt_provider(
         engine=settings.stt_engine,
         api_key=settings.groq_api_key,
         base_url=settings.groq_base_url,
