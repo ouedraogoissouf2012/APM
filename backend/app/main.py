@@ -1,3 +1,7 @@
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -20,7 +24,24 @@ from app.features.shadowing.router import router as shadowing_router
 settings = get_settings()
 configure_logging(settings.log_level)
 
-app = FastAPI(title="APM Backend")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Warm up the neural TTS once at startup so the FIRST learner doesn't pay Edge's
+    # ~3 s connection cold-start on their first spoken reply. Best-effort: a failure
+    # (offline, endpoint down) is logged and ignored — TTS still works per request.
+    if settings.tts_engine == "edge":
+        try:
+            from app.features.conversation.dependencies import get_tts_provider
+
+            await get_tts_provider().synthesize("Hello.")
+            logging.getLogger("apm").info("TTS warm-up done")
+        except Exception:
+            logging.getLogger("apm").warning("TTS warm-up failed", exc_info=True)
+    yield
+
+
+app = FastAPI(title="APM Backend", lifespan=lifespan)
 
 app.add_middleware(RequestContextMiddleware, enable_hsts=settings.app_env == "production")
 app.add_middleware(

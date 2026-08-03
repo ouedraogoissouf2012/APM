@@ -99,50 +99,82 @@ class ConversationTurnService:
     async def stream_turn(
         self, session_id: int, user: User, text: str
     ) -> AsyncIterator[TurnStreamEvent]:
-        """Stream the reply sentence by sentence (text appears live), then speak
-        it. The spoken audio is synthesized for the WHOLE reply as ONE clip
-        (emitted after the text), not per sentence: playing many short clips
-        back-to-back on the client cuts sentences off. A grammar correction for
-        the learner's utterance is computed IN PARALLEL and emitted last, so the
-        gold chip never breaks the flow."""
+        """Stream the reply sentence by sentence (text appears live) AND speak each
+        sentence as it is produced: the audio for sentence N is synthesized while
+        the LLM is still writing sentence N+1, so the voice starts after the first
+        sentence (~1-2 s) instead of after the whole reply plus its synthesis
+        (~5 s). The client plays the clips sequentially (await playClip), so
+        per-sentence clips never cut each other off. A grammar correction for the
+        learner's utterance is computed IN PARALLEL and emitted last, so the gold
+        chip never breaks the flow."""
         turns, system_prompt, history, intensity = await self._prepare(session_id, user, text)
         correction_task: asyncio.Future[TurnCorrection | None] | None = None
+        # Synthesis of the previous sentence, running while the next one is being
+        # generated. Awaited just before its audio is emitted, so clips stay ordered
+        # yet overlap generation (the latency win).
+        pending_audio: asyncio.Future[bytes] | None = None
         try:
             parts: list[str] = []
             async for sentence in self._llm.stream_complete(system_prompt, history):
                 parts.append(sentence)
                 yield ReplyChunk(sentence)
+                # Emit the previous sentence's finished audio before kicking off the
+                # next, keeping clips in order.
+                async for event in self._drain_audio(pending_audio):
+                    yield event
+                pending_audio = self._start_synthesis(sentence)
                 # Start the correction only once the reply is already streaming,
                 # so its concurrent LLM call cannot delay the reply's first token
-                # (the latency the learner actually feels). It still overlaps the
-                # rest of the reply + its spoken playback, so the chip is ready in
-                # time.
+                # (the latency the learner actually feels).
                 if correction_task is None and self._corrector is not None:
                     correction_task = asyncio.ensure_future(
                         self._corrector.correct(
                             text, user.cefr_level, user.native_language, intensity
                         )
                     )
+            # Emit the last sentence's audio.
+            async for event in self._drain_audio(pending_audio):
+                yield event
+            pending_audio = None
             full_reply = " ".join(parts)
             await self._persist(session_id, user, turns, text, full_reply)
-            # Speak the whole reply as one clean clip. TTS failure must not break
-            # the turn (the text reply already succeeded).
-            if self._tts is not None and full_reply:
-                try:
-                    audio = await self._tts.synthesize(full_reply)
-                except Exception:
-                    audio = b""
-                if audio:
-                    yield AudioChunk(base64.b64encode(audio).decode("ascii"))
             if correction_task is not None:
                 correction = await correction_task
                 if correction is not None:
                     yield CorrectionReady(correction)
         finally:
             # If the reply stream errored or the consumer stopped early, don't
-            # leak the parallel correction task.
+            # leak the parallel correction/synthesis tasks.
             if correction_task is not None and not correction_task.done():
                 correction_task.cancel()
+            if pending_audio is not None and not pending_audio.done():
+                pending_audio.cancel()
+
+    def _start_synthesis(self, sentence: str) -> asyncio.Future[bytes] | None:
+        """Kick off TTS for one sentence in the background (or None if no server
+        TTS). Runs while the next sentence is generated — that overlap is the win."""
+        if self._tts is None:
+            return None
+        return asyncio.ensure_future(self._synthesize_quietly(sentence))
+
+    async def _synthesize_quietly(self, sentence: str) -> bytes:
+        """Synthesize one sentence; a TTS failure yields empty bytes rather than
+        breaking the turn (the text reply already succeeded)."""
+        assert self._tts is not None
+        try:
+            return await self._tts.synthesize(sentence)
+        except Exception:
+            return b""
+
+    async def _drain_audio(
+        self, pending: asyncio.Future[bytes] | None
+    ) -> AsyncIterator[AudioChunk]:
+        """Await a pending synthesis and yield its clip (skipping empty audio)."""
+        if pending is None:
+            return
+        audio = await pending
+        if audio:
+            yield AudioChunk(base64.b64encode(audio).decode("ascii"))
 
     async def _prepare(
         self, session_id: int, user: User, text: str
