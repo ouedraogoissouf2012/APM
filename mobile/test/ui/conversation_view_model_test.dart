@@ -41,6 +41,39 @@ class _FakeAudio implements AudioPlaybackService {
   Future<void> stop() async {}
 }
 
+/// A playback service whose [playClip] blocks until [release] is called for that
+/// clip, so a test can assert the text stream is not held up waiting for audio.
+/// [release] is level-triggered: clips that arrive after it are let through too,
+/// so there is no race with the background player creating gates lazily.
+class _SlowAudio implements AudioPlaybackService {
+  final List<String> played = [];
+  final List<Completer<void>> _gates = [];
+  bool _released = false;
+
+  @override
+  Future<void> playClip(String audioB64, String mime) async {
+    if (!_released) {
+      final gate = Completer<void>();
+      _gates.add(gate);
+      await gate.future;
+    }
+    played.add(audioB64);
+  }
+
+  void release() {
+    _released = true;
+    for (final g in _gates) {
+      if (!g.isCompleted) g.complete();
+    }
+  }
+
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async {}
+
+  @override
+  Future<void> stop() async {}
+}
+
 /// Fake recorder that yields fixed bytes on stop, for the push-to-talk path.
 class _FakeRecorder implements AudioRecordingService {
   bool started = false;
@@ -463,6 +496,7 @@ void main() {
 
     await vm.start();
     await vm.listenAndRespond();
+    await vm.awaitPlaybackForTest();
 
     // The neural clip was played, and the robotic on-device voice was NOT used.
     expect(audio.played, ['QUJD']);
@@ -472,6 +506,42 @@ void main() {
       c.read(conversationViewModelProvider).turns.last.content,
       'Good.',
     );
+  });
+
+  test('slow per-sentence audio does not block the text stream (#100 regression)',
+      () async {
+    // The bug: awaiting each clip's playback INSIDE the SSE loop froze the text —
+    // sentence 2 only appeared after sentence 1's audio finished playing, and a
+    // stuck clip hung the whole turn. Audio must play in the background while the
+    // text keeps streaming.
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(mode: any(named: 'mode'), scenarioId: any(named: 'scenarioId')),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(const [
+        ReplySentence('First.'),
+        AudioClip('QQ==', 'audio/mpeg'),
+        ReplySentence('Second.'),
+        AudioClip('Qg==', 'audio/mpeg'),
+      ]),
+    );
+    final speech = _FakeSpeech('hi');
+    final audio = _SlowAudio(); // each playClip blocks until released
+    final c = _container(repo, speech, serverTts: true, audio: audio);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.listenAndRespond();
+
+    // The FULL text is shown even though NO clip has finished playing yet — the
+    // stream was not blocked by playback.
+    expect(c.read(conversationViewModelProvider).turns.last.content, 'First. Second.');
+
+    // Now let the clips finish: both play, in order.
+    audio.release();
+    await vm.awaitPlaybackForTest();
+    expect(audio.played, ['QQ==', 'Qg==']);
   });
 
   test('attaches a streamed correction to the learner turn', () async {

@@ -38,8 +38,15 @@ class DebriefService:
         if existing is not None:
             return existing
         transcript = await self._transcripts.get_by_session(session_id)
-        if transcript is None:
-            raise NotFoundError("No transcript for this session")
+        if transcript is None or not transcript.turns:
+            # No conversation happened (started then ended without speaking). Return
+            # an EMPTY debrief instead of a 404: a 404 made the client retry forever
+            # (GET->404->POST->404...). Persisting an empty one makes the next call a
+            # cache hit and stops the loop at the source.
+            empty = await self._debriefs.save(
+                session_id, user.cefr_level, "Pas encore de conversation à analyser.", []
+            )
+            return empty
         # Honour the learner's correction_intensity (#114): it sets the debrief's
         # tone and how many errors to surface. Default gentle when no profile.
         intensity = "gentle"
