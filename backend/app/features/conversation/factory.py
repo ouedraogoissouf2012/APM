@@ -47,3 +47,20 @@ def build_llm_provider(
 # configuration, instead of a new client per HTTP request. Errors (e.g. missing
 # API key) are not cached — lru_cache only stores successful results.
 shared_llm_provider = lru_cache(maxsize=8)(build_llm_provider)
+
+
+def llm_credentials_for(engine: str, settings: object) -> tuple[str, str, str]:
+    """The (api_key, base_url, model) an OpenAI-compatible engine needs, from
+    settings. One place so every feature (conversation, debrief, mission,
+    shadowing) picks Groq vs DeepSeek credentials consistently — no duplication."""
+    if engine == ENGINE_GROQ:
+        return (
+            settings.groq_api_key,  # type: ignore[attr-defined]
+            settings.groq_base_url,  # type: ignore[attr-defined]
+            settings.groq_llm_model,  # type: ignore[attr-defined]
+        )
+    return (
+        settings.deepseek_api_key,  # type: ignore[attr-defined]
+        settings.deepseek_base_url,  # type: ignore[attr-defined]
+        settings.deepseek_model,  # type: ignore[attr-defined]
+    )

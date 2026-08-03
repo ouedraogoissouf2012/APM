@@ -10,7 +10,7 @@ from app.database import get_db
 from app.domain.exceptions import NotFoundError
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.correction import TurnCorrector
-from app.features.conversation.factory import shared_llm_provider
+from app.features.conversation.factory import llm_credentials_for, shared_llm_provider
 from app.features.conversation.providers.caching_tts import CachingTtsProvider
 from app.features.conversation.providers.interfaces import SttProvider, TtsProvider
 from app.features.conversation.providers.stt import shared_stt_provider
@@ -80,20 +80,9 @@ def get_conversation_turn_service(
 ) -> ConversationTurnService:
     settings = get_settings()
     # Groq and DeepSeek are both OpenAI-compatible; pick the credentials/model for
-    # the configured engine. Groq (Llama 3.3) has a far lower time-to-first-token,
-    # so VOICE_ENGINE=groq makes the live turn start speaking much sooner.
-    if settings.voice_engine == "groq":
-        api_key, base_url, model = (
-            settings.groq_api_key,
-            settings.groq_base_url,
-            settings.groq_llm_model,
-        )
-    else:
-        api_key, base_url, model = (
-            settings.deepseek_api_key,
-            settings.deepseek_base_url,
-            settings.deepseek_model,
-        )
+    # the configured engine (Groq = far lower time-to-first-token). Shared helper so
+    # every feature resolves credentials the same way.
+    api_key, base_url, model = llm_credentials_for(settings.voice_engine, settings)
     # Cached: one LLM client (one connection pool) per configuration, not per request.
     llm = shared_llm_provider(
         engine=settings.voice_engine,

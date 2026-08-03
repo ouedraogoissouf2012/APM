@@ -2,12 +2,12 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.engines import ENGINE_DEEPSEEK
+from app.core.engines import ENGINE_FAKE
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
 from app.features.auth.repository import SqlAlchemyUserRepository
-from app.features.conversation.factory import shared_llm_provider
+from app.features.conversation.factory import llm_credentials_for, shared_llm_provider
 from app.features.conversation.providers.interfaces import (
     TextCompletionProvider as LlmProvider,
 )
@@ -37,21 +37,23 @@ def get_debrief_rate_limiter() -> RateLimiter:
 
 def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
     settings = get_settings()
-    # Default "fake" returns a valid (generic) debrief; "deepseek" does real analysis.
+    # Default "fake" returns a valid (generic) debrief; "deepseek"/"groq" do real
+    # analysis (groq is much faster — the debrief no longer stalls at end of session).
     llm: LlmProvider
-    if settings.debrief_engine == ENGINE_DEEPSEEK:
+    if settings.debrief_engine == ENGINE_FAKE:
+        llm = FakeDebriefLlm()
+    else:
+        api_key, base_url, model = llm_credentials_for(settings.debrief_engine, settings)
         # Cached: one LLM client (one connection pool) per configuration.
         llm = shared_llm_provider(
-            engine=ENGINE_DEEPSEEK,
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
-            model=settings.deepseek_model,
+            engine=settings.debrief_engine,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
             timeout_seconds=settings.deepseek_timeout_seconds,
             max_retries=settings.deepseek_max_retries,
             max_tokens=settings.deepseek_debrief_max_tokens,
         )
-    else:
-        llm = FakeDebriefLlm()
     return DebriefService(
         sessions=SqlAlchemySessionRepository(db),
         transcripts=SqlAlchemyTranscriptRepository(db),
