@@ -1,12 +1,18 @@
 from functools import lru_cache
 
-from app.core.engines import ENGINE_DEEPSEEK, ENGINE_FAKE, ENGINE_GROQ
+from app.core.engines import (
+    ENGINE_DEEPSEEK,
+    ENGINE_FAKE,
+    ENGINE_GROQ,
+    ENGINE_GROQ_FALLBACK,
+)
 from app.domain.exceptions import LlmProviderError
 from app.features.conversation.providers.deepseek import (
     OpenAiCompatibleLlmProvider,
     build_openai_compatible_client,
 )
 from app.features.conversation.providers.fakes import FakeLlm
+from app.features.conversation.providers.fallback import FallbackLlmProvider
 from app.features.conversation.providers.interfaces import LlmProvider
 
 
@@ -69,3 +75,32 @@ def llm_credentials_for(engine: str, settings: object) -> tuple[str, str, str]:
         settings.deepseek_base_url,  # type: ignore[attr-defined]
         settings.deepseek_model,  # type: ignore[attr-defined]
     )
+
+
+def _shared_engine_provider(engine: str, settings: object, max_tokens: int) -> LlmProvider:
+    """One cached provider for a single OpenAI-compatible engine."""
+    api_key, base_url, model = llm_credentials_for(engine, settings)
+    return shared_llm_provider(
+        engine=engine,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout_seconds=settings.deepseek_timeout_seconds,  # type: ignore[attr-defined]
+        max_retries=settings.deepseek_max_retries,  # type: ignore[attr-defined]
+        max_tokens=max_tokens,
+    )
+
+
+def build_feature_llm(engine: str, settings: object, max_tokens: int) -> LlmProvider:
+    """The LLM for a feature (conversation, debrief, ...) given its engine.
+
+    "groq_fallback" builds the Groq -> DeepSeek chain (fast + never blocked); any
+    other engine is a single cached provider. Fake is handled by the caller."""
+    if engine == ENGINE_GROQ_FALLBACK:
+        return FallbackLlmProvider(
+            [
+                _shared_engine_provider(ENGINE_GROQ, settings, max_tokens),
+                _shared_engine_provider(ENGINE_DEEPSEEK, settings, max_tokens),
+            ]
+        )
+    return _shared_engine_provider(engine, settings, max_tokens)

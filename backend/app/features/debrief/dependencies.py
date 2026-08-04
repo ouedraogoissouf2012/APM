@@ -7,7 +7,7 @@ from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
 from app.features.auth.repository import SqlAlchemyUserRepository
-from app.features.conversation.factory import llm_credentials_for, shared_llm_provider
+from app.features.conversation.factory import build_feature_llm
 from app.features.conversation.providers.interfaces import (
     TextCompletionProvider as LlmProvider,
 )
@@ -43,16 +43,9 @@ def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
     if settings.debrief_engine == ENGINE_FAKE:
         llm = FakeDebriefLlm()
     else:
-        api_key, base_url, model = llm_credentials_for(settings.debrief_engine, settings)
-        # Cached: one LLM client (one connection pool) per configuration.
-        llm = shared_llm_provider(
-            engine=settings.debrief_engine,
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            timeout_seconds=settings.deepseek_timeout_seconds,
-            max_retries=settings.deepseek_max_retries,
-            max_tokens=settings.deepseek_debrief_max_tokens,
+        # Same engine options as the conversation, including "groq_fallback".
+        llm = build_feature_llm(
+            settings.debrief_engine, settings, settings.deepseek_debrief_max_tokens
         )
     return DebriefService(
         sessions=SqlAlchemySessionRepository(db),

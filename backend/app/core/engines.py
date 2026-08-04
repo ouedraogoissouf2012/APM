@@ -11,14 +11,17 @@ ENGINE_DEEPSEEK = "deepseek"
 # Groq's OpenAI-compatible LLM API (Llama 3.3). Far lower time-to-first-token
 # (~0.4 s vs ~2-4 s for DeepSeek), so it drives the live conversation turn faster.
 ENGINE_GROQ = "groq"
+# Fallback chain: Groq first (fast, free), DeepSeek as the safety net (paid,
+# unlimited) when Groq is rate-limited or down. The conversation never dies.
+ENGINE_GROQ_FALLBACK = "groq_fallback"
 
 # Only implemented engines are valid config values. A "livekit" realtime
 # engine (issue #69) must be added here the day it actually exists — until
 # then, configuring it fails at startup instead of 502-ing on every turn.
-VoiceEngineName = Literal["fake", "deepseek", "groq"]
-DebriefEngineName = Literal["fake", "deepseek", "groq"]
-MissionEngineName = Literal["fake", "deepseek", "groq"]
-ShadowingEngineName = Literal["fake", "deepseek", "groq"]
+VoiceEngineName = Literal["fake", "deepseek", "groq", "groq_fallback"]
+DebriefEngineName = Literal["fake", "deepseek", "groq", "groq_fallback"]
+MissionEngineName = Literal["fake", "deepseek", "groq", "groq_fallback"]
+ShadowingEngineName = Literal["fake", "deepseek", "groq", "groq_fallback"]
 
 # Pronunciation (#111 step 2): "fake" makes no phonetic claim (default, no extra
 # service); "gop" calls the wav2vec2 pronunciation microservice over HTTP.
