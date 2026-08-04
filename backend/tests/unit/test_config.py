@@ -105,3 +105,37 @@ def test_production_allows_gop_engine_with_service_url():
     )
 
     assert settings.pronunciation_engine == "gop"
+
+
+def test_production_requires_both_keys_for_groq_fallback():
+    # The fallback uses Groq AND DeepSeek, so production needs both keys.
+    with pytest.raises(ValidationError, match="GROQ_API_KEY is required"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            voice_engine="groq_fallback",
+            deepseek_api_key="sk-test",
+            groq_api_key="",
+        )
+    with pytest.raises(ValidationError, match="DEEPSEEK_API_KEY is required"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            voice_engine="groq_fallback",
+            deepseek_api_key="",
+            groq_api_key="gsk-test",
+        )
+
+
+def test_production_allows_groq_fallback_with_both_keys():
+    settings = _settings(
+        app_env="production",
+        jwt_secret="a-secure-production-secret-32-bytes",
+        cors_allow_origins="https://app.example.com",
+        voice_engine="groq_fallback",
+        deepseek_api_key="sk-test",
+        groq_api_key="gsk-test",
+    )
+    assert settings.voice_engine == "groq_fallback"

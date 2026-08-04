@@ -8,6 +8,7 @@ from app.core.engines import (
     ENGINE_DEEPSEEK,
     ENGINE_GOP,
     ENGINE_GROQ,
+    ENGINE_GROQ_FALLBACK,
     DebriefEngineName,
     MissionEngineName,
     PronunciationEngineName,
@@ -145,28 +146,21 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET must not use the example value in production")
         if "*" in self.cors_origins_list and self.cors_allow_credentials:
             raise ValueError("CORS_ALLOW_ORIGINS=* cannot be used with credentials in production")
-        if (
-            ENGINE_DEEPSEEK
-            in (
-                self.voice_engine,
-                self.debrief_engine,
-                self.mission_engine,
-                self.shadowing_engine,
+        engines = (
+            self.voice_engine,
+            self.debrief_engine,
+            self.mission_engine,
+            self.shadowing_engine,
+        )
+        # groq_fallback uses BOTH providers, so it requires both keys.
+        needs_deepseek = any(e in (ENGINE_DEEPSEEK, ENGINE_GROQ_FALLBACK) for e in engines)
+        needs_groq = any(e in (ENGINE_GROQ, ENGINE_GROQ_FALLBACK) for e in engines)
+        if needs_deepseek and not self.deepseek_api_key:
+            raise ValueError(
+                "DEEPSEEK_API_KEY is required when DeepSeek (or the fallback) is enabled"
             )
-            and not self.deepseek_api_key
-        ):
-            raise ValueError("DEEPSEEK_API_KEY is required when DeepSeek is enabled")
-        if (
-            ENGINE_GROQ
-            in (
-                self.voice_engine,
-                self.debrief_engine,
-                self.mission_engine,
-                self.shadowing_engine,
-            )
-            and not self.groq_api_key
-        ):
-            raise ValueError("GROQ_API_KEY is required when Groq is enabled")
+        if needs_groq and not self.groq_api_key:
+            raise ValueError("GROQ_API_KEY is required when Groq (or the fallback) is enabled")
         if self.pronunciation_engine == ENGINE_GOP and not self.gop_service_url.strip():
             raise ValueError("GOP_SERVICE_URL is required when PRONUNCIATION_ENGINE=gop")
 

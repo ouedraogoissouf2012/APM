@@ -10,7 +10,7 @@ from app.database import get_db
 from app.domain.exceptions import NotFoundError
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.correction import TurnCorrector
-from app.features.conversation.factory import llm_credentials_for, shared_llm_provider
+from app.features.conversation.factory import build_feature_llm
 from app.features.conversation.providers.caching_tts import CachingTtsProvider
 from app.features.conversation.providers.interfaces import SttProvider, TtsProvider
 from app.features.conversation.providers.stt import shared_stt_provider
@@ -79,19 +79,12 @@ def get_conversation_turn_service(
     db: AsyncSession = Depends(get_db),
 ) -> ConversationTurnService:
     settings = get_settings()
-    # Groq and DeepSeek are both OpenAI-compatible; pick the credentials/model for
-    # the configured engine (Groq = far lower time-to-first-token). Shared helper so
-    # every feature resolves credentials the same way.
-    api_key, base_url, model = llm_credentials_for(settings.voice_engine, settings)
-    # Cached: one LLM client (one connection pool) per configuration, not per request.
-    llm = shared_llm_provider(
-        engine=settings.voice_engine,
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        timeout_seconds=settings.deepseek_timeout_seconds,
-        max_retries=settings.deepseek_max_retries,
-        max_tokens=settings.deepseek_conversation_max_tokens,
+    # The conversation LLM for the configured engine. "groq_fallback" gives the
+    # Groq -> DeepSeek chain (fast + free by day, unlimited paid as a safety net);
+    # "groq"/"deepseek" a single cached provider. History is engine-neutral, so a
+    # mid-conversation failover is seamless.
+    llm = build_feature_llm(
+        settings.voice_engine, settings, settings.deepseek_conversation_max_tokens
     )
     # Server-side neural voice when TTS_ENGINE=edge; None keeps the on-device
     # system voice (default). Same cached provider as the /tts endpoint (#123).
