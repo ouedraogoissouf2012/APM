@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.client_ip import client_ip
@@ -23,6 +23,8 @@ from app.features.conversation.turn_service import (
     CorrectionReady,
     ReplyChunk,
 )
+from app.features.idempotency.dependencies import get_idempotency_service
+from app.features.idempotency.service import IdempotencyService
 
 router = APIRouter(prefix="/sessions/{session_id}", tags=["conversation"])
 
@@ -35,11 +37,21 @@ async def take_turn(
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
     service: ConversationTurnService = Depends(get_conversation_turn_service),
+    idempotency: IdempotencyService = Depends(get_idempotency_service),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> TurnOut:
+    """Non-streaming turn (used for offline replay, #127). An optional
+    `Idempotency-Key` header makes a replay safe: the same key returns the same
+    reply without re-processing the turn or re-charging the quota (#119)."""
     client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
-    result = await service.take_turn(session_id, current_user, payload.text)
-    return TurnOut(reply=result.reply)
+
+    async def _process() -> str:
+        result = await service.take_turn(session_id, current_user, payload.text)
+        return result.reply
+
+    reply = await idempotency.run_once(current_user.id, idempotency_key, _process)
+    return TurnOut(reply=reply)
 
 
 def _sse(event: str, data: dict) -> str:
