@@ -12,8 +12,12 @@ class AuthenticatedApiClient {
   Future<Map<String, dynamic>> postJson(
     String path, {
     Map<String, dynamic>? body,
+    Map<String, String>? headers,
   }) =>
-      _withRefresh((bearer) => _api.postJson(path, body: body, bearer: bearer));
+      _withRefresh(
+        (bearer) =>
+            _api.postJson(path, body: body, bearer: bearer, headers: headers),
+      );
 
   Future<Map<String, dynamic>> postBytes(
     String path, {
