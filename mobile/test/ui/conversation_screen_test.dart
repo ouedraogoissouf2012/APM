@@ -30,6 +30,7 @@ class _StubConversationViewModel extends ConversationViewModel {
   Future<void> start({
     String mode = kSessionModeFree,
     String? scenarioId,
+    int? missionId,
   }) async {}
 
   @override

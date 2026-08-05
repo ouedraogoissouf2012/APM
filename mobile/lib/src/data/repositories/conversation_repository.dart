@@ -52,10 +52,18 @@ class ConversationRepository {
 
   final AuthenticatedApiClient _api;
 
-  Future<int> startSession({String mode = 'free', String? scenarioId}) async {
+  Future<int> startSession({
+    String mode = 'free',
+    String? scenarioId,
+    int? missionId,
+  }) async {
     final json = await _api.postJson(
       '/sessions/start',
-      body: {'mode': mode, 'scenario_id': ?scenarioId},
+      body: {
+        'mode': mode,
+        'scenario_id': ?scenarioId,
+        'mission_id': ?missionId,
+      },
     );
     return json['session_id'] as int;
   }

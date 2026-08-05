@@ -47,13 +47,18 @@ class ConversationViewModel extends Notifier<ConversationState>
   Future<void> start({
     String mode = kSessionModeFree,
     String? scenarioId,
+    int? missionId,
   }) async {
     final repo = ref.read(conversationRepositoryProvider);
 
     int sessionId;
     List<ConversationTurn> turns;
     try {
-      sessionId = await repo.startSession(mode: mode, scenarioId: scenarioId);
+      sessionId = await repo.startSession(
+        mode: mode,
+        scenarioId: scenarioId,
+        missionId: missionId,
+      );
       turns = [
         ConversationTurn(
           kRoleAssistant,
