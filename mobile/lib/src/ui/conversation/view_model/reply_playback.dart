@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
+import '../../../core/offline/connectivity_controller.dart';
 import '../../../data/models/turn_correction.dart';
 import '../../../data/repositories/conversation_repository.dart';
 import 'conversation_host.dart';
@@ -69,11 +71,22 @@ class ReplyPlayback {
         }
         if (!isLive()) return false;
       }
-    } catch (_) {
+    } catch (e) {
+      // On a NETWORK failure, don't lose the turn: queue it for replay on
+      // reconnect (#127) and tell the learner it will be sent later. A
+      // non-network failure keeps the previous generic error.
+      final offline = e is ApiException && (e.statusCode == 0 || e.code == 'network');
+      if (offline) {
+        await _ref
+            .read(connectivityControllerProvider.notifier)
+            .recordFailedTurn(sessionId, heard);
+      }
       if (_host.mounted) {
         _host.state = _host.state.copyWith(
           status: ConversationStatus.idle,
-          error: 'Could not get a reply',
+          error: offline
+              ? 'Hors ligne — ta phrase sera envoyée à la reconnexion'
+              : 'Could not get a reply',
         );
       }
       return false;

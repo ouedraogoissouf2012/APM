@@ -11,6 +11,7 @@ import '../../../data/models/turn_correction.dart';
 import '../../../design_system/atoms/app_button.dart';
 import '../../../design_system/atoms/overline_text.dart';
 import '../../../design_system/molecules/correction_chip.dart';
+import 'network_banner.dart';
 import '../../../design_system/molecules/transcript_text.dart';
 import '../../../design_system/organisms/voice_orb.dart';
 import '../view_model/conversation_state.dart';
@@ -85,6 +86,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 active: state.isActive,
                 onEnd: _endSession,
               ),
+              const NetworkBanner(),
               if (ref.watch(demoModeProvider).value ?? false)
                 const _DemoBanner(),
               Expanded(child: _OrbZone(state: state)),
