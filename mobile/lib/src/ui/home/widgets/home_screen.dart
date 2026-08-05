@@ -6,6 +6,7 @@ import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../design_system/atoms/overline_text.dart';
 import '../../auth/view_model/auth_view_model.dart';
+import '../view_model/streak_view_model.dart';
 import 'home_greeting.dart';
 
 /// Home — DESIGN_SPEC §6.3. Editorial greeting in Fraunces, a clay "resume"
@@ -37,7 +38,9 @@ class HomeScreen extends ConsumerWidget {
               }),
               const SizedBox(height: AppSpacing.xl),
               _Greeting(greeting: greetingForHour(now.hour), name: name),
-              const SizedBox(height: AppSpacing.xl),
+              const SizedBox(height: AppSpacing.sm),
+              const _StreakPill(),
+              const SizedBox(height: AppSpacing.lg),
               _ResumeCard(
                 onTap: () => context.go(Routes.scenarios),
               ),
@@ -321,6 +324,36 @@ class _NavItem extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             Text(label, style: AppType.label(color).copyWith(fontSize: 11)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Streak pill under the greeting (DESIGN_SPEC §6): "🔥 N jours". Renders nothing
+/// when there's no active streak yet, so it never adds empty space to the Home.
+class _StreakPill extends ConsumerWidget {
+  const _StreakPill();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final streak = ref.watch(streakProvider);
+    final days = streak.value?.currentStreak ?? 0;
+    if (days <= 0) return const SizedBox.shrink();
+
+    final colors = context.colors;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        key: const Key('streak_pill'),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          '🔥 $days ${days == 1 ? 'jour' : 'jours'}',
+          style: Theme.of(context).textTheme.labelLarge,
         ),
       ),
     );
