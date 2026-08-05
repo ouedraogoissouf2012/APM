@@ -1,3 +1,4 @@
+import 'package:apm/src/data/models/mission.dart';
 import 'package:apm/src/data/models/proof.dart';
 import 'package:apm/src/data/repositories/proof_repository.dart';
 import 'package:apm/src/ui/proof/view_model/proof_view_model.dart';
@@ -5,9 +6,18 @@ import 'package:apm/src/ui/proof/widgets/proof_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockRepo extends Mock implements ProofRepository {}
+
+Mission _mission() => const Mission(
+  id: 42,
+  sourceType: 'topic',
+  persona: 'A surprise interlocutor',
+  goal: 'Handle a new situation',
+  likelyQuestions: [],
+);
 
 Proof _proof({List<String> resolved = const ['verb_tense'], List<String> worse = const []}) =>
     Proof(
@@ -73,5 +83,42 @@ void main() {
     await _pump(tester, repo);
 
     expect(find.byKey(const Key('proof_error')), findsOneWidget);
+  });
+
+  testWidgets('tapping "Tenter le transfert" compiles a challenge and launches it',
+      (tester) async {
+    final repo = _MockRepo();
+    when(() => repo.forSkill('job_interview')).thenAnswer((_) async => _proof());
+    when(
+      () => repo.transferChallenge('job_interview'),
+    ).thenAnswer((_) async => _mission());
+
+    final router = GoRouter(
+      initialLocation: '/proof/job_interview',
+      routes: [
+        GoRoute(
+          path: '/proof/:skill',
+          builder: (_, state) =>
+              ProofScreen(skill: state.pathParameters['skill']!),
+        ),
+        GoRoute(
+          path: '/conversation',
+          builder: (_, _) => const Scaffold(body: Text('Conversation target')),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [proofRepositoryProvider.overrideWithValue(repo)],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('transfer_button')));
+    await tester.pumpAndSettle();
+
+    verify(() => repo.transferChallenge('job_interview')).called(1);
+    expect(find.text('Conversation target'), findsOneWidget); // launched
   });
 }
