@@ -21,9 +21,7 @@ class GroqSttProvider:
     learner is practising English (imperfectly), so we must not let Whisper
     auto-detect and transcribe their French."""
 
-    def __init__(
-        self, api_key: str, base_url: str, model: str, prompt: str = ""
-    ) -> None:
+    def __init__(self, api_key: str, base_url: str, model: str, prompt: str = "") -> None:
         from openai import AsyncOpenAI
 
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -99,9 +97,7 @@ def build_stt_provider(
     if engine == "groq":
         if not api_key.strip():
             raise LlmProviderError("GROQ_API_KEY is required when STT_ENGINE=groq")
-        return GroqSttProvider(
-            api_key=api_key, base_url=base_url, model=model, prompt=prompt
-        )
+        return GroqSttProvider(api_key=api_key, base_url=base_url, model=model, prompt=prompt)
     return None
 
 
