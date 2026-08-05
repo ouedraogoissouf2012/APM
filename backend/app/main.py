@@ -20,6 +20,7 @@ from app.features.missions.router import router as missions_router
 from app.features.onboarding.router import router as onboarding_router
 from app.features.profile.router import router as profile_router
 from app.features.progress.router import router as progress_router
+from app.features.proof.router import router as proof_router
 from app.features.review.router import router as review_router
 from app.features.sessions.router import router as sessions_router
 from app.features.shadowing.router import router as shadowing_router
@@ -103,6 +104,7 @@ app.include_router(auth_router)
 app.include_router(billing_router)
 app.include_router(profile_router)
 app.include_router(progress_router)
+app.include_router(proof_router)
 app.include_router(review_router)
 app.include_router(streaks_router)
 app.include_router(onboarding_router)
