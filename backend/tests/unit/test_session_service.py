@@ -151,6 +151,20 @@ async def test_record_turn_activity_meters_quota_per_turn():
 
 
 @pytest.mark.asyncio
+async def test_record_turn_activity_marks_the_day_active_for_the_streak():
+    # #118: any turn today counts as an active day, starting/extending the streak.
+    service, user = await _service_with_user()
+    started = await service.start(user.id, "free", None)
+
+    await service.record_turn_activity(started.session.id, user.id)
+
+    from datetime import date
+
+    assert user.current_streak == 1
+    assert user.last_active_date == date.today()
+
+
+@pytest.mark.asyncio
 async def test_record_turn_activity_is_capped_per_turn():
     # A huge gap between turns (client paused) can't bill an unbounded amount.
     service, user = await _service_with_user()

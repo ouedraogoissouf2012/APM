@@ -26,6 +26,7 @@ from app.features.sessions.activity import elapsed_minutes, is_stale
 from app.features.sessions.models import ConversationSession
 from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
+from app.features.streaks.logic import StreakState, register_active_day
 
 DEFAULT_HISTORY_PAGE_SIZE = 20
 
@@ -54,6 +55,25 @@ class SessionHistoryItem:
 
 def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def _apply_active_day(user: User, today: date) -> None:
+    """Apply the pure streak transition to the user's stored streak fields.
+
+    Streak columns default to 0 in the DB, but a User built in memory (tests, or
+    before the column default applies) may carry None — treat that as 0 so a turn
+    never fails on streak bookkeeping."""
+    updated = register_active_day(
+        StreakState(
+            current_streak=user.current_streak or 0,
+            longest_streak=user.longest_streak or 0,
+            last_active_date=user.last_active_date,
+        ),
+        today,
+    )
+    user.current_streak = updated.current_streak
+    user.longest_streak = updated.longest_streak
+    user.last_active_date = updated.last_active_date
 
 
 class SessionService:
@@ -175,8 +195,12 @@ class SessionService:
         minutes = elapsed_minutes(_as_utc(session.last_activity_at), now, cap=self._turn_meter_cap)
         session.last_activity_at = now
         user = await self._users.get_by_id(user_id)
-        if user is not None and minutes > 0:
-            quota.record_usage(user, minutes, date.today())
+        if user is not None:
+            if minutes > 0:
+                quota.record_usage(user, minutes, date.today())
+            # Habit tracking (#118): any turn today counts as an active day, even
+            # a sub-minute one — showing up is the point of a streak.
+            _apply_active_day(user, date.today())
         await self._sessions.commit()
 
     async def _close_session(

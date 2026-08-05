@@ -23,6 +23,7 @@ from app.features.progress.router import router as progress_router
 from app.features.review.router import router as review_router
 from app.features.sessions.router import router as sessions_router
 from app.features.shadowing.router import router as shadowing_router
+from app.features.streaks.router import router as streaks_router
 from app.features.vocabulary.router import router as vocabulary_router
 
 settings = get_settings()
@@ -101,6 +102,7 @@ app.include_router(billing_router)
 app.include_router(profile_router)
 app.include_router(progress_router)
 app.include_router(review_router)
+app.include_router(streaks_router)
 app.include_router(onboarding_router)
 app.include_router(sessions_router)
 app.include_router(missions_router)

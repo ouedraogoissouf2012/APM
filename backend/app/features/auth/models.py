@@ -4,6 +4,7 @@ from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, Stri
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.features.streaks.logic import DEFAULT_WEEKLY_GOAL_MINUTES
 
 # User tiers. Single source for the quota logic and the model default; the paid
 # tier is added here so no feature hunts string literals. "premium" lifts the
@@ -29,6 +30,14 @@ class User(Base):
     # Daily quota tracking (reset when quota_date rolls over)
     quota_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     minutes_used_today: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+
+    # Habit tracking (#118): consecutive active days + weekly practice goal.
+    current_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    longest_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_active_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    weekly_goal_minutes: Mapped[int] = mapped_column(
+        Integer, default=DEFAULT_WEEKLY_GOAL_MINUTES, nullable=False
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
