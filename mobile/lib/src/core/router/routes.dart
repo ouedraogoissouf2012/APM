@@ -4,6 +4,7 @@ import '../../data/models/session_modes.dart';
 /// renamed route cannot silently diverge across files.
 abstract final class Routes {
   static const onboarding = '/onboarding';
+  static const placement = '/placement';
   static const login = '/login';
   static const register = '/register';
   static const home = '/home';

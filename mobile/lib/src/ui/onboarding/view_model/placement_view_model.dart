@@ -1,0 +1,135 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/audio/providers.dart';
+import '../../../core/network/providers.dart';
+import '../../../data/repositories/onboarding_repository.dart';
+import '../../conversation/view_model/conversation_providers.dart';
+import '../../profile/view_model/profile_view_model.dart';
+
+final onboardingRepositoryProvider = Provider<OnboardingRepository>(
+  (ref) => OnboardingRepository(ref.watch(authenticatedApiClientProvider)),
+);
+
+final placementViewModelProvider =
+    NotifierProvider<PlacementViewModel, PlacementState>(PlacementViewModel.new);
+
+/// The guided placement questions the learner answers by voice (~60 s total).
+/// Kept short and everyday so the analyzer gets a representative speech sample
+/// without turning onboarding into a test.
+const kPlacementQuestions = <String>[
+  'Tell me a bit about yourself and your day.',
+  'What did you do last weekend?',
+  'Why do you want to improve your English?',
+];
+
+enum PlacementStatus { idle, recording, transcribing, submitting, done, failed }
+
+class PlacementState {
+  const PlacementState({
+    this.questionIndex = 0,
+    this.answers = const [],
+    this.status = PlacementStatus.idle,
+    this.resultLevel,
+  });
+
+  final int questionIndex;
+  final List<String> answers;
+  final PlacementStatus status;
+  final String? resultLevel;
+
+  bool get isLastQuestion => questionIndex >= kPlacementQuestions.length - 1;
+  String get currentQuestion => kPlacementQuestions[questionIndex];
+
+  PlacementState copyWith({
+    int? questionIndex,
+    List<String>? answers,
+    PlacementStatus? status,
+    String? resultLevel,
+  }) => PlacementState(
+    questionIndex: questionIndex ?? this.questionIndex,
+    answers: answers ?? this.answers,
+    status: status ?? this.status,
+    resultLevel: resultLevel ?? this.resultLevel,
+  );
+}
+
+/// Drives the spoken placement: record an answer per question, transcribe it,
+/// advance; on the last question, submit everything so the backend estimates the
+/// starting CEFR and pre-fills the profile. Reuses the conversation's recording
+/// and transcription infrastructure — no new audio stack.
+class PlacementViewModel extends Notifier<PlacementState> {
+  @override
+  PlacementState build() => const PlacementState();
+
+  Future<void> startRecording() async {
+    if (state.status != PlacementStatus.idle) return;
+    final started = await ref.read(audioRecordingProvider).start();
+    if (!started) {
+      state = state.copyWith(status: PlacementStatus.failed);
+      return;
+    }
+    state = state.copyWith(status: PlacementStatus.recording);
+  }
+
+  /// Stops recording, transcribes the answer, and advances to the next question
+  /// (or leaves the caller to submit when it was the last one). A failed/empty
+  /// transcription still advances with an empty answer — the placement is not a
+  /// test and must never trap the learner on a question.
+  Future<void> stopAndTranscribe() async {
+    if (state.status != PlacementStatus.recording) return;
+    state = state.copyWith(status: PlacementStatus.transcribing);
+    final bytes = await ref.read(audioRecordingProvider).stop();
+
+    String heard = '';
+    if (bytes != null && bytes.isNotEmpty) {
+      try {
+        heard = (await ref
+                .read(conversationRepositoryProvider)
+                .transcribe(bytes))
+            .trim();
+      } catch (_) {
+        heard = '';
+      }
+    }
+
+    final answers = [...state.answers, heard];
+    if (state.isLastQuestion) {
+      state = state.copyWith(answers: answers, status: PlacementStatus.idle);
+    } else {
+      state = state.copyWith(
+        answers: answers,
+        questionIndex: state.questionIndex + 1,
+        status: PlacementStatus.idle,
+      );
+    }
+  }
+
+  /// Submits the placement with the collected answers plus interests/goal.
+  /// Returns true on success. On failure the state reports it and the caller can
+  /// still let the learner continue (the placement is optional).
+  Future<bool> submit({
+    required List<String> interests,
+    required String goal,
+  }) async {
+    state = state.copyWith(status: PlacementStatus.submitting);
+    try {
+      final result = await ref
+          .read(onboardingRepositoryProvider)
+          .submitPlacement(
+            answers: state.answers,
+            interests: interests,
+            goal: goal,
+          );
+      // Refresh the profile so the app picks up the pre-filled interests/goal.
+      ref.invalidate(profileViewModelProvider);
+      state = state.copyWith(
+        status: PlacementStatus.done,
+        resultLevel: result.cefrLevel,
+      );
+      return true;
+    } catch (_) {
+      state = state.copyWith(status: PlacementStatus.failed);
+      return false;
+    }
+  }
+}
