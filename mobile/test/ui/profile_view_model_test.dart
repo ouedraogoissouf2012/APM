@@ -43,6 +43,7 @@ void main() {
         goal: any(named: 'goal'),
         correctionIntensity: any(named: 'correctionIntensity'),
         accent: any(named: 'accent'),
+        memorySummary: any(named: 'memorySummary'),
       ),
     ).thenAnswer(
       (_) async => const Profile(
@@ -73,6 +74,7 @@ void main() {
         goal: any(named: 'goal'),
         correctionIntensity: any(named: 'correctionIntensity'),
         accent: any(named: 'accent'),
+        memorySummary: any(named: 'memorySummary'),
       ),
     ).thenThrow(Exception('network down'));
     final c = _containerWith(repo);
@@ -85,6 +87,70 @@ void main() {
     // No false success, and the form data is still usable (previous profile).
     expect(saved, isFalse);
     expect(c.read(profileViewModelProvider).value!.accent, 'us');
+  });
+
+  test('saveMemory sends the edited memory summary and updates state', () async {
+    final repo = _MockProfileRepository();
+    when(repo.getProfile).thenAnswer((_) async => _profile);
+    when(
+      () => repo.updateProfile(
+        interests: any(named: 'interests'),
+        goal: any(named: 'goal'),
+        correctionIntensity: any(named: 'correctionIntensity'),
+        accent: any(named: 'accent'),
+        memorySummary: any(named: 'memorySummary'),
+      ),
+    ).thenAnswer(
+      (_) async => const Profile(
+        interests: ['football'],
+        goal: 'job',
+        correctionIntensity: 'gentle',
+        accent: 'us',
+        memorySummary: 'Loves hiking.',
+      ),
+    );
+    final c = _containerWith(repo);
+
+    await c.read(profileViewModelProvider.future);
+    final ok = await c
+        .read(profileViewModelProvider.notifier)
+        .saveMemory('Loves hiking.');
+
+    expect(ok, isTrue);
+    expect(c.read(profileViewModelProvider).value!.memorySummary, 'Loves hiking.');
+    verify(
+      () => repo.updateProfile(memorySummary: 'Loves hiking.'),
+    ).called(1);
+  });
+
+  test('clearMemory sends an empty string (forget everything)', () async {
+    final repo = _MockProfileRepository();
+    when(repo.getProfile).thenAnswer(
+      (_) async => const Profile(
+        interests: ['football'],
+        goal: 'job',
+        correctionIntensity: 'gentle',
+        accent: 'us',
+        memorySummary: 'Loves hiking.',
+      ),
+    );
+    when(
+      () => repo.updateProfile(
+        interests: any(named: 'interests'),
+        goal: any(named: 'goal'),
+        correctionIntensity: any(named: 'correctionIntensity'),
+        accent: any(named: 'accent'),
+        memorySummary: any(named: 'memorySummary'),
+      ),
+    ).thenAnswer((_) async => _profile); // _profile has empty memory
+    final c = _containerWith(repo);
+
+    await c.read(profileViewModelProvider.future);
+    final ok = await c.read(profileViewModelProvider.notifier).clearMemory();
+
+    expect(ok, isTrue);
+    expect(c.read(profileViewModelProvider).value!.memorySummary, '');
+    verify(() => repo.updateProfile(memorySummary: '')).called(1);
   });
 
   test('parseInterests splits, trims and drops empties', () {

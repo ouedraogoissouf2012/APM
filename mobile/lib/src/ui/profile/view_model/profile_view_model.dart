@@ -30,6 +30,7 @@ class ProfileViewModel extends AsyncNotifier<Profile> {
     String? goal,
     String? correctionIntensity,
     String? accent,
+    String? memorySummary,
   }) async {
     final previous = state.value;
     state = const AsyncLoading();
@@ -43,6 +44,7 @@ class ProfileViewModel extends AsyncNotifier<Profile> {
             goal: goal,
             correctionIntensity: correctionIntensity,
             accent: accent,
+            memorySummary: memorySummary,
           ),
     );
     if (state.hasError) {
@@ -51,4 +53,11 @@ class ProfileViewModel extends AsyncNotifier<Profile> {
     }
     return true;
   }
+
+  /// Saves an edited memory summary (what the assistant knows about the learner).
+  Future<bool> saveMemory(String memorySummary) =>
+      save(memorySummary: memorySummary);
+
+  /// Clears the memory entirely — the learner's "forget what you know about me".
+  Future<bool> clearMemory() => save(memorySummary: '');
 }

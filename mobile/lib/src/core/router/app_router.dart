@@ -12,6 +12,7 @@ import '../../ui/history/widgets/session_history_screen.dart';
 import '../../ui/minimal_pairs/widgets/minimal_pairs_screen.dart';
 import '../../ui/home/widgets/home_screen.dart';
 import '../../ui/onboarding/widgets/onboarding_screen.dart';
+import '../../ui/profile/widgets/memory_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
 import '../../ui/scenarios/widgets/scenarios_screen.dart';
 import '../../dev/gallery_page.dart';
@@ -64,6 +65,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(path: Routes.profile, builder: (_, _) => const ProfileScreen()),
+      GoRoute(path: Routes.memory, builder: (_, _) => const MemoryScreen()),
       GoRoute(
         path: Routes.scenarios,
         builder: (_, _) => const ScenariosScreen(),

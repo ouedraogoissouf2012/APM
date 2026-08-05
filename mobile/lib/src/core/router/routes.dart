@@ -10,6 +10,7 @@ abstract final class Routes {
   static const history = '/history';
   static const conversation = '/conversation';
   static const profile = '/profile';
+  static const memory = '/memory';
   static const scenarios = '/scenarios';
   static const echo = '/echo';
   static const minimalPairs = '/minimal-pairs';

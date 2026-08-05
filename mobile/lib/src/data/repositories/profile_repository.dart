@@ -16,7 +16,10 @@ class ProfileRepository {
     String? goal,
     String? correctionIntensity,
     String? accent,
+    String? memorySummary,
   }) async {
+    // Null fields are omitted (leave unchanged); an explicit "" for
+    // memorySummary is sent and clears the memory server-side.
     final json = await _api.putJson(
       '/me/profile',
       body: {
@@ -24,6 +27,7 @@ class ProfileRepository {
         'goal': ?goal,
         'correction_intensity': ?correctionIntensity,
         'accent': ?accent,
+        'memory_summary': ?memorySummary,
       },
     );
     return Profile.fromJson(json);
