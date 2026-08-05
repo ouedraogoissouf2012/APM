@@ -16,6 +16,7 @@ import '../../ui/onboarding/widgets/placement_screen.dart';
 import '../../ui/profile/widgets/memory_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
 import '../../ui/scenarios/widgets/scenarios_screen.dart';
+import '../../ui/review/widgets/review_screen.dart';
 import '../../ui/vocabulary/widgets/vocabulary_screen.dart';
 import '../../dev/gallery_page.dart';
 import 'routes.dart';
@@ -82,6 +83,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: Routes.vocabulary,
         builder: (_, _) => const VocabularyScreen(),
       ),
+      GoRoute(path: Routes.review, builder: (_, _) => const ReviewScreen()),
       GoRoute(
         path: Routes.scenarios,
         builder: (_, _) => const ScenariosScreen(),
