@@ -17,6 +17,7 @@ from app.features.conversation.stt_router import router as stt_router
 from app.features.debrief.router import router as debrief_router
 from app.features.minimal_pairs.router import router as minimal_pairs_router
 from app.features.missions.router import router as missions_router
+from app.features.onboarding.router import router as onboarding_router
 from app.features.profile.router import router as profile_router
 from app.features.sessions.router import router as sessions_router
 from app.features.shadowing.router import router as shadowing_router
@@ -95,6 +96,7 @@ register_exception_handlers(app)
 app.include_router(auth_router)
 app.include_router(billing_router)
 app.include_router(profile_router)
+app.include_router(onboarding_router)
 app.include_router(sessions_router)
 app.include_router(missions_router)
 app.include_router(conversation_router)
