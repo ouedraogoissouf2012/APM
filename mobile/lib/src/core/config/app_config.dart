@@ -19,6 +19,12 @@ class AppConfig {
   static AppConfig get fromEnvironment =>
       AppConfig(apiBaseUrl: _resolveApiBaseUrl());
 
+  /// Dev backend port. APM's local backend runs on 8010 (8000 is often taken by
+  /// another local service on this machine, which silently answers 404 to APM's
+  /// routes). A production/staging build sets [_apiBaseUrlOverride] and never
+  /// reaches this default.
+  static const int _devBackendPort = 8010;
+
   static String _resolveApiBaseUrl() {
     if (_apiBaseUrlOverride.isNotEmpty) return _apiBaseUrlOverride;
     // Dev defaults. On web, call the backend on the SAME host the page was served
@@ -27,11 +33,11 @@ class AppConfig {
     // via 10.0.2.2; other native/desktop platforms use localhost.
     if (kIsWeb) {
       final host = Uri.base.host.isEmpty ? 'localhost' : Uri.base.host;
-      return 'http://$host:8000';
+      return 'http://$host:$_devBackendPort';
     }
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:8000';
+      return 'http://10.0.2.2:$_devBackendPort';
     }
-    return 'http://localhost:8000';
+    return 'http://localhost:$_devBackendPort';
   }
 }
