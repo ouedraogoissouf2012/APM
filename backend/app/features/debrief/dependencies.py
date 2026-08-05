@@ -17,6 +17,8 @@ from app.features.debrief.fake_llm import FakeDebriefLlm
 from app.features.debrief.repository import SqlAlchemyDebriefRepository
 from app.features.debrief.service import DebriefService
 from app.features.profile.repository import SqlAlchemyProfileRepository
+from app.features.review.repository import SqlAlchemyReviewRepository
+from app.features.review.service import ReviewService
 from app.features.sessions.repository import SqlAlchemySessionRepository
 from app.features.vocabulary.repository import SqlAlchemyVocabularyRepository
 from app.features.vocabulary.service import VocabularyService
@@ -57,4 +59,5 @@ def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
         profiles=SqlAlchemyProfileRepository(db),
         users=SqlAlchemyUserRepository(db),
         vocabulary=VocabularyService(SqlAlchemyVocabularyRepository(db)),
+        review=ReviewService(SqlAlchemyReviewRepository(db)),
     )

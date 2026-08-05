@@ -1,4 +1,5 @@
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.domain.exceptions import NotFoundError
@@ -15,6 +16,7 @@ from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
 
 if TYPE_CHECKING:
+    from app.features.review.service import ReviewService
     from app.features.vocabulary.service import VocabularyService
 
 # How many recurring error types persist into the learner's memory summary.
@@ -31,6 +33,7 @@ class DebriefService:
         profiles: ProfileRepository | None = None,
         users: UserRepository | None = None,
         vocabulary: "VocabularyService | None" = None,
+        review: "ReviewService | None" = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
@@ -41,6 +44,9 @@ class DebriefService:
         # Captures the debrief's salient words into the learner's notebook (#116).
         # Injected (DIP) and optional so the debrief works without it.
         self._vocabulary = vocabulary
+        # Feeds each session's error types into the spaced-repetition schedule
+        # (#117). Injected (DIP) and optional.
+        self._review = review
 
     async def generate(self, session_id: int, user: User) -> Debrief:
         await get_owned_session(self._sessions, session_id, user.id)
@@ -101,6 +107,20 @@ class DebriefService:
             except Exception:
                 logging.getLogger(__name__).warning(
                     "Vocabulary capture failed for session %s", session_id, exc_info=True
+                )
+        # Feed this session's error types into the SRS schedule (#117). Best-effort
+        # for the same reason. Even an error-free session matters — it grows the
+        # clean streak of tracked types toward mastery — so this runs regardless.
+        if self._review is not None:
+            try:
+                errors_seen: dict[str, str] = {}
+                for e in result.errors:
+                    if e.error_type.strip():
+                        errors_seen.setdefault(e.error_type, e.correction)
+                await self._review.record_session(user.id, errors_seen, datetime.now(UTC))
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Review scheduling failed for session %s", session_id, exc_info=True
                 )
         return debrief
 
