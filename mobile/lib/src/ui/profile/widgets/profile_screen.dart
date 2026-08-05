@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
 import '../../../data/models/profile.dart';
 import '../view_model/profile_view_model.dart';
 
@@ -131,6 +133,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 key: const Key('save_profile_button'),
                 onPressed: _save,
                 child: const Text('Save'),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                key: const Key('memory_link'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.psychology_outlined),
+                title: const Text('Ce que je sais de toi'),
+                subtitle: const Text('Voir et éditer la mémoire de l’assistant'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(Routes.memory),
               ),
             ],
           );

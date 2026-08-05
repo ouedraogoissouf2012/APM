@@ -31,6 +31,42 @@ void main() {
     expect(profile.accent, 'uk');
   });
 
+  test('getProfile parses memory_summary (and defaults to empty)', () async {
+    when(() => api.getJson('/me/profile')).thenAnswer(
+      (_) async => {
+        'interests': <String>[],
+        'goal': null,
+        'correction_intensity': 'gentle',
+        'accent': 'us',
+        'memory_summary': 'Prepares for a UK job interview.',
+      },
+    );
+
+    final profile = await repo.getProfile();
+    expect(profile.memorySummary, 'Prepares for a UK job interview.');
+  });
+
+  test('updateProfile sends memory_summary (including empty to clear it)', () async {
+    Map<String, dynamic>? sentBody;
+    when(() => api.putJson('/me/profile', body: any(named: 'body'))).thenAnswer((
+      invocation,
+    ) async {
+      sentBody = invocation.namedArguments[#body] as Map<String, dynamic>;
+      return {
+        'interests': <String>[],
+        'goal': null,
+        'correction_intensity': 'gentle',
+        'accent': 'us',
+        'memory_summary': '',
+      };
+    });
+
+    final profile = await repo.updateProfile(memorySummary: '');
+
+    expect(sentBody!['memory_summary'], '');
+    expect(profile.memorySummary, '');
+  });
+
   test('updateProfile puts the changes and parses the result', () async {
     when(() => api.putJson('/me/profile', body: any(named: 'body'))).thenAnswer(
       (_) async => {
