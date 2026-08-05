@@ -45,4 +45,20 @@ void main() {
     final proof = await repo.forSkill('restaurant');
     expect(proof, isNull);
   });
+
+  test('transferChallenge posts and parses the compiled mission', () async {
+    when(() => api.postJson('/me/transfer/job_interview')).thenAnswer(
+      (_) async => {
+        'id': 42,
+        'source_type': 'topic',
+        'persona': 'A surprise interlocutor',
+        'goal': 'Handle a new situation',
+        'likely_questions': <String>[],
+      },
+    );
+
+    final mission = await repo.transferChallenge('job_interview');
+    expect(mission.id, 42);
+    expect(mission.persona, 'A surprise interlocutor');
+  });
 }

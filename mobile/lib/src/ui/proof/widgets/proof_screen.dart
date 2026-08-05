@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/router/routes.dart';
 import '../../../data/models/proof.dart';
 import '../../review/error_type_label.dart';
 import '../view_model/proof_view_model.dart';
@@ -24,15 +26,63 @@ class ProofScreen extends ConsumerWidget {
         error: (_, _) => const Center(
           child: Text('Impossible de charger ta preuve.', key: Key('proof_error')),
         ),
-        data: (proof) =>
-            proof == null ? const _NotEnoughYet() : _ProofBody(proof: proof),
+        data: (proof) => proof == null
+            ? _NotEnoughYet(skill: skill)
+            : _ProofBody(proof: proof, skill: skill),
+      ),
+    );
+  }
+}
+
+/// Compiles a surprise-transfer challenge for [skill] and launches it as a
+/// mission conversation. Stateful for its own in-flight/disabled state.
+class _TransferButton extends ConsumerStatefulWidget {
+  const _TransferButton({required this.skill});
+
+  final String skill;
+
+  @override
+  ConsumerState<_TransferButton> createState() => _TransferButtonState();
+}
+
+class _TransferButtonState extends ConsumerState<_TransferButton> {
+  bool _loading = false;
+
+  Future<void> _start() async {
+    setState(() => _loading = true);
+    try {
+      final mission = await ref
+          .read(proofRepositoryProvider)
+          .transferChallenge(widget.skill);
+      if (!mounted) return;
+      context.go(Routes.conversationMission(mission.id));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de créer le défi — réessaie')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        key: const Key('transfer_button'),
+        icon: const Icon(Icons.bolt),
+        label: Text(_loading ? 'Je prépare un défi…' : 'Tenter le transfert'),
+        onPressed: _loading ? null : _start,
       ),
     );
   }
 }
 
 class _NotEnoughYet extends StatelessWidget {
-  const _NotEnoughYet();
+  const _NotEnoughYet({required this.skill});
+
+  final String skill;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +106,8 @@ class _NotEnoughYet extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 20),
+            _TransferButton(skill: skill),
           ],
         ),
       ),
@@ -64,9 +116,10 @@ class _NotEnoughYet extends StatelessWidget {
 }
 
 class _ProofBody extends StatelessWidget {
-  const _ProofBody({required this.proof});
+  const _ProofBody({required this.proof, required this.skill});
 
   final Proof proof;
+  final String skill;
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +169,14 @@ class _ProofBody extends StatelessWidget {
               title: Text(errorTypeLabel(t)),
             ),
         ],
+        const Divider(height: 32),
+        Text(
+          'Vraie maîtrise : réussir la même compétence dans une situation '
+          'inédite, sans préparation.',
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        _TransferButton(skill: skill),
       ],
     );
   }
