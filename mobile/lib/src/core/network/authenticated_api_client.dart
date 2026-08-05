@@ -59,6 +59,9 @@ class AuthenticatedApiClient {
   }) =>
       _withRefresh((bearer) => _api.patchJson(path, body: body, bearer: bearer));
 
+  Future<Map<String, dynamic>> deleteJson(String path) =>
+      _withRefresh((bearer) => _api.deleteJson(path, bearer: bearer));
+
   Future<Map<String, dynamic>> _withRefresh(
     Future<Map<String, dynamic>> Function(String? bearer) request,
   ) async {

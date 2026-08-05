@@ -115,6 +115,18 @@ class ApiClient {
     }
   }
 
+  Future<Map<String, dynamic>> deleteJson(String path, {String? bearer}) async {
+    try {
+      final response = await _dio.delete<Map<String, dynamic>>(
+        path,
+        options: _options(bearer),
+      );
+      return response.data ?? <String, dynamic>{};
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+  }
+
   /// POSTs and streams the response body as decoded text lines — used for the
   /// Server-Sent Events turn endpoint. The line stream is fed to [parseSse].
   Stream<String> postLineStream(

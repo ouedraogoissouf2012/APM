@@ -13,6 +13,7 @@ import '../../ui/minimal_pairs/widgets/minimal_pairs_screen.dart';
 import '../../ui/home/widgets/home_screen.dart';
 import '../../ui/onboarding/widgets/onboarding_screen.dart';
 import '../../ui/onboarding/widgets/placement_screen.dart';
+import '../../ui/privacy/widgets/voice_privacy_screen.dart';
 import '../../ui/profile/widgets/memory_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
 import '../../ui/scenarios/widgets/scenarios_screen.dart';
@@ -80,6 +81,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: Routes.profile, builder: (_, _) => const ProfileScreen()),
       GoRoute(path: Routes.memory, builder: (_, _) => const MemoryScreen()),
+      GoRoute(
+        path: Routes.voicePrivacy,
+        builder: (_, _) => const VoicePrivacyScreen(),
+      ),
       GoRoute(
         path: Routes.vocabulary,
         builder: (_, _) => const VocabularyScreen(),

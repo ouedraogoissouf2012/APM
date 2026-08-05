@@ -162,6 +162,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push(Routes.review),
               ),
+              ListTile(
+                key: const Key('voice_privacy_link'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: const Text('Ma voix & confidentialité'),
+                subtitle: const Text('Consentements, export, effacement'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(Routes.voicePrivacy),
+              ),
             ],
           );
         },

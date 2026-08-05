@@ -17,6 +17,7 @@ abstract final class Routes {
   static const vocabulary = '/vocabulary';
   static const review = '/review';
   static const newMission = '/missions/new';
+  static const voicePrivacy = '/privacy/voice';
   static const minimalPairs = '/minimal-pairs';
 
   /// Galerie du design system — enregistrée uniquement en debug.
