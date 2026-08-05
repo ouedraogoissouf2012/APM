@@ -24,6 +24,12 @@ class CefrPoint {
   final int sessionId;
   final DateTime startedAt;
   final String level;
+
+  factory CefrPoint.fromJson(Map<String, dynamic> json) => CefrPoint(
+    sessionId: json['session_id'] as int,
+    startedAt: DateTime.parse(json['started_at'] as String),
+    level: json['level'] as String,
+  );
 }
 
 class RecurringError {
@@ -36,4 +42,10 @@ class RecurringError {
   final String errorType;
   final int count;
   final String latestCorrection;
+
+  factory RecurringError.fromJson(Map<String, dynamic> json) => RecurringError(
+    errorType: json['error_type'] as String,
+    count: json['count'] as int,
+    latestCorrection: (json['latest_correction'] as String?) ?? '',
+  );
 }
