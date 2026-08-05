@@ -41,6 +41,35 @@ async def test_analyze_returns_errors_and_cefr():
 
 
 @pytest.mark.asyncio
+async def test_analyze_captures_vocabulary_words_with_learner_sentence():
+    reply = (
+        '{"cefr_estimate": "B1", "summary": "Nice.", "errors": [],'
+        ' "words": ['
+        '  {"word": "deployment", "phonetic": "dɪˈplɔɪmənt", "translation": "déploiement",'
+        '   "example": "I handle deployments at work."},'
+        '  {"word": "handle", "phonetic": "ˈhændl", "translation": "gérer",'
+        '   "example": "I handle deployments at work."}'
+        " ]}"
+    )
+    analyzer = DebriefAnalyzer(_CannedLlm(reply))
+    result = await analyzer.analyze(_TURNS, native_language="fr")
+
+    assert len(result.words) == 2
+    assert result.words[0].word == "deployment"
+    assert result.words[0].translation == "déploiement"
+    assert result.words[0].example == "I handle deployments at work."
+
+
+@pytest.mark.asyncio
+async def test_analyze_tolerates_missing_words_field():
+    # Older/edge replies without a "words" key must not break — empty list.
+    reply = '{"cefr_estimate": "A2", "summary": "ok", "errors": []}'
+    analyzer = DebriefAnalyzer(_CannedLlm(reply))
+    result = await analyzer.analyze(_TURNS, native_language="fr")
+    assert result.words == []
+
+
+@pytest.mark.asyncio
 async def test_analyze_captures_explanation_examples_and_alternatives():
     reply = (
         '{"cefr_estimate": "A2", "summary": "Good effort!",'

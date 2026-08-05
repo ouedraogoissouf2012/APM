@@ -98,6 +98,23 @@ class ApiClient {
     }
   }
 
+  Future<Map<String, dynamic>> patchJson(
+    String path, {
+    Map<String, dynamic>? body,
+    String? bearer,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        path,
+        data: body,
+        options: _options(bearer),
+      );
+      return response.data ?? <String, dynamic>{};
+    } on DioException catch (e) {
+      throw _toApiException(e);
+    }
+  }
+
   /// POSTs and streams the response body as decoded text lines — used for the
   /// Server-Sent Events turn endpoint. The line stream is fed to [parseSse].
   Stream<String> postLineStream(

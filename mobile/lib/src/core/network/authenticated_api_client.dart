@@ -53,6 +53,12 @@ class AuthenticatedApiClient {
   }) =>
       _withRefresh((bearer) => _api.putJson(path, body: body, bearer: bearer));
 
+  Future<Map<String, dynamic>> patchJson(
+    String path, {
+    Map<String, dynamic>? body,
+  }) =>
+      _withRefresh((bearer) => _api.patchJson(path, body: body, bearer: bearer));
+
   Future<Map<String, dynamic>> _withRefresh(
     Future<Map<String, dynamic>> Function(String? bearer) request,
   ) async {

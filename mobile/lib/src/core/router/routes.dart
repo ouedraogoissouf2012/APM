@@ -14,6 +14,7 @@ abstract final class Routes {
   static const memory = '/memory';
   static const scenarios = '/scenarios';
   static const echo = '/echo';
+  static const vocabulary = '/vocabulary';
   static const minimalPairs = '/minimal-pairs';
 
   /// Galerie du design system — enregistrée uniquement en debug.

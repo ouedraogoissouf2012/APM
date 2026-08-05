@@ -2,7 +2,12 @@ from app.features.conversation.messages import ROLE_USER, Message
 from app.features.conversation.providers.interfaces import (
     TextCompletionProvider as LlmProvider,
 )
-from app.features.debrief.domain import VALID_CEFR, DebriefError, DebriefResult
+from app.features.debrief.domain import (
+    VALID_CEFR,
+    DebriefError,
+    DebriefResult,
+    VocabularyWord,
+)
 from app.features.debrief.error_taxonomy import normalize_error_type
 from app.features.debrief.parsing import parse_debrief_json
 from app.features.profile.correction_style import style_for_intensity
@@ -24,8 +29,14 @@ def _build_system_prompt(native_language: str, max_errors: int, directive: str) 
         '"alternatives": ["<1-2 other natural ways to say the corrected phrase>"], '
         '"error_type": "<grammar|verb_tense|verb_form|subject_verb_agreement|'
         "word_order|article|preposition|pronoun|plural|spelling|punctuation|"
-        'capitalization|vocabulary|word_choice|fluency|other>"}]}. '
+        'capitalization|vocabulary|word_choice|fluency|other>"}], '
+        '"words": [{"word": "<a salient word or short expression the learner used '
+        'or should learn>", "phonetic": "<IPA or simple phonetic>", '
+        '"translation": "<translation in the target native language>", '
+        '"example": "<the learner\'s ACTUAL sentence where it appeared, verbatim>"}]}. '
         f"Report at most {max_errors} of the most useful errors. "
+        "Also pick 1-3 salient vocabulary words worth remembering; each word's "
+        "'example' MUST be copied verbatim from the learner's text. "
         "Each 'original' MUST be copied verbatim from the learner's text."
     )
 
@@ -96,6 +107,25 @@ class DebriefAnalyzer:
                     )
                 )
 
+        words: list[VocabularyWord] = []
+        for item in data.get("words", [])[:3]:
+            if not isinstance(item, dict):
+                continue
+            word = str(item.get("word", "")).strip()
+            if not word:
+                continue
+            words.append(
+                VocabularyWord(
+                    word=word,
+                    phonetic=str(item.get("phonetic", "")).strip(),
+                    translation=str(item.get("translation", "")).strip(),
+                    example=str(item.get("example", "")).strip(),
+                )
+            )
+
         return DebriefResult(
-            cefr_estimate=cefr, summary=str(data.get("summary", "")), errors=errors
+            cefr_estimate=cefr,
+            summary=str(data.get("summary", "")),
+            errors=errors,
+            words=words,
         )

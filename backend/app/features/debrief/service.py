@@ -1,3 +1,6 @@
+import logging
+from typing import TYPE_CHECKING
+
 from app.domain.exceptions import NotFoundError
 from app.features.auth.models import User
 from app.features.auth.repository import UserRepository
@@ -10,6 +13,9 @@ from app.features.debrief.repository import DebriefRepository
 from app.features.profile.repository import ProfileRepository
 from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
+
+if TYPE_CHECKING:
+    from app.features.vocabulary.service import VocabularyService
 
 # How many recurring error types persist into the learner's memory summary.
 _MAX_RECURRING_FOCUS = 3
@@ -24,6 +30,7 @@ class DebriefService:
         analyzer: DebriefAnalyzer,
         profiles: ProfileRepository | None = None,
         users: UserRepository | None = None,
+        vocabulary: "VocabularyService | None" = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
@@ -31,6 +38,9 @@ class DebriefService:
         self._analyzer = analyzer
         self._profiles = profiles
         self._users = users
+        # Captures the debrief's salient words into the learner's notebook (#116).
+        # Injected (DIP) and optional so the debrief works without it.
+        self._vocabulary = vocabulary
 
     async def generate(self, session_id: int, user: User) -> Debrief:
         await get_owned_session(self._sessions, session_id, user.id)
@@ -83,6 +93,15 @@ class DebriefService:
         if self._users is not None:
             await self._users.save(user)
         await self._update_memory(user.id, result.summary, errors)
+        # Capture the salient words into the notebook (#116). Best-effort: a
+        # vocabulary failure must never break the debrief that just succeeded.
+        if self._vocabulary is not None and result.words:
+            try:
+                await self._vocabulary.capture(user.id, session_id, result.words)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Vocabulary capture failed for session %s", session_id, exc_info=True
+                )
         return debrief
 
     async def get(self, session_id: int, user: User) -> Debrief:
