@@ -18,6 +18,11 @@ abstract final class Routes {
   static const review = '/review';
   static const newMission = '/missions/new';
   static const voicePrivacy = '/privacy/voice';
+
+  /// Pattern registered in the router; use [proof] to build a concrete path.
+  static const proofPattern = '/proof/:skill';
+
+  static String proof(String skill) => '/proof/$skill';
   static const minimalPairs = '/minimal-pairs';
 
   /// Galerie du design system — enregistrée uniquement en debug.
