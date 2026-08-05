@@ -26,6 +26,7 @@ from app.features.shadowing.router import router as shadowing_router
 from app.features.streaks.router import router as streaks_router
 from app.features.vocabulary.router import router as vocabulary_router
 from app.features.voice_consent.router import router as voice_consent_router
+from app.features.voice_data.router import router as voice_data_router
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -114,6 +115,7 @@ app.include_router(minimal_pairs_router)
 app.include_router(debrief_router)
 app.include_router(vocabulary_router)
 app.include_router(voice_consent_router)
+app.include_router(voice_data_router)
 
 
 @app.get("/health", tags=["meta"])
