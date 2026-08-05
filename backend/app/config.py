@@ -120,6 +120,13 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_stt_model: str = "whisper-large-v3-turbo"
+    # Optional Whisper prompt: primes the recognizer with the expected context
+    # (a French speaker practising conversational English). It biases decoding
+    # toward plausible everyday words without forcing anything — configurable so
+    # a scenario can pass domain vocabulary later. Empty disables it.
+    groq_stt_prompt: str = (
+        "A French speaker is practising everyday spoken English conversation."
+    )
     # Groq's LLM for the conversation when VOICE_ENGINE=groq. Llama 3.3 70B keeps
     # DeepSeek-level quality with a much lower time-to-first-token (~0.4 s).
     groq_llm_model: str = "llama-3.3-70b-versatile"

@@ -47,6 +47,7 @@ def get_stt_provider() -> SttProvider:
         api_key=settings.groq_api_key,
         base_url=settings.groq_base_url,
         model=settings.groq_stt_model,
+        prompt=settings.groq_stt_prompt,
     )
     if provider is None:
         raise NotFoundError("Server-side transcription is not enabled")
