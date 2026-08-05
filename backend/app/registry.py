@@ -4,6 +4,7 @@ from app.database import Base
 from app.features.auth.models import RefreshToken, User
 from app.features.conversation.models import Transcript
 from app.features.debrief.models import Debrief
+from app.features.idempotency.models import IdempotencyKey
 from app.features.missions.models import Mission
 from app.features.profile.models import LearnerProfile
 from app.features.review.models import ReviewItem
@@ -23,4 +24,5 @@ __all__ = [
     "VocabularyEntry",
     "ReviewItem",
     "VoiceConsent",
+    "IdempotencyKey",
 ]
