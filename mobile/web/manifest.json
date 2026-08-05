@@ -1,11 +1,11 @@
 {
-    "name": "apm",
-    "short_name": "apm",
+    "name": "Anglais Pour Moi",
+    "short_name": "APM",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0D0F15",
+    "theme_color": "#0D0F15",
+    "description": "Apprends l'anglais oral en conversant avec une IA qui te corrige au fil de la parole.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
