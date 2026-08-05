@@ -25,6 +25,7 @@ from app.features.review.router import router as review_router
 from app.features.sessions.router import router as sessions_router
 from app.features.shadowing.router import router as shadowing_router
 from app.features.streaks.router import router as streaks_router
+from app.features.transfer.router import router as transfer_router
 from app.features.vocabulary.router import router as vocabulary_router
 from app.features.voice_consent.router import router as voice_consent_router
 from app.features.voice_data.router import router as voice_data_router
@@ -107,6 +108,7 @@ app.include_router(progress_router)
 app.include_router(proof_router)
 app.include_router(review_router)
 app.include_router(streaks_router)
+app.include_router(transfer_router)
 app.include_router(onboarding_router)
 app.include_router(sessions_router)
 app.include_router(missions_router)
