@@ -16,6 +16,7 @@ abstract final class Routes {
   static const echo = '/echo';
   static const vocabulary = '/vocabulary';
   static const review = '/review';
+  static const newMission = '/missions/new';
   static const minimalPairs = '/minimal-pairs';
 
   /// Galerie du design system — enregistrée uniquement en debug.
@@ -32,4 +33,8 @@ abstract final class Routes {
       : '$conversation?mode=$mode&scenario=$scenarioId';
 
   static String get conversationFree => conversationWith(mode: kSessionModeFree);
+
+  /// Launch the conversation in mission mode, driven by a compiled mission.
+  static String conversationMission(int missionId) =>
+      '$conversation?mode=$kSessionModeMission&mission=$missionId';
 }

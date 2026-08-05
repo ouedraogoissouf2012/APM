@@ -16,6 +16,17 @@ class ScenariosScreen extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         children: [
           Card(
+            key: const Key('new_mission'),
+            child: ListTile(
+              leading: const Text('🎯', style: TextStyle(fontSize: 28)),
+              title: const Text('Mission sur mesure'),
+              subtitle: const Text(
+                'Répète ton vrai entretien, ta présentation, ton appel.',
+              ),
+              onTap: () => context.go(Routes.newMission),
+            ),
+          ),
+          Card(
             key: const Key('free_conversation'),
             child: ListTile(
               leading: const Text('🗣️', style: TextStyle(fontSize: 28)),

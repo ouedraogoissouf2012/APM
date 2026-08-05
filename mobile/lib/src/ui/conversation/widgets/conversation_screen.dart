@@ -38,11 +38,13 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final params = GoRouterState.of(context).uri.queryParameters;
+      final missionId = int.tryParse(params['mission'] ?? '');
       ref
           .read(conversationViewModelProvider.notifier)
           .start(
             mode: params['mode'] ?? kSessionModeFree,
             scenarioId: params['scenario'],
+            missionId: missionId,
           );
     });
   }
