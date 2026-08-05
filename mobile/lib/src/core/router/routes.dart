@@ -15,6 +15,7 @@ abstract final class Routes {
   static const scenarios = '/scenarios';
   static const echo = '/echo';
   static const vocabulary = '/vocabulary';
+  static const review = '/review';
   static const minimalPairs = '/minimal-pairs';
 
   /// Galerie du design system — enregistrée uniquement en debug.

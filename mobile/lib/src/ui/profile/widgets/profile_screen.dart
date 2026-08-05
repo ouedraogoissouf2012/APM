@@ -153,6 +153,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push(Routes.vocabulary),
               ),
+              ListTile(
+                key: const Key('review_link'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.repeat),
+                title: const Text('À réviser'),
+                subtitle: const Text('Tes fautes récurrentes, au bon moment'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(Routes.review),
+              ),
             ],
           );
         },
