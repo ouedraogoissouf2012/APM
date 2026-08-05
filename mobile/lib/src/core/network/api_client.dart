@@ -44,12 +44,13 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
     String? bearer,
+    Map<String, String>? headers,
   }) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         path,
         data: body,
-        options: _options(bearer),
+        options: _options(bearer, headers),
       );
       return response.data ?? <String, dynamic>{};
     } on DioException catch (e) {
@@ -151,8 +152,11 @@ class ApiClient {
     yield* byteStream.transform(utf8.decoder).transform(const LineSplitter());
   }
 
-  Options _options(String? bearer) => Options(
-    headers: bearer == null ? null : {'Authorization': 'Bearer $bearer'},
+  Options _options(String? bearer, [Map<String, String>? extra]) => Options(
+    headers: {
+      if (bearer != null) 'Authorization': 'Bearer $bearer',
+      ...?extra,
+    },
   );
 
   ApiException _toApiException(DioException e) {

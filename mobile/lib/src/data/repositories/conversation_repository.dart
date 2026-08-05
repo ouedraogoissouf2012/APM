@@ -91,10 +91,19 @@ class ConversationRepository {
     }
   }
 
-  Future<String> sendTurn(int sessionId, String text) async {
+  /// Non-streaming turn. [idempotencyKey] makes an offline replay safe: the same
+  /// key returns the same reply without duplicating the turn or the quota (#127).
+  Future<String> sendTurn(
+    int sessionId,
+    String text, {
+    String? idempotencyKey,
+  }) async {
     final json = await _api.postJson(
       '/sessions/$sessionId/turn',
       body: {'text': text},
+      headers: idempotencyKey == null
+          ? null
+          : {'Idempotency-Key': idempotencyKey},
     );
     return json['reply'] as String;
   }
