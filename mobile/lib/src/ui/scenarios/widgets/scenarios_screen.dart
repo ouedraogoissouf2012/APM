@@ -46,6 +46,12 @@ class ScenariosScreen extends StatelessWidget {
                 ),
                 title: Text(scenario.title),
                 subtitle: Text(scenario.description),
+                trailing: IconButton(
+                  key: Key('proof_${scenario.id}'),
+                  icon: const Icon(Icons.timeline),
+                  tooltip: 'Ma preuve',
+                  onPressed: () => context.push(Routes.proof(scenario.id)),
+                ),
                 onTap: () => context.go(
                   Routes.conversationWith(
                     mode: kSessionModeScenario,
