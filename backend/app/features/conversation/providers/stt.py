@@ -21,11 +21,23 @@ class GroqSttProvider:
     learner is practising English (imperfectly), so we must not let Whisper
     auto-detect and transcribe their French."""
 
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
+    def __init__(self, api_key: str, base_url: str, model: str, prompt: str = "") -> None:
         from openai import AsyncOpenAI
 
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = model
+        # Context prompt biasing decoding toward plausible everyday words; empty
+        # to disable. Passed to every request so behaviour is consistent.
+        self._prompt = prompt
+
+    def _extra(self) -> dict[str, Any]:
+        # temperature=0 makes transcription deterministic — no sampling that can
+        # invent an unrelated word on an unclear non-native accent. The prompt is
+        # only sent when configured (Whisper treats an empty prompt as none).
+        extra: dict[str, Any] = {"temperature": 0}
+        if self._prompt:
+            extra["prompt"] = self._prompt
+        return extra
 
     async def transcribe(self, audio: bytes) -> str:
         try:
@@ -34,6 +46,7 @@ class GroqSttProvider:
                 file=("speech.wav", audio),
                 language="en",
                 response_format="json",
+                **self._extra(),
             )
         except Exception as exc:
             raise LlmProviderError("Transcription failed") from exc
@@ -50,6 +63,7 @@ class GroqSttProvider:
                 language="en",
                 response_format="verbose_json",
                 timestamp_granularities=["word"],
+                **self._extra(),
             )
         except Exception as exc:
             raise LlmProviderError("Transcription failed") from exc
@@ -75,13 +89,15 @@ def _prob(word: dict[str, Any]) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
-def build_stt_provider(engine: str, api_key: str, base_url: str, model: str) -> Any | None:
+def build_stt_provider(
+    engine: str, api_key: str, base_url: str, model: str, prompt: str = ""
+) -> Any | None:
     """The server-side STT for the configured engine, or None for "device"
     (the client uses on-device recognition and never calls /transcribe)."""
     if engine == "groq":
         if not api_key.strip():
             raise LlmProviderError("GROQ_API_KEY is required when STT_ENGINE=groq")
-        return GroqSttProvider(api_key=api_key, base_url=base_url, model=model)
+        return GroqSttProvider(api_key=api_key, base_url=base_url, model=model, prompt=prompt)
     return None
 
 
