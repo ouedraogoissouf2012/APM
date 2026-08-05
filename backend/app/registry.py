@@ -7,6 +7,7 @@ from app.features.debrief.models import Debrief
 from app.features.missions.models import Mission
 from app.features.profile.models import LearnerProfile
 from app.features.sessions.models import ConversationSession
+from app.features.vocabulary.models import VocabularyEntry
 
 __all__ = [
     "Base",
@@ -17,4 +18,5 @@ __all__ = [
     "Transcript",
     "Debrief",
     "Mission",
+    "VocabularyEntry",
 ]

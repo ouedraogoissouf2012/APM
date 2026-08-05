@@ -21,6 +21,7 @@ from app.features.onboarding.router import router as onboarding_router
 from app.features.profile.router import router as profile_router
 from app.features.sessions.router import router as sessions_router
 from app.features.shadowing.router import router as shadowing_router
+from app.features.vocabulary.router import router as vocabulary_router
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -104,6 +105,7 @@ app.include_router(stt_router)
 app.include_router(shadowing_router)
 app.include_router(minimal_pairs_router)
 app.include_router(debrief_router)
+app.include_router(vocabulary_router)
 
 
 @app.get("/health", tags=["meta"])

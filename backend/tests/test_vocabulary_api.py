@@ -1,0 +1,102 @@
+"""Integration tests for the vocabulary notebook API.
+
+The debrief (fake engine) surfaces words; here we drive the notebook endpoints
+directly by capturing through the service on a shared db session, then asserting
+the HTTP list/patch behaviour.
+"""
+
+import pytest
+
+from app.features.debrief.domain import VocabularyWord
+from app.features.vocabulary.repository import SqlAlchemyVocabularyRepository
+from app.features.vocabulary.service import VocabularyService
+
+
+async def _register(client):
+    reg = await client.post("/auth/register", json={"email": "v@b.com", "password": "s3cret!pass"})
+    token = reg.json()["access_token"]
+    me = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    return {"Authorization": f"Bearer {token}"}, me.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_list_empty_notebook(client):
+    headers, _ = await _register(client)
+    resp = await client.get("/vocabulary", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_and_mark_flow(client, db_session):
+    headers, user_id = await _register(client)
+
+    # Seed a couple of words as the debrief would.
+    service = VocabularyService(SqlAlchemyVocabularyRepository(db_session))
+    # session_id=None keeps the test free of a real session row; the FK path
+    # (SET NULL on a real session) is exercised by the model/migration, not here.
+    await service.capture(
+        user_id,
+        session_id=None,
+        words=[
+            VocabularyWord(
+                word="deployment",
+                phonetic="dɪˈplɔɪmənt",
+                translation="déploiement",
+                example="I handle deployments at work.",
+            )
+        ],
+    )
+
+    listed = await client.get("/vocabulary", headers=headers)
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert len(body) == 1
+    entry = body[0]
+    assert entry["word"] == "deployment"
+    assert entry["example"] == "I handle deployments at work."
+    assert entry["status"] == "review"
+
+    # Mark it known.
+    marked = await client.patch(
+        f"/vocabulary/{entry['id']}", headers=headers, json={"status": "known"}
+    )
+    assert marked.status_code == 200, marked.text
+    assert marked.json()["status"] == "known"
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_unknown_status(client, db_session):
+    headers, user_id = await _register(client)
+    service = VocabularyService(SqlAlchemyVocabularyRepository(db_session))
+    await service.capture(user_id, None, [VocabularyWord(word="handle")])
+    entry_id = (await client.get("/vocabulary", headers=headers)).json()[0]["id"]
+
+    resp = await client.patch(
+        f"/vocabulary/{entry_id}", headers=headers, json={"status": "mastered"}
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_cannot_mark_another_users_entry(client, db_session):
+    headers_a, user_a = await _register(client)
+    service = VocabularyService(SqlAlchemyVocabularyRepository(db_session))
+    await service.capture(user_a, None, [VocabularyWord(word="handle")])
+    entry_id = (await client.get("/vocabulary", headers=headers_a)).json()[0]["id"]
+
+    # A different user must not be able to touch it.
+    reg_b = await client.post(
+        "/auth/register", json={"email": "b@b.com", "password": "s3cret!pass"}
+    )
+    headers_b = {"Authorization": f"Bearer {reg_b.json()['access_token']}"}
+    resp = await client.patch(
+        f"/vocabulary/{entry_id}", headers=headers_b, json={"status": "known"}
+    )
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_list_requires_auth(client):
+    resp = await client.get("/vocabulary")
+    assert resp.status_code == 401, resp.text

@@ -15,8 +15,20 @@ class DebriefError:
     alternatives: list[str] = field(default_factory=list)  # other ways to say it
 
 
+@dataclass(frozen=True)
+class VocabularyWord:
+    """A salient word/expression worth remembering, tied to the learner's own
+    sentence so the flashcard shows real context ("...— you, last Tuesday")."""
+
+    word: str  # the word or short expression, as it should be learned
+    phonetic: str = ""  # IPA or simple phonetic hint
+    translation: str = ""  # native-language translation (French)
+    example: str = ""  # the learner's actual sentence it appeared in
+
+
 @dataclass
 class DebriefResult:
     cefr_estimate: str
     summary: str
     errors: list[DebriefError] = field(default_factory=list)
+    words: list[VocabularyWord] = field(default_factory=list)
