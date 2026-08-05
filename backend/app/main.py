@@ -19,6 +19,7 @@ from app.features.minimal_pairs.router import router as minimal_pairs_router
 from app.features.missions.router import router as missions_router
 from app.features.onboarding.router import router as onboarding_router
 from app.features.profile.router import router as profile_router
+from app.features.progress.router import router as progress_router
 from app.features.sessions.router import router as sessions_router
 from app.features.shadowing.router import router as shadowing_router
 from app.features.vocabulary.router import router as vocabulary_router
@@ -97,6 +98,7 @@ register_exception_handlers(app)
 app.include_router(auth_router)
 app.include_router(billing_router)
 app.include_router(profile_router)
+app.include_router(progress_router)
 app.include_router(onboarding_router)
 app.include_router(sessions_router)
 app.include_router(missions_router)
