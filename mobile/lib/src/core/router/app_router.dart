@@ -12,6 +12,7 @@ import '../../ui/history/widgets/session_history_screen.dart';
 import '../../ui/minimal_pairs/widgets/minimal_pairs_screen.dart';
 import '../../ui/home/widgets/home_screen.dart';
 import '../../ui/onboarding/widgets/onboarding_screen.dart';
+import '../../ui/onboarding/widgets/placement_screen.dart';
 import '../../ui/profile/widgets/memory_screen.dart';
 import '../../ui/profile/widgets/profile_screen.dart';
 import '../../ui/scenarios/widgets/scenarios_screen.dart';
@@ -39,7 +40,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // La galerie du design system est hors parcours auth (debug only).
       if (kDebugMode && state.matchedLocation == Routes.devGallery) return null;
       if (!signedIn && !atPublicEntry) return Routes.onboarding;
-      if (signedIn && atPublicEntry) return Routes.home;
+      if (signedIn && atPublicEntry) {
+        // A just-registered learner goes through the spoken placement first
+        // (skippable); a returning learner from login/onboarding goes home.
+        return state.matchedLocation == Routes.register
+            ? Routes.placement
+            : Routes.home;
+      }
       return null;
     },
     routes: [
@@ -50,6 +57,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: Routes.login, builder: (_, _) => const LoginScreen()),
       GoRoute(path: Routes.register, builder: (_, _) => const RegisterScreen()),
       GoRoute(path: Routes.home, builder: (_, _) => const HomeScreen()),
+      GoRoute(
+        path: Routes.placement,
+        builder: (_, _) => const PlacementScreen(),
+      ),
       GoRoute(
         path: Routes.history,
         builder: (_, _) => const SessionHistoryScreen(),
