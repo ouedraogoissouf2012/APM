@@ -144,6 +144,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push(Routes.memory),
               ),
+              ListTile(
+                key: const Key('vocabulary_link'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.menu_book_outlined),
+                title: const Text('Mon carnet'),
+                subtitle: const Text('Les mots vus en session, à réviser'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(Routes.vocabulary),
+              ),
             ],
           );
         },
