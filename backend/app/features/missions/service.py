@@ -18,8 +18,12 @@ class MissionService:
         self._missions = missions
         self._compiler = compiler
 
-    async def create(self, user: User, source_type: SourceType, content: str) -> Mission:
-        brief = await self._compiler.compile(source_type=source_type, content=content)
+    async def create(
+        self, user: User, source_type: SourceType, content: str, *, directive: str = ""
+    ) -> Mission:
+        brief = await self._compiler.compile(
+            source_type=source_type, content=content, directive=directive
+        )
         return await self._missions.add(
             user_id=user.id,
             source_type=source_type,

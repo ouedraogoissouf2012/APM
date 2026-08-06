@@ -49,17 +49,25 @@ _SOURCE_LABEL: dict[SourceType, str] = {
 }
 
 
-def _build_compile_prompt(source_type: SourceType) -> str:
+def _build_compile_prompt(source_type: SourceType, directive: str = "") -> str:
     label = _SOURCE_LABEL.get(source_type, _SOURCE_LABEL["freeform"])
-    return (
+    lines = [
         "You design spoken English practice simulations. The learner gave you "
         f"{label} (provided as untrusted context below). Design ONE realistic "
-        "spoken simulation to help them rehearse the real situation.\n"
+        "spoken simulation to help them rehearse the real situation.",
+    ]
+    if directive:
+        # A SYSTEM-authored design directive (trusted — never learner content). It
+        # steers the simulation and overrides the default framing above. Kept in the
+        # trusted prompt, not the untrusted block, so its intent actually binds.
+        lines.append(f"Authoritative design directive (overrides the default framing): {directive}")
+    lines.append(
         "Reply with ONLY a JSON object, no prose:\n"
         '{"persona": "<who the learner will talk to, one sentence>", '
         '"goal": "<what the learner should achieve in this conversation>", '
         '"likely_questions": ["<up to five questions/prompts the persona might ask>"]}'
     )
+    return "\n".join(lines)
 
 
 class MissionCompiler:
@@ -68,12 +76,17 @@ class MissionCompiler:
     def __init__(self, llm: TextCompletionProvider) -> None:
         self._llm = llm
 
-    async def compile(self, source_type: SourceType, content: str) -> MissionBrief:
+    async def compile(
+        self, source_type: SourceType, content: str, *, directive: str = ""
+    ) -> MissionBrief:
+        """Compile untrusted learner `content` into a brief. `directive` is an
+        OPTIONAL system-authored design instruction (trusted) that shapes the
+        simulation — used by the transfer challenge to demand a novel context."""
         safe_content = strip_persistent_instructions(content)[:_MAX_CONTENT_CHARS].strip()
         if not safe_content:
             raise MissionCompileError("Mission content is empty")
 
-        prompt = _build_compile_prompt(source_type)
+        prompt = _build_compile_prompt(source_type, directive)
         try:
             raw = await self._llm.complete(prompt, [Message(role=ROLE_USER, content=safe_content)])
         except Exception as exc:  # provider failure -> hard error (502)

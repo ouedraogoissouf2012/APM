@@ -20,7 +20,14 @@ class ReviewRepository(Protocol):
         status: str,
         next_review_at: datetime | None,
         latest_correction: str,
-    ) -> None: ...
+    ) -> None:
+        """Stage one item's new SRS state WITHOUT committing. The caller commits
+        once per session so a whole session's schedule advances atomically."""
+        ...
+
+    async def commit(self) -> None: ...
+
+    async def rollback(self) -> None: ...
 
     async def list_due(self, user_id: int, now: datetime) -> list[ReviewItem]: ...
 
@@ -70,7 +77,14 @@ class SqlAlchemyReviewRepository:
             existing.status = status
             existing.next_review_at = next_review_at
             existing.latest_correction = latest_correction
+        # No commit here: the service stages every item then commits once, so a
+        # failure mid-session can't leave the schedule half-advanced.
+
+    async def commit(self) -> None:
         await self._session.commit()
+
+    async def rollback(self) -> None:
+        await self._session.rollback()
 
     async def list_due(self, user_id: int, now: datetime) -> list[ReviewItem]:
         # Items to review now: not mastered, and either due already (next_review_at

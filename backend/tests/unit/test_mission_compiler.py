@@ -123,3 +123,15 @@ async def test_persona_and_goal_are_length_clipped():
     brief, _ = await _compile(payload)
     assert len(brief.persona) <= 400
     assert len(brief.goal) <= 400
+
+
+@pytest.mark.asyncio
+async def test_a_trusted_directive_reaches_the_compile_prompt_verbatim():
+    # A system-authored directive must ride the TRUSTED prompt (so its intent binds),
+    # not be stripped/wrapped like untrusted learner content.
+    llm = _JsonLlm(_VALID_PAYLOAD)
+    directive = "Design a NEW unfamiliar context; give no hints."
+    await MissionCompiler(llm).compile(
+        source_type="freeform", content="negotiation", directive=directive
+    )
+    assert directive in llm.seen_system_prompt

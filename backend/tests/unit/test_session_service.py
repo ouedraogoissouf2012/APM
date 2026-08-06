@@ -152,16 +152,48 @@ async def test_record_turn_activity_meters_quota_per_turn():
 
 @pytest.mark.asyncio
 async def test_record_turn_activity_marks_the_day_active_for_the_streak():
-    # #118: any turn today counts as an active day, starting/extending the streak.
+    # #118: any turn counts as an active day, starting/extending the streak. `now`
+    # is injected so this asserts a KNOWN date, not the same clock the code reads
+    # (the old `== date.today()` assertion was tautological).
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
 
-    await service.record_turn_activity(started.session.id, user.id)
-
-    from datetime import date
+    await service.record_turn_activity(
+        started.session.id, user.id, now=datetime(2026, 8, 5, 9, 0, tzinfo=UTC)
+    )
 
     assert user.current_streak == 1
-    assert user.last_active_date == date.today()
+    assert user.last_active_date == date(2026, 8, 5)
+
+
+@pytest.mark.asyncio
+async def test_active_day_uses_the_utc_calendar_date_not_server_local():
+    # A turn at 23:30 UTC belongs to that UTC date regardless of where the server
+    # runs — the streak day boundary is UTC, not the server's local `date.today()`.
+    service, user = await _service_with_user()
+    started = await service.start(user.id, "free", None)
+
+    await service.record_turn_activity(
+        started.session.id, user.id, now=datetime(2026, 8, 5, 23, 30, tzinfo=UTC)
+    )
+
+    assert user.last_active_date == date(2026, 8, 5)
+
+
+@pytest.mark.asyncio
+async def test_two_consecutive_utc_days_extend_the_streak():
+    service, user = await _service_with_user()
+    started = await service.start(user.id, "free", None)
+
+    await service.record_turn_activity(
+        started.session.id, user.id, now=datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+    )
+    await service.record_turn_activity(
+        started.session.id, user.id, now=datetime(2026, 8, 6, 10, 0, tzinfo=UTC)
+    )
+
+    assert user.current_streak == 2
+    assert user.last_active_date == date(2026, 8, 6)
 
 
 @pytest.mark.asyncio

@@ -35,26 +35,34 @@ class ReviewService:
         """
         existing = {item.error_type: item for item in await self._repo.list_for_user(user_id)}
 
-        # Types to process: everything already tracked + everything seen now.
+        # Types to process: everything already tracked + everything seen now. Each
+        # upsert only stages its change; a single commit at the end makes the whole
+        # session's schedule advance atomically (rolled back together on failure, so
+        # the shared request session is left clean for the rest of the debrief flow).
         all_types = set(existing) | set(errors_seen)
-        for error_type in all_types:
-            if not error_type.strip():
-                continue
-            item = existing.get(error_type)
-            state = _to_state(item)
-            if error_type in errors_seen:
-                new_state = on_error_seen(state, errors_seen[error_type], now)
-            else:
-                new_state = on_error_absent(state, now)
-            await self._repo.upsert(
-                user_id,
-                error_type,
-                stage=new_state.stage,
-                clean_streak=new_state.clean_streak,
-                status=new_state.status,
-                next_review_at=new_state.next_review_at,
-                latest_correction=new_state.latest_correction,
-            )
+        try:
+            for error_type in all_types:
+                if not error_type.strip():
+                    continue
+                item = existing.get(error_type)
+                state = _to_state(item)
+                if error_type in errors_seen:
+                    new_state = on_error_seen(state, errors_seen[error_type], now)
+                else:
+                    new_state = on_error_absent(state, now)
+                await self._repo.upsert(
+                    user_id,
+                    error_type,
+                    stage=new_state.stage,
+                    clean_streak=new_state.clean_streak,
+                    status=new_state.status,
+                    next_review_at=new_state.next_review_at,
+                    latest_correction=new_state.latest_correction,
+                )
+            await self._repo.commit()
+        except Exception:
+            await self._repo.rollback()
+            raise
 
     async def list_due(self, user_id: int, now: datetime) -> list[ReviewItem]:
         return await self._repo.list_due(user_id, now)

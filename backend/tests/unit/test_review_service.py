@@ -34,6 +34,12 @@ class _InMemoryReviewRepo:
         item.next_review_at = next_review_at
         item.latest_correction = latest_correction
 
+    async def commit(self):
+        pass
+
+    async def rollback(self):
+        pass
+
     async def list_due(self, user_id, now):
         return [
             i
@@ -59,29 +65,48 @@ async def test_first_session_schedules_seen_error_types():
     assert items["verb_tense"].latest_correction == "I went"
 
 
+async def _clean_until_due(service, repo, user_id, times):
+    """Run `times` clean sessions, each at the item's current due date so the
+    spacing interval has elapsed and the streak actually grows."""
+    for _ in range(times):
+        item = (await repo.list_for_user(user_id))[0]
+        await service.record_session(user_id, {}, item.next_review_at)
+
+
 @pytest.mark.asyncio
-async def test_absent_type_grows_clean_streak_toward_mastery():
+async def test_absent_type_masters_only_when_sessions_are_spaced():
     service, repo = _service()
     await service.record_session(1, {"verb_tense": "x"}, NOW)
-    # Three later sessions WITHOUT verb_tense -> mastered.
-    for _ in range(MASTERY_STREAK):
-        await service.record_session(1, {}, NOW)
+    await _clean_until_due(service, repo, 1, MASTERY_STREAK)
     item = (await repo.list_for_user(1))[0]
     assert item.status == STATUS_MASTERED
+
+
+@pytest.mark.asyncio
+async def test_same_day_clean_sessions_do_not_master():
+    # Exit criterion (service level): repeated clean sessions the same day, before
+    # the review date, must NOT master a fault just made.
+    service, repo = _service()
+    await service.record_session(1, {"verb_tense": "x"}, NOW)  # due NOW+1d
+    for _ in range(MASTERY_STREAK + 2):
+        await service.record_session(1, {}, NOW + timedelta(hours=1))
+    item = (await repo.list_for_user(1))[0]
+    assert item.status != STATUS_MASTERED
+    assert item.clean_streak == 0
 
 
 @pytest.mark.asyncio
 async def test_reappearing_type_resets_and_reactivates():
     service, repo = _service()
     await service.record_session(1, {"verb_tense": "x"}, NOW)
-    for _ in range(MASTERY_STREAK):
-        await service.record_session(1, {}, NOW)  # mastered
+    await _clean_until_due(service, repo, 1, MASTERY_STREAK)  # mastered
+    assert (await repo.list_for_user(1))[0].status == STATUS_MASTERED
     # It comes back in a later session.
-    await service.record_session(1, {"verb_tense": "again"}, NOW)
+    await service.record_session(1, {"verb_tense": "again"}, NOW + timedelta(days=30))
     item = (await repo.list_for_user(1))[0]
     assert item.status == STATUS_DUE
     assert item.clean_streak == 0
-    assert item.next_review_at == NOW + timedelta(days=1)
+    assert item.next_review_at == NOW + timedelta(days=30) + timedelta(days=1)
 
 
 @pytest.mark.asyncio

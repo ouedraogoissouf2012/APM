@@ -112,7 +112,7 @@ class SessionService:
         user = await self._users.lock(user_id)
         if user is None:
             raise NotFoundError("User not found")
-        if quota.remaining_minutes(user, self._free_daily, date.today()) <= 0:
+        if quota.remaining_minutes(user, self._free_daily, datetime.now(UTC).date()) <= 0:
             raise QuotaExhaustedError("Daily free quota exhausted")
         active = await self._sessions.get_active_for_user(user_id)
         if active is not None:
@@ -180,27 +180,36 @@ class SessionService:
         await self._sessions.commit()
         return session
 
-    async def record_turn_activity(self, session_id: int, user_id: int) -> None:
+    async def record_turn_activity(
+        self, session_id: int, user_id: int, *, now: datetime | None = None
+    ) -> None:
         """Meter the quota per turn (#119) and mark the session active NOW.
 
         Called on every conversation turn so usage accrues even if the client
         never calls /end — closing the "unlimited free turns" hole. The charge is
         the gap since the last activity, capped so one long pause can't over-bill.
         Best-effort: a metering failure must never break a turn, so callers ignore
-        errors."""
+        errors. `now` is injectable so the day boundary is deterministically testable.
+
+        The active DAY is taken from the UTC calendar date, not the server's local
+        `date.today()` — so the streak no longer depends on where the server is
+        deployed. Tracked debt: a truly per-learner day boundary needs a stored user
+        timezone (a learner far from UTC near midnight can still be off by one day);
+        that field/capture is out of scope here and left as follow-up."""
         session = await self._sessions.get(session_id)
         if session is None or session.user_id != user_id or session.ended_at is not None:
             return
-        now = datetime.now(UTC)
+        now = now or datetime.now(UTC)
+        today = now.date()
         minutes = elapsed_minutes(_as_utc(session.last_activity_at), now, cap=self._turn_meter_cap)
         session.last_activity_at = now
         user = await self._users.get_by_id(user_id)
         if user is not None:
             if minutes > 0:
-                quota.record_usage(user, minutes, date.today())
+                quota.record_usage(user, minutes, today)
             # Habit tracking (#118): any turn today counts as an active day, even
             # a sub-minute one — showing up is the point of a streak.
-            _apply_active_day(user, date.today())
+            _apply_active_day(user, today)
         await self._sessions.commit()
 
     async def _close_session(
@@ -217,7 +226,7 @@ class SessionService:
             0.0, (now - _as_utc(session.started_at)).total_seconds() / 60.0
         )
         if user is not None and residual > 0:
-            quota.record_usage(user, residual, date.today())
+            quota.record_usage(user, residual, now.date())
 
     async def history(self, user_id: int, limit: int | None = None) -> list[SessionHistoryItem]:
         page_size = limit if limit is not None else self._history_page_size
