@@ -102,26 +102,33 @@ app.add_middleware(
 
 register_exception_handlers(app)
 
-app.include_router(auth_router)
-app.include_router(billing_router)
-app.include_router(analytics_router)
-app.include_router(profile_router)
-app.include_router(progress_router)
-app.include_router(proof_router)
-app.include_router(review_router)
-app.include_router(streaks_router)
-app.include_router(transfer_router)
-app.include_router(onboarding_router)
-app.include_router(sessions_router)
-app.include_router(missions_router)
-app.include_router(conversation_router)
-app.include_router(stt_router)
-app.include_router(shadowing_router)
-app.include_router(minimal_pairs_router)
-app.include_router(debrief_router)
-app.include_router(vocabulary_router)
-app.include_router(voice_consent_router)
-app.include_router(voice_data_router)
+# Feature routers, registered from one list so adding a feature is a single edit
+# and the mounted set is obvious at a glance. Order is not significant — FastAPI
+# matches by path, and no two routers share a prefix.
+_ROUTERS = (
+    auth_router,
+    billing_router,
+    analytics_router,
+    profile_router,
+    progress_router,
+    proof_router,
+    review_router,
+    streaks_router,
+    transfer_router,
+    onboarding_router,
+    sessions_router,
+    missions_router,
+    conversation_router,
+    stt_router,
+    shadowing_router,
+    minimal_pairs_router,
+    debrief_router,
+    vocabulary_router,
+    voice_consent_router,
+    voice_data_router,
+)
+for _router in _ROUTERS:
+    app.include_router(_router)
 
 
 @app.get("/health", tags=["meta"])

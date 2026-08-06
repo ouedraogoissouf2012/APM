@@ -203,7 +203,10 @@ class SessionService:
         today = now.date()
         minutes = elapsed_minutes(_as_utc(session.last_activity_at), now, cap=self._turn_meter_cap)
         session.last_activity_at = now
-        user = await self._users.get_by_id(user_id)
+        # Lock the user row (like start()): quota minutes and streak counters are a
+        # read-modify-write, so a plain get would let concurrent turns lost-update
+        # each other (#188). FOR UPDATE serialises them.
+        user = await self._users.lock(user_id)
         if user is not None:
             if minutes > 0:
                 quota.record_usage(user, minutes, today)

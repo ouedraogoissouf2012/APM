@@ -9,13 +9,13 @@ from app.database import get_db
 from app.features.analytics.repository import SqlAlchemyAnalyticsCounter
 from app.features.analytics.service import AnalyticsService
 from app.features.analytics.sinks import SqlAlchemyAnalyticsSink
-from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.factory import build_feature_llm
 from app.features.conversation.providers.interfaces import (
     TextCompletionProvider as LlmProvider,
 )
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
+from app.features.debrief.enrichment import PostDebriefEnrichment
 from app.features.debrief.fake_llm import FakeDebriefLlm
 from app.features.debrief.repository import SqlAlchemyDebriefRepository
 from app.features.debrief.service import DebriefService
@@ -60,8 +60,10 @@ def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
         debriefs=SqlAlchemyDebriefRepository(db),
         analyzer=DebriefAnalyzer(llm, max_errors=settings.debrief_max_errors),
         profiles=SqlAlchemyProfileRepository(db),
-        users=SqlAlchemyUserRepository(db),
-        vocabulary=VocabularyService(SqlAlchemyVocabularyRepository(db)),
-        review=ReviewService(SqlAlchemyReviewRepository(db)),
-        analytics=AnalyticsService(SqlAlchemyAnalyticsSink(db), SqlAlchemyAnalyticsCounter(db)),
+        # Best-effort side-effects, run after the core debrief commit (ADR 0001).
+        enrichment=PostDebriefEnrichment(
+            vocabulary=VocabularyService(SqlAlchemyVocabularyRepository(db)),
+            review=ReviewService(SqlAlchemyReviewRepository(db)),
+            analytics=AnalyticsService(SqlAlchemyAnalyticsSink(db), SqlAlchemyAnalyticsCounter(db)),
+        ),
     )

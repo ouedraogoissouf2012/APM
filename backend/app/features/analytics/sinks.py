@@ -39,4 +39,11 @@ class SqlAlchemyAnalyticsSink:
                 properties=event.properties,
             )
         )
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except Exception:
+            # Roll back so a rejected write (e.g. the activation partial-unique guard
+            # firing on a race) leaves the shared session clean, then re-raise for the
+            # caller's best-effort handler to swallow.
+            await self._session.rollback()
+            raise

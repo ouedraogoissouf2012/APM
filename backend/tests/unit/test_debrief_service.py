@@ -122,7 +122,7 @@ async def test_generate_analyzes_and_persists():
 
 
 @pytest.mark.asyncio
-async def test_generate_updates_learner_memory_when_profile_repository_is_available():
+async def test_generate_stages_the_learner_memory_when_profile_repository_is_available():
     profiles = _FakeProfiles()
     service = DebriefService(
         sessions=_FakeSessions(owner_id=7),
@@ -134,7 +134,8 @@ async def test_generate_updates_learner_memory_when_profile_repository_is_availa
 
     await service.generate(session_id=1, user=_user())
 
-    assert profiles.saved is profiles.profile
+    # Staged on the shared-session profile and persisted by the single core commit
+    # (ADR 0001) — not a separate profiles.save round-trip.
     assert profiles.profile.memory_summary == "ok"
 
 
@@ -218,15 +219,6 @@ async def test_generate_nudges_user_cefr_level_toward_the_estimate():
     assert user.cefr_level == "A2"
 
 
-class _RecordingUsers:
-    def __init__(self) -> None:
-        self.saved = None
-
-    async def save(self, user):
-        self.saved = user
-        return user
-
-
 class _ExplodingDebriefs:
     async def get_by_session(self, session_id):
         return None
@@ -235,42 +227,49 @@ class _ExplodingDebriefs:
         raise RuntimeError("db down")
 
 
-@pytest.mark.asyncio
-async def test_generate_does_not_persist_the_user_when_the_debrief_save_fails():
-    # Atomicity: if the debrief commit fails, the CEFR promotion must not be
-    # committed either — otherwise a client retry double-promotes the level.
-    user = _user()
-    user.cefr_level = "A1"
-    users = _RecordingUsers()
-    service = DebriefService(
-        sessions=_FakeSessions(owner_id=7),
-        transcripts=_FakeTranscripts(turns=[{"role": "user", "content": "i is happy"}]),
-        debriefs=_ExplodingDebriefs(),
-        analyzer=DebriefAnalyzer(_CannedLlm()),
-        users=users,
-    )
+class _RecordingEnrichment:
+    def __init__(self) -> None:
+        self.calls: list = []
 
-    with pytest.raises(RuntimeError):
-        await service.generate(session_id=1, user=user)
-
-    assert users.saved is None  # user repo untouched when the debrief failed
+    async def run(self, user_id, session_id, result, errors):
+        self.calls.append((user_id, session_id, result.cefr_estimate))
 
 
 @pytest.mark.asyncio
-async def test_generate_persists_the_cefr_change_through_the_user_repository():
-    # The nudge must go through the repository, not rely on a side-effect commit.
-    user = _user()
-    user.cefr_level = "A1"
-    users = _RecordingUsers()
+async def test_enrichment_runs_after_a_successful_core_commit():
+    # generate() is pure orchestration: the authoritative core is written, THEN the
+    # best-effort enrichment runs with the session's result (ADR 0001).
+    enrichment = _RecordingEnrichment()
     service = DebriefService(
         sessions=_FakeSessions(owner_id=7),
         transcripts=_FakeTranscripts(turns=[{"role": "user", "content": "i is happy"}]),
         debriefs=_FakeDebriefs(),
         analyzer=DebriefAnalyzer(_CannedLlm()),
-        users=users,
+        enrichment=enrichment,
     )
 
-    await service.generate(session_id=1, user=user)
+    await service.generate(session_id=1, user=_user())
 
-    assert users.saved is user
-    assert users.saved.cefr_level == "A2"
+    assert enrichment.calls == [(7, 1, "B1")]
+
+
+@pytest.mark.asyncio
+async def test_a_failing_core_aborts_without_running_enrichment():
+    # Atomicity (ADR 0001): if the debrief commit fails, generate() aborts — nothing
+    # is committed (the staged CEFR nudge never lands, so a retry can't double-
+    # promote) and the best-effort enrichment never runs on a non-existent debrief.
+    user = _user()
+    user.cefr_level = "A1"
+    enrichment = _RecordingEnrichment()
+    service = DebriefService(
+        sessions=_FakeSessions(owner_id=7),
+        transcripts=_FakeTranscripts(turns=[{"role": "user", "content": "i is happy"}]),
+        debriefs=_ExplodingDebriefs(),
+        analyzer=DebriefAnalyzer(_CannedLlm()),
+        enrichment=enrichment,
+    )
+
+    with pytest.raises(RuntimeError):
+        await service.generate(session_id=1, user=user)
+
+    assert enrichment.calls == []  # enrichment never runs when the core fails
