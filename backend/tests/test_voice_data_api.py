@@ -1,10 +1,21 @@
-"""Integration tests for voice-data export & erasure (#128)."""
+"""Integration tests for voice-data export & erasure (#128, #186)."""
+
+from datetime import date
 
 import pytest
+from sqlalchemy import func, select, update
 
+from app.features.analytics.models import AnalyticsEventRow
+from app.features.auth.models import User
 from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.domain import VocabularyWord
+from app.features.debrief.models import Debrief
+from app.features.idempotency.models import IdempotencyKey
+from app.features.missions.models import Mission
+from app.features.profile.models import LearnerProfile
+from app.features.review.models import ReviewItem
+from app.features.sessions.models import ConversationSession
 from app.features.vocabulary.repository import SqlAlchemyVocabularyRepository
 from app.features.vocabulary.service import VocabularyService
 
@@ -16,7 +27,14 @@ async def _auth(client, email="vd@b.com"):
     return {"Authorization": f"Bearer {token}"}, me.json()["id"]
 
 
-async def _seed_voice_data(client, db_session, headers, user_id):
+async def _seed_voice_data(
+    client, db_session, headers, user_id, *, memory="Prefers sports topics.", stats=True
+):
+    """Seed the full voice-derived footprint for a user: a session, a transcript,
+    vocabulary, a debrief, a review item, a compiled mission, a per-session
+    analytics event, the profile memory summary, the cached turn reply (idempotency
+    key), and — when `stats` — the speech-derived user fields. Enough for erasure to
+    have something of every kind to clear."""
     start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
     session_id = start.json()["session_id"]
     await SqlAlchemyTranscriptRepository(db_session).save(
@@ -29,11 +47,64 @@ async def _seed_voice_data(client, db_session, headers, user_id):
     await VocabularyService(SqlAlchemyVocabularyRepository(db_session)).capture(
         user_id, session_id, [VocabularyWord(word="deployment", translation="déploiement")]
     )
+    db_session.add_all(
+        [
+            Debrief(
+                session_id=session_id,
+                cefr_estimate="B1",
+                summary="Good effort on the past tense.",
+                errors=[{"error_type": "tense", "original": "I go", "correction": "I went"}],
+            ),
+            ReviewItem(
+                user_id=user_id,
+                error_type="tense",
+                latest_correction="I went",
+                status="due",
+            ),
+            Mission(
+                user_id=user_id,
+                source_type="text",
+                persona="A job recruiter",
+                goal="Practise an interview",
+                likely_questions=["Tell me about yourself"],
+                system_prompt="You are a recruiter interviewing the learner.",
+            ),
+            AnalyticsEventRow(
+                name="session_completed",
+                user_id=user_id,
+                properties={"session_id": session_id, "cefr": "B1", "error_count": 2},
+            ),
+            IdempotencyKey(user_id=user_id, key=f"turn-{user_id}", response="cached reply"),
+        ]
+    )
+    # merge = upsert by PK, robust whether or not a profile row already exists.
+    if memory is not None:
+        await db_session.merge(LearnerProfile(user_id=user_id, memory_summary=memory))
+    if stats:
+        # Speech-derived user fields nudged away from their onboarding defaults.
+        await db_session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(
+                cefr_level="B1",
+                current_streak=3,
+                longest_streak=5,
+                last_active_date=date(2026, 8, 1),
+            )
+        )
+    await db_session.commit()
     return session_id
 
 
+async def _count(db_session, model, user_id):
+    db_session.expire_all()
+    return await db_session.scalar(
+        select(func.count()).select_from(model).where(model.user_id == user_id)
+    )
+
+
 @pytest.mark.asyncio
-async def test_export_returns_utterances_and_vocabulary(client, db_session):
+async def test_export_returns_every_voice_derived_category(client, db_session):
     headers, user_id = await _auth(client)
     await _seed_voice_data(client, db_session, headers, user_id)
 
@@ -47,23 +118,82 @@ async def test_export_returns_utterances_and_vocabulary(client, db_session):
     assert "I like sports" in texts
     assert "Nice!" not in texts
     assert body["vocabulary"][0]["word"] == "deployment"
+    # The module now honours its promise to export the full footprint (#186).
+    assert body["debriefs"][0]["cefr_estimate"] == "B1"
+    assert body["debriefs"][0]["summary"].startswith("Good effort")
+    assert body["review_items"][0]["error_type"] == "tense"
 
 
 @pytest.mark.asyncio
-async def test_erase_deletes_the_voice_data_and_reports_counts(client, db_session):
+async def test_erase_deletes_every_voice_derived_kind_and_reports_counts(client, db_session):
     headers, user_id = await _auth(client)
     await _seed_voice_data(client, db_session, headers, user_id)
 
     erased = await client.delete("/me/voice-data", headers=headers)
     assert erased.status_code == 200, erased.text
     deleted = erased.json()["deleted"]
-    assert deleted["transcripts"] >= 1
-    assert deleted["vocabulary"] >= 1
+    for kind in (
+        "transcripts",
+        "debriefs",
+        "vocabulary",
+        "review_items",
+        "sessions",
+        "missions",
+        "analytics_events",
+        "idempotency_keys",
+    ):
+        assert deleted[kind] >= 1, f"{kind} not erased: {deleted}"
 
-    # A follow-up export is now empty.
-    again = await client.post("/me/voice-data/export", headers=headers)
-    assert again.json()["utterances"] == []
-    assert again.json()["vocabulary"] == []
+    # A follow-up export is now empty across every category.
+    again = (await client.post("/me/voice-data/export", headers=headers)).json()
+    assert again["utterances"] == []
+    assert again["vocabulary"] == []
+    assert again["debriefs"] == []
+    assert again["review_items"] == []
+
+    # And the rows themselves are gone (not merely hidden by an empty join).
+    assert await _count(db_session, ConversationSession, user_id) == 0
+    assert await _count(db_session, Mission, user_id) == 0
+    assert await _count(db_session, AnalyticsEventRow, user_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_erase_clears_residues_on_kept_rows(client, db_session):
+    """The #186 gap the adversarial sweep widened: erasure must also wipe the
+    voice-derived residues that live on rows we KEEP — the profile memory summary,
+    the cached turn replies, and the speech-derived user fields (CEFR + streaks)."""
+    headers, user_id = await _auth(client)
+    await _seed_voice_data(client, db_session, headers, user_id)
+
+    deleted = (await client.delete("/me/voice-data", headers=headers)).json()["deleted"]
+    assert deleted["memory_summary"] == 1  # there was content, so it counts honestly
+    assert deleted["user_stats"] == 1  # CEFR + streaks were non-default
+    assert deleted["idempotency_keys"] >= 1
+
+    # Read fresh from the DB (identity map may hold stale copies from the seed).
+    db_session.expire_all()
+    memory = await db_session.scalar(
+        select(LearnerProfile.memory_summary).where(LearnerProfile.user_id == user_id)
+    )
+    assert memory == ""  # profile row kept, but the voice-derived memory is gone
+    user = await db_session.get(User, user_id)
+    assert user is not None  # account kept — this is erasure, not deletion
+    assert user.cefr_level == "A1"  # reset to onboarding baseline
+    assert user.current_streak == 0
+    assert user.longest_streak == 0
+    assert user.last_active_date is None
+    assert await _count(db_session, IdempotencyKey, user_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_erase_reports_zero_when_there_was_nothing_derived_to_clear(client, db_session):
+    """Honest counts: a user with an empty memory and default stats reports 0, not 1."""
+    headers, user_id = await _auth(client)
+    await _seed_voice_data(client, db_session, headers, user_id, memory="", stats=False)
+
+    deleted = (await client.delete("/me/voice-data", headers=headers)).json()["deleted"]
+    assert deleted["memory_summary"] == 0
+    assert deleted["user_stats"] == 0
 
 
 @pytest.mark.asyncio
@@ -74,10 +204,19 @@ async def test_erase_only_touches_the_callers_data(client, db_session):
     headers_b, user_b = await _auth(client, email="vd-b@b.com")
     await _seed_voice_data(client, db_session, headers_b, user_b)
 
-    # B erases -> A's data survives.
+    # B erases -> A's data survives, entirely.
     await client.delete("/me/voice-data", headers=headers_b)
     a_export = await client.post("/me/voice-data/export", headers=headers_a)
     assert len(a_export.json()["utterances"]) >= 1
+
+    assert await _count(db_session, ConversationSession, user_a) >= 1
+    assert await _count(db_session, Mission, user_a) >= 1
+    assert await _count(db_session, AnalyticsEventRow, user_a) >= 1
+    assert await _count(db_session, IdempotencyKey, user_a) >= 1
+    db_session.expire_all()
+    a_user = await db_session.get(User, user_a)
+    assert a_user.cefr_level == "B1"  # A's speech-derived level untouched
+    assert a_user.current_streak == 3
 
 
 @pytest.mark.asyncio

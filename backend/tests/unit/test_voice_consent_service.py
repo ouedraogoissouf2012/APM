@@ -14,16 +14,22 @@ class _InMemoryConsentRepo:
     async def get_by_user_id(self, user_id):
         return self._by_user.get(user_id)
 
-    async def create(self, consent):
+    async def get_or_create(self, user_id):
+        existing = self._by_user.get(user_id)
+        if existing is not None:
+            return existing
         self._seq += 1
+        # Server-side defaults only apply on a DB insert; set them here so the
+        # in-memory fake mirrors the protective defaults the real column has.
+        consent = VoiceConsent(
+            user_id=user_id,
+            transcription=True,
+            scoring=False,
+            b2b_share=False,
+            model_training=False,
+        )
         consent.id = self._seq
-        # Model column defaults only apply on DB flush; set them here so the
-        # in-memory fake mirrors the protective defaults.
-        consent.transcription = True if consent.transcription is None else consent.transcription
-        for f in ("scoring", "b2b_share", "model_training"):
-            if getattr(consent, f) is None:
-                setattr(consent, f, False)
-        self._by_user[consent.user_id] = consent
+        self._by_user[user_id] = consent
         return consent
 
     async def save(self, consent):

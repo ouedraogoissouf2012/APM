@@ -33,14 +33,21 @@ async def transcribe(
     """Transcribe one recorded utterance with the server-side STT (Whisper via
     Groq). Used instead of the browser recognizer for far better accuracy on a
     non-native accent. The uploaded audio is processed in memory and discarded —
-    never stored (#128)."""
+    never stored (#128).
+
+    If server-side STT is disabled (STT_ENGINE=device), the get_stt_provider
+    dependency resolves to a 404 before this body runs, so that 404 intentionally
+    precedes the consent 403: when the feature does not exist for this deployment,
+    'not found' is the honest answer regardless of the caller's consent."""
     settings = get_settings()
     client_host = client_ip(request, settings.trust_proxy_headers)
     await limiter.check(f"transcribe:{client_host}:user:{current_user.id}")
 
-    # Voice-consent gate (#128): a learner who revoked transcription consent must
-    # not have their audio uploaded — refuse (403) so the client falls back to
-    # on-device recognition. Checked before reading the body: no upload processed.
+    # Voice-consent gate (#128): a learner who revoked transcription consent gets a
+    # 403 so the client falls back to on-device recognition. Checked before we read
+    # the upload, so the audio is never read, transcribed, or stored. (The client
+    # may still have transmitted the multipart body — Starlette spools it — but the
+    # server discards it unread; it is never persisted.)
     if not await consent.may_transcribe(current_user.id):
         raise HTTPException(status_code=403, detail="Transcription consent has been revoked")
 

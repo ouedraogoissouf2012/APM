@@ -1,11 +1,16 @@
 """Integration tests for voice consent (#128) + the /transcribe gate."""
 
+import asyncio
 import io
 import wave
 
 import pytest
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.features.conversation.dependencies import get_stt_provider
+from app.features.voice_consent.models import VoiceConsent
+from app.features.voice_consent.repository import SqlAlchemyVoiceConsentRepository
 from app.main import app
 
 
@@ -79,6 +84,32 @@ async def test_transcribe_is_gated_by_consent(client):
         assert after.status_code == 403, after.text
     finally:
         app.dependency_overrides.pop(get_stt_provider, None)
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_is_race_safe(client, _engine):
+    """Two concurrent first-touches of a brand-new user's consent must not trip the
+    unique(user_id) constraint. A get-then-create would double-INSERT and 500 one
+    of them; the atomic ON CONFLICT DO NOTHING makes the loser a no-op, and exactly
+    one row ends up present with the protective defaults."""
+    headers = await _auth(client)
+    user_id = (await client.get("/auth/me", headers=headers)).json()["id"]
+
+    maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def touch():
+        async with maker() as session:
+            return await SqlAlchemyVoiceConsentRepository(session).get_or_create(user_id)
+
+    a, b = await asyncio.gather(touch(), touch())
+    assert a.user_id == user_id and b.user_id == user_id
+    assert a.transcription is True  # protective default applied by the DB
+
+    async with maker() as session:
+        count = await session.scalar(
+            select(func.count()).select_from(VoiceConsent).where(VoiceConsent.user_id == user_id)
+        )
+    assert count == 1  # never a duplicate
 
 
 @pytest.mark.asyncio

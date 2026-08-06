@@ -6,6 +6,8 @@ class VoiceDataExportOut(BaseModel):
     raw_audio_retained: bool
     utterances: list[dict]
     vocabulary: list[dict]
+    debriefs: list[dict]
+    review_items: list[dict]
 
 
 class VoiceDataEraseOut(BaseModel):
