@@ -5,7 +5,7 @@ lists what is due. We seed the schedule through the ReviewService on the shared
 db session, then assert the endpoint.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -69,8 +69,14 @@ async def test_mastered_type_is_not_listed(client, db_session):
     service = ReviewService(SqlAlchemyReviewRepository(db_session))
     past = datetime(2026, 8, 1, tzinfo=UTC)
     await service.record_session(user_id, {"verb_tense": "x"}, past)
-    for _ in range(3):  # three clean sessions -> mastered
-        await service.record_session(user_id, {}, past)
+    # Three clean sessions, each AT the next due date so the J+1/J+3/J+7 intervals
+    # actually elapse (same-day sessions would no longer master it).
+    t = past + timedelta(days=1)
+    await service.record_session(user_id, {}, t)  # clean #1 (due) -> J+3
+    t += timedelta(days=3)
+    await service.record_session(user_id, {}, t)  # clean #2 (due) -> J+7
+    t += timedelta(days=7)
+    await service.record_session(user_id, {}, t)  # clean #3 (due) -> mastered
 
     resp = await client.get("/me/review", headers=headers)
     assert resp.json() == []

@@ -31,6 +31,9 @@ async def get_proof(
         latest_started_at=proof.latest_started_at,
         baseline_cefr=proof.baseline_cefr,
         latest_cefr=proof.latest_cefr,
+        baseline_turns=proof.baseline_turns,
+        latest_turns=proof.latest_turns,
         resolved=proof.resolved,
+        improved=proof.improved,
         new_or_worse=proof.new_or_worse,
     )

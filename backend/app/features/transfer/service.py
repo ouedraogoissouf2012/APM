@@ -1,10 +1,15 @@
 """Surprise-transfer challenge (#126).
 
 A skill is only mastered when the learner reuses it, unaided, in a NEW situation.
-This service compiles a novel equivalent task for a skill by reusing the Mission
-Compiler: it feeds it a directive to build a role-play in an unfamiliar context
-exercising the SAME communication skill, and returns the resulting mission so the
-learner attempts it (a normal mission conversation; the debrief evaluates it).
+This service compiles an equivalent task for a skill by reusing the Mission
+Compiler: the skill name is the (untrusted) content, and a SYSTEM-authored design
+directive — passed on the compiler's trusted channel, not smuggled through the
+untrusted content — asks for a role-play in a fresh, unfamiliar everyday context
+exercising the same communication skill.
+
+Honest scope: the challenge builds a NEW everyday context; it cannot promise to
+avoid one SPECIFIC prior scenario, because the learner's past settings are not
+given to it. It tests transfer by being unfamiliar, not by dodging a named origin.
 """
 
 from typing import Protocol
@@ -15,19 +20,21 @@ from app.features.missions.models import Mission
 
 
 class MissionCreator(Protocol):
-    async def create(self, user: User, source_type: SourceType, content: str) -> Mission: ...
+    async def create(
+        self, user: User, source_type: SourceType, content: str, *, directive: str = ""
+    ) -> Mission: ...
 
 
-def _transfer_directive(skill: str) -> str:
-    """The (system-generated) brief handed to the Mission Compiler. Names the
-    skill, demands a genuinely new context, and forbids reusing the setting so
-    the challenge really tests transfer rather than recall."""
+def _transfer_directive() -> str:
+    """The SYSTEM-authored (trusted) design directive handed to the compiler. It
+    overrides the default 'rehearse the real situation' framing and asks for a
+    genuinely new, unfamiliar context so the challenge tests transfer, not recall.
+    The skill it applies to is the (untrusted) content the compiler is given."""
     return (
-        f"Transfer challenge for the skill '{skill}'. Build a realistic spoken "
-        "role-play in a NEW, everyday context the learner has NOT rehearsed, that "
-        f"exercises the SAME communication skill as '{skill}'. Do not reuse the "
-        "original setting, and give no hints — it must test whether the skill "
-        "transfers to an unfamiliar situation."
+        "This is a SURPRISE-TRANSFER challenge. Do NOT rehearse a familiar setting: "
+        "design a spoken role-play set in a NEW, unfamiliar everyday context that "
+        "exercises the SAME communication skill named in the untrusted content. Give "
+        "no hints, so it tests whether that skill transfers to a fresh situation."
     )
 
 
@@ -36,6 +43,9 @@ class TransferService:
         self._missions = missions
 
     async def challenge(self, user: User, skill: str) -> Mission:
+        # The skill is the untrusted content the compiler builds around; the transfer
+        # brief rides the TRUSTED directive channel so its intent binds instead of
+        # being neutralised as untrusted data.
         return await self._missions.create(
-            user, source_type="topic", content=_transfer_directive(skill)
+            user, source_type="freeform", content=skill, directive=_transfer_directive()
         )

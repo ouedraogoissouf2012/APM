@@ -13,9 +13,13 @@ class _StubSource:
         return self._sessions
 
 
-def _s(sid, cefr, errors, day=1):
+def _s(sid, cefr, errors, day=1, turns=10):
     return SessionErrors(
-        session_id=sid, started_at=f"2026-08-0{day}T10:00:00Z", cefr=cefr, error_counts=errors
+        session_id=sid,
+        started_at=f"2026-08-0{day}T10:00:00Z",
+        cefr=cefr,
+        error_counts=errors,
+        turn_count=turns,
     )
 
 
@@ -44,11 +48,28 @@ async def test_reports_resolved_error_types():
 
 
 @pytest.mark.asyncio
-async def test_partial_reduction_counts_as_resolved():
-    baseline = _s(1, "A2", {"verb_tense": 3})
-    latest = _s(2, "A2", {"verb_tense": 1})  # fewer, not zero
+async def test_partial_reduction_is_improved_not_resolved():
+    # 3 -> 1 (same length): the learner STILL makes it, so it is 'improved', never
+    # 'resolved'. Resolved is reserved for a type that is entirely gone.
+    baseline = _s(1, "A2", {"verb_tense": 3}, turns=10)
+    latest = _s(2, "A2", {"verb_tense": 1}, turns=10)  # fewer, not zero
     proof = await ProofService(_StubSource([baseline, latest])).proof(1, "s")
-    assert proof.resolved == ["verb_tense"]
+    assert proof.resolved == []
+    assert proof.improved == ["verb_tense"]
+    assert proof.new_or_worse == []
+
+
+@pytest.mark.asyncio
+async def test_shorter_latest_session_cannot_masquerade_as_progress():
+    # Same raw count (2), but the latest session is a quarter as long: per turn the
+    # rate went UP, so it must read as worse — not resolved, not improved.
+    baseline = _s(1, "A2", {"verb_tense": 2}, turns=20)
+    latest = _s(2, "A2", {"verb_tense": 2}, turns=5)
+    proof = await ProofService(_StubSource([baseline, latest])).proof(1, "s")
+    assert proof.new_or_worse == ["verb_tense"]
+    assert proof.improved == []
+    assert proof.resolved == []
+    assert proof.baseline_turns == 20 and proof.latest_turns == 5
 
 
 @pytest.mark.asyncio

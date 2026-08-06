@@ -44,11 +44,21 @@ def on_error_seen(state: ReviewState, correction: str, now: datetime) -> ReviewS
 
 
 def on_error_absent(state: ReviewState, now: datetime) -> ReviewState:
-    """The error type did NOT appear this session: grow the clean streak. On
-    reaching MASTERY_STREAK, mark it mastered; otherwise advance one rung up the
-    interval ladder (J+1 -> J+3 -> J+7, capped) and reschedule."""
+    """The error type did NOT appear this session.
+
+    A clean session only counts toward mastery once the spacing interval has
+    ELAPSED. If the item is not due yet (``now < next_review_at``), nothing changes:
+    staying clean *before* the review date is expected and proves nothing about
+    retention — otherwise three sessions the same afternoon would 'master' a fault
+    the learner just made, and the J+1/J+3/J+7 ladder would be computed then ignored
+    (the original bug). Once due (``now >= next_review_at``, or never scheduled),
+    grow the clean streak; at MASTERY_STREAK mark it mastered, else advance one rung
+    up the ladder (J+1 -> J+3 -> J+7, capped) and reschedule from ``now``."""
     if state.status == STATUS_MASTERED:
         return state  # already mastered; a clean session doesn't change it
+
+    if state.next_review_at is not None and now < state.next_review_at:
+        return state  # not due yet — keep waiting, the schedule is untouched
 
     clean_streak = state.clean_streak + 1
     if clean_streak >= MASTERY_STREAK:

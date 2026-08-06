@@ -2,6 +2,8 @@
 
 import pytest
 
+from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER
+from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.repository import SqlAlchemyDebriefRepository
 
 
@@ -10,7 +12,7 @@ async def _auth(client):
     return {"Authorization": f"Bearer {reg.json()['access_token']}"}
 
 
-async def _session_with_debrief(client, db_session, headers, *, scenario, cefr, errors):
+async def _session_with_debrief(client, db_session, headers, *, scenario, cefr, errors, turns=0):
     start = await client.post(
         "/sessions/start",
         headers=headers,
@@ -18,6 +20,14 @@ async def _session_with_debrief(client, db_session, headers, *, scenario, cefr, 
     )
     session_id = start.json()["session_id"]
     await client.post(f"/sessions/{session_id}/end", headers=headers)
+    if turns:
+        # `turns` learner turns (interleaved with the assistant) so proof can
+        # normalise error counts by session length.
+        transcript = []
+        for _ in range(turns):
+            transcript.append({"role": ROLE_ASSISTANT, "content": "?"})
+            transcript.append({"role": ROLE_USER, "content": "..."})
+        await SqlAlchemyTranscriptRepository(db_session).save(session_id, transcript)
     await SqlAlchemyDebriefRepository(db_session).save(session_id, cefr, "s", errors)
     return session_id
 
@@ -64,7 +74,40 @@ async def test_proof_reports_resolved_error_types(client, db_session):
     assert body["baseline_cefr"] == "A2"
     assert body["latest_cefr"] == "B1"
     assert body["resolved"] == ["verb_tense"]  # article unchanged
+    assert body["improved"] == []
     assert body["new_or_worse"] == []
+
+
+@pytest.mark.asyncio
+async def test_proof_normalises_by_session_length(client, db_session):
+    # Same raw count (2 verb_tense) but the latest session is a quarter as long:
+    # per turn the rate went UP, so it reads as worse, not resolved — and the turn
+    # counts are surfaced so the UI can show the basis.
+    headers = await _auth(client)
+    await _session_with_debrief(
+        client,
+        db_session,
+        headers,
+        scenario="job_interview",
+        cefr="A2",
+        errors=[_err("verb_tense"), _err("verb_tense")],
+        turns=20,
+    )
+    await _session_with_debrief(
+        client,
+        db_session,
+        headers,
+        scenario="job_interview",
+        cefr="A2",
+        errors=[_err("verb_tense"), _err("verb_tense")],
+        turns=5,
+    )
+
+    body = (await client.get("/me/proof/job_interview", headers=headers)).json()
+    assert body["baseline_turns"] == 20
+    assert body["latest_turns"] == 5
+    assert body["new_or_worse"] == ["verb_tense"]
+    assert body["resolved"] == [] and body["improved"] == []
 
 
 @pytest.mark.asyncio
