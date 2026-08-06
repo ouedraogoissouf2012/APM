@@ -1,30 +1,35 @@
-import logging
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.domain.exceptions import NotFoundError
 from app.features.auth.models import User
-from app.features.auth.repository import UserRepository
 from app.features.conversation.prompt import strip_persistent_instructions
 from app.features.conversation.repository import TranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.cefr import next_cefr_level
+from app.features.debrief.domain import DebriefResult
 from app.features.debrief.models import Debrief
 from app.features.debrief.repository import DebriefRepository
+from app.features.profile.models import LearnerProfile
 from app.features.profile.repository import ProfileRepository
 from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
 
 if TYPE_CHECKING:
-    from app.features.analytics.service import AnalyticsService
-    from app.features.review.service import ReviewService
-    from app.features.vocabulary.service import VocabularyService
+    from app.features.debrief.enrichment import PostDebriefEnrichment
 
 # How many recurring error types persist into the learner's memory summary.
 _MAX_RECURRING_FOCUS = 3
 
 
 class DebriefService:
+    """Generates the authoritative debrief for a session and triggers enrichment.
+
+    Reduced to orchestration (ADR 0001): it persists the AUTHORITATIVE core — the
+    Debrief row, the CEFR nudge and the memory summary — atomically in one commit,
+    then hands off best-effort side-effects (vocabulary, SRS, analytics) to an
+    injected `PostDebriefEnrichment`. Each effect lives behind its own collaborator.
+    """
+
     def __init__(
         self,
         sessions: SessionRepository,
@@ -32,26 +37,16 @@ class DebriefService:
         debriefs: DebriefRepository,
         analyzer: DebriefAnalyzer,
         profiles: ProfileRepository | None = None,
-        users: UserRepository | None = None,
-        vocabulary: "VocabularyService | None" = None,
-        review: "ReviewService | None" = None,
-        analytics: "AnalyticsService | None" = None,
+        enrichment: "PostDebriefEnrichment | None" = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
         self._debriefs = debriefs
         self._analyzer = analyzer
         self._profiles = profiles
-        self._users = users
-        # Captures the debrief's salient words into the learner's notebook (#116).
-        # Injected (DIP) and optional so the debrief works without it.
-        self._vocabulary = vocabulary
-        # Feeds each session's error types into the spaced-repetition schedule
-        # (#117). Injected (DIP) and optional.
-        self._review = review
-        # Emits product-analytics events (#129): session_completed + activation.
-        # Injected (DIP), optional, best-effort.
-        self._analytics = analytics
+        # Best-effort side-effects run AFTER the core is durable (ADR 0001). Injected
+        # (DIP), optional so the debrief works without any enrichment wired.
+        self._enrichment = enrichment
 
     async def generate(self, session_id: int, user: User) -> Debrief:
         await get_owned_session(self._sessions, session_id, user.id)
@@ -64,76 +59,48 @@ class DebriefService:
             # an EMPTY debrief instead of a 404: a 404 made the client retry forever
             # (GET->404->POST->404...). Persisting an empty one makes the next call a
             # cache hit and stops the loop at the source.
-            empty = await self._debriefs.save(
+            return await self._debriefs.save(
                 session_id, user.cefr_level, "Pas encore de conversation à analyser.", []
             )
-            return empty
-        # Honour the learner's correction_intensity (#114): it sets the debrief's
-        # tone and how many errors to surface. Default gentle when no profile.
-        intensity = "gentle"
-        if self._profiles is not None:
-            profile = await self._profiles.get_by_user_id(user.id)
-            if profile is not None:
-                intensity = profile.correction_intensity
+
+        # Load the profile ONCE — reused for both the correction intensity and the
+        # memory update below (no second query).
+        profile = (
+            await self._profiles.get_by_user_id(user.id) if self._profiles is not None else None
+        )
+        # Honour the learner's correction_intensity (#114); default gentle when no
+        # profile.
+        intensity = profile.correction_intensity if profile is not None else "gentle"
         result = await self._analyzer.analyze(
             transcript.turns, native_language=user.native_language, intensity=intensity
         )
-        # Adaptive difficulty: nudge the learner's level one step toward the
-        # session estimate.
-        user.cefr_level = next_cefr_level(user.cefr_level, result.cefr_estimate)
-        errors = [
-            {
-                "original": e.original,
-                "correction": e.correction,
-                "rule": e.rule,
-                "error_type": e.error_type,
-                "explanation": e.explanation,
-                "examples": e.examples,
-                "alternatives": e.alternatives,
-            }
-            for e in result.errors
-        ]
-        # Order matters for atomicity: the debrief commit persists the pending
-        # CEFR nudge in the SAME transaction (shared request session). If it
-        # fails, both roll back — a retry cannot double-promote. users.save
-        # afterwards makes the intent explicit and covers repository
-        # implementations that do not share the session.
-        debrief = await self._debriefs.save(
-            session_id, result.cefr_estimate, result.summary, errors
-        )
-        if self._users is not None:
-            await self._users.save(user)
-        await self._update_memory(user.id, result.summary, errors)
-        # Capture the salient words into the notebook (#116). Best-effort: a
-        # vocabulary failure must never break the debrief that just succeeded.
-        if self._vocabulary is not None and result.words:
-            try:
-                await self._vocabulary.capture(user.id, session_id, result.words)
-            except Exception:
-                logging.getLogger(__name__).warning(
-                    "Vocabulary capture failed for session %s", session_id, exc_info=True
-                )
-        # Feed this session's error types into the SRS schedule (#117). Best-effort
-        # for the same reason. Even an error-free session matters — it grows the
-        # clean streak of tracked types toward mastery — so this runs regardless.
-        if self._review is not None:
-            try:
-                errors_seen: dict[str, str] = {}
-                for e in result.errors:
-                    if e.error_type.strip():
-                        errors_seen.setdefault(e.error_type, e.correction)
-                await self._review.record_session(user.id, errors_seen, datetime.now(UTC))
-            except Exception:
-                logging.getLogger(__name__).warning(
-                    "Review scheduling failed for session %s", session_id, exc_info=True
-                )
-        # Emit the completion event (+ activation on the first one), #129. The
-        # service already swallows its own failures, so no try here.
-        if self._analytics is not None:
-            await self._analytics.session_completed(
-                user.id, session_id, result.cefr_estimate, len(errors)
-            )
+        errors = _serialise_errors(result)
+
+        debrief = await self._persist_core(session_id, user, profile, result, errors)
+
+        # Best-effort enrichment, only AFTER the authoritative core is durable.
+        if self._enrichment is not None:
+            await self._enrichment.run(user.id, session_id, result, errors)
         return debrief
+
+    async def _persist_core(
+        self,
+        session_id: int,
+        user: User,
+        profile: LearnerProfile | None,
+        result: DebriefResult,
+        errors: list[dict],
+    ) -> Debrief:
+        """The authoritative, ATOMIC write (ADR 0001). Stage the CEFR nudge and the
+        memory summary onto the shared request session, then the SINGLE debrief
+        commit persists all three together. If it fails, nothing is committed — a
+        retry re-runs cleanly and can never double-promote the CEFR level."""
+        # Adaptive difficulty: nudge the level one step toward the session estimate.
+        user.cefr_level = next_cefr_level(user.cefr_level, result.cefr_estimate)
+        _stage_memory(profile, result.summary, errors)
+        # One commit — persists the debrief + the staged CEFR nudge + the staged
+        # memory summary on the shared session, atomically.
+        return await self._debriefs.save(session_id, result.cefr_estimate, result.summary, errors)
 
     async def get(self, session_id: int, user: User) -> Debrief:
         await get_owned_session(self._sessions, session_id, user.id)
@@ -142,21 +109,35 @@ class DebriefService:
             raise NotFoundError("No debrief for this session")
         return debrief
 
-    async def _update_memory(self, user_id: int, summary: str, errors: list[dict]) -> None:
-        if self._profiles is None:
-            return
-        profile = await self._profiles.get_by_user_id(user_id)
-        if profile is None:
-            return
 
-        error_types = [str(error.get("error_type", "")) for error in errors]
-        error_types = [error_type for error_type in error_types if error_type]
-        details = strip_persistent_instructions(summary)
-        if error_types:
-            focus = ", ".join(error_types[:_MAX_RECURRING_FOCUS])
-            details = f"{details} Recurring focus: {focus}.".strip()
-        if not details:
-            return
+def _serialise_errors(result: DebriefResult) -> list[dict]:
+    return [
+        {
+            "original": e.original,
+            "correction": e.correction,
+            "rule": e.rule,
+            "error_type": e.error_type,
+            "explanation": e.explanation,
+            "examples": e.examples,
+            "alternatives": e.alternatives,
+        }
+        for e in result.errors
+    ]
 
-        profile.memory_summary = strip_persistent_instructions(details)
-        await self._profiles.save(profile)
+
+def _stage_memory(profile: LearnerProfile | None, summary: str, errors: list[dict]) -> None:
+    """Stage (do NOT commit) the learner's memory summary on the shared-session
+    profile, so the debrief commit persists it atomically with the debrief and the
+    CEFR nudge. Injection commands are stripped — this text is re-injected into every
+    future prompt, so it must never carry instructions."""
+    if profile is None:
+        return
+    error_types = [str(error.get("error_type", "")) for error in errors]
+    error_types = [error_type for error_type in error_types if error_type]
+    details = strip_persistent_instructions(summary)
+    if error_types:
+        focus = ", ".join(error_types[:_MAX_RECURRING_FOCUS])
+        details = f"{details} Recurring focus: {focus}.".strip()
+    if not details:
+        return
+    profile.memory_summary = strip_persistent_instructions(details)

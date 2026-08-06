@@ -2,6 +2,7 @@
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.features.analytics.domain import EVENT_ACTIVATION, EVENT_SESSION_COMPLETED
 from app.features.analytics.models import AnalyticsEventRow
@@ -67,3 +68,25 @@ async def test_activation_is_emitted_once_across_sessions(client, db_session):
 
     assert len(completions) == 2
     assert len(activations) == 1  # activation only on the first
+
+
+@pytest.mark.asyncio
+async def test_activation_is_unique_per_user_at_the_db_level(client, db_session):
+    # The count-based check cannot stop a CONCURRENT double-activation (#188); a
+    # partial unique index does. A second activation row for the same user is
+    # rejected, while other event types stay append-only.
+    headers, user_id = await _auth(client)
+
+    db_session.add(AnalyticsEventRow(name=EVENT_ACTIVATION, user_id=user_id, properties={}))
+    await db_session.commit()
+
+    db_session.add(AnalyticsEventRow(name=EVENT_ACTIVATION, user_id=user_id, properties={}))
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
+
+    # A completion for the same user is NOT blocked — the guard is activation-only.
+    db_session.add(AnalyticsEventRow(name=EVENT_SESSION_COMPLETED, user_id=user_id, properties={}))
+    await db_session.commit()
+
+    assert len(await _events(db_session, user_id, EVENT_ACTIVATION)) == 1

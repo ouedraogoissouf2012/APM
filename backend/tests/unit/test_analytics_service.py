@@ -79,3 +79,45 @@ async def test_a_sink_failure_never_raises():
     # Must not raise — analytics is best-effort.
     await service.session_completed(1, 10, "B1", 0)
     await service.transfer_started(1, "x")
+
+
+class _ExplodingCounter:
+    async def count_events(self, user_id, name):
+        raise RuntimeError("count down")
+
+
+@pytest.mark.asyncio
+async def test_a_counter_failure_is_swallowed_and_still_records_completion():
+    # #188: only the sink was best-effort before — a count_events failure broke the
+    # caller. Now it is swallowed: the completion is still emitted, activation skipped.
+    sink = _CapturingSink()
+    service = AnalyticsService(sink, _ExplodingCounter())
+
+    await service.session_completed(1, 10, "B1", 0)  # must not raise
+
+    names = [e.name for e in sink.events]
+    assert EVENT_SESSION_COMPLETED in names  # completion kept
+    assert EVENT_ACTIVATION not in names  # can't confirm 'first' -> no activation
+
+
+class _FailNamesSink:
+    def __init__(self, fail_names):
+        self.events: list[AnalyticsEvent] = []
+        self._fail_names = fail_names
+
+    async def emit(self, event):
+        if event.name in self._fail_names:
+            raise RuntimeError(f"sink down for {event.name}")
+        self.events.append(event)
+
+
+@pytest.mark.asyncio
+async def test_no_activation_without_a_recorded_completion():
+    # #188: activation must never fire for a completion that failed to record —
+    # otherwise the funnel shows an activation with no completion behind it.
+    sink = _FailNamesSink({EVENT_SESSION_COMPLETED})
+    service = AnalyticsService(sink, _Counter(sink))
+
+    await service.session_completed(1, 10, "B1", 0)  # first-ever, but completion fails
+
+    assert sink.events == []  # neither completion nor a dangling activation
