@@ -6,6 +6,9 @@ from app.core.engines import ENGINE_FAKE
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
+from app.features.analytics.repository import SqlAlchemyAnalyticsCounter
+from app.features.analytics.service import AnalyticsService
+from app.features.analytics.sinks import SqlAlchemyAnalyticsSink
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.factory import build_feature_llm
 from app.features.conversation.providers.interfaces import (
@@ -60,4 +63,5 @@ def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
         users=SqlAlchemyUserRepository(db),
         vocabulary=VocabularyService(SqlAlchemyVocabularyRepository(db)),
         review=ReviewService(SqlAlchemyReviewRepository(db)),
+        analytics=AnalyticsService(SqlAlchemyAnalyticsSink(db), SqlAlchemyAnalyticsCounter(db)),
     )

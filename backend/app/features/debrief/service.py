@@ -16,6 +16,7 @@ from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
 
 if TYPE_CHECKING:
+    from app.features.analytics.service import AnalyticsService
     from app.features.review.service import ReviewService
     from app.features.vocabulary.service import VocabularyService
 
@@ -34,6 +35,7 @@ class DebriefService:
         users: UserRepository | None = None,
         vocabulary: "VocabularyService | None" = None,
         review: "ReviewService | None" = None,
+        analytics: "AnalyticsService | None" = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
@@ -47,6 +49,9 @@ class DebriefService:
         # Feeds each session's error types into the spaced-repetition schedule
         # (#117). Injected (DIP) and optional.
         self._review = review
+        # Emits product-analytics events (#129): session_completed + activation.
+        # Injected (DIP), optional, best-effort.
+        self._analytics = analytics
 
     async def generate(self, session_id: int, user: User) -> Debrief:
         await get_owned_session(self._sessions, session_id, user.id)
@@ -122,6 +127,12 @@ class DebriefService:
                 logging.getLogger(__name__).warning(
                     "Review scheduling failed for session %s", session_id, exc_info=True
                 )
+        # Emit the completion event (+ activation on the first one), #129. The
+        # service already swallows its own failures, so no try here.
+        if self._analytics is not None:
+            await self._analytics.session_completed(
+                user.id, session_id, result.cefr_estimate, len(errors)
+            )
         return debrief
 
     async def get(self, session_id: int, user: User) -> Debrief:
