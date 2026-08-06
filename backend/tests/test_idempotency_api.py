@@ -1,7 +1,9 @@
 """Integration tests for idempotent turns (#127, offline replay safety)."""
 
 import pytest
+from sqlalchemy import select
 
+from app.features.auth.models import User
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 
 
@@ -10,6 +12,12 @@ async def _auth(client):
         "/auth/register", json={"email": "idem@b.com", "password": "s3cret!pass"}
     )
     return {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+
+async def _minutes_used(db_session, email):
+    db_session.expire_all()  # see the request's committed writes, not a cached object
+    user = await db_session.scalar(select(User).where(User.email == email))
+    return user.minutes_used_today
 
 
 async def _start(client, headers):
@@ -28,6 +36,7 @@ async def test_replaying_a_turn_with_the_same_key_is_idempotent(client, db_sessi
     first = await client.post(f"/sessions/{session_id}/turn", headers={**headers, **key}, json=body)
     assert first.status_code == 200, first.text
     reply = first.json()["reply"]
+    minutes_after_first = await _minutes_used(db_session, "idem@b.com")
 
     # Replay the SAME key (as an offline client reconnecting would).
     second = await client.post(
@@ -40,6 +49,10 @@ async def test_replaying_a_turn_with_the_same_key_is_idempotent(client, db_sessi
     transcript = await SqlAlchemyTranscriptRepository(db_session).get_by_session(session_id)
     user_turns = [t for t in transcript.turns if t["role"] == "user"]
     assert len(user_turns) == 1
+
+    # ...and the quota (#119) was NOT charged again — the replay returned the
+    # cached reply without re-running the metered turn work.
+    assert await _minutes_used(db_session, "idem@b.com") == minutes_after_first
 
 
 @pytest.mark.asyncio

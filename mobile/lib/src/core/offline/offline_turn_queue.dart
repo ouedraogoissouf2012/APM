@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -44,6 +45,24 @@ class SecureOfflineTurnQueue implements OfflineTurnQueue {
   final KeyValueStore _store;
   static const _key = 'offline_turn_queue';
 
+  // Serialises read-modify-write ops. enqueue (a new turn failing) can otherwise
+  // race a remove (a sync draining the queue): both read the same JSON, mutate,
+  // and write — the second clobbers the first, silently losing a turn. Chaining
+  // on a single future makes each mutation see the previous one's result.
+  Future<void> _lock = Future<void>.value();
+
+  Future<T> _synchronized<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _lock = _lock.then((_) async {
+      try {
+        completer.complete(await action());
+      } catch (e, s) {
+        completer.completeError(e, s);
+      }
+    });
+    return completer.future;
+  }
+
   Future<List<PendingTurn>> _read() async {
     final raw = await _store.read(_key);
     if (raw == null || raw.isEmpty) return [];
@@ -57,18 +76,18 @@ class SecureOfflineTurnQueue implements OfflineTurnQueue {
       _store.write(_key, jsonEncode([for (final t in turns) t.toJson()]));
 
   @override
-  Future<void> enqueue(PendingTurn turn) async {
+  Future<void> enqueue(PendingTurn turn) => _synchronized(() async {
     final turns = await _read()..add(turn);
     await _write(turns);
-  }
+  });
 
   @override
-  Future<List<PendingTurn>> pending() => _read();
+  Future<List<PendingTurn>> pending() => _synchronized(_read);
 
   @override
-  Future<void> remove(String idempotencyKey) async {
+  Future<void> remove(String idempotencyKey) => _synchronized(() async {
     final turns = await _read()
       ..removeWhere((t) => t.idempotencyKey == idempotencyKey);
     await _write(turns);
-  }
+  });
 }

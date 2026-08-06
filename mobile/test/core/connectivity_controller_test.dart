@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:apm/src/core/offline/connectivity_controller.dart';
 import 'package:apm/src/core/offline/offline_turn_queue.dart';
 import 'package:apm/src/core/offline/offline_turn_sync.dart';
@@ -21,13 +23,18 @@ class _InMemoryQueue implements OfflineTurnQueue {
 }
 
 /// A sync that "sends" everything (clears the queue) or nothing, on demand.
+/// Counts calls and can be held open (via [gate]) to test re-entrancy.
 class _FakeSync implements OfflineTurnSync {
   _FakeSync(this._queue);
   final _InMemoryQueue _queue;
   bool succeeds = true;
+  int calls = 0;
+  Completer<void>? gate;
 
   @override
   Future<int> sync() async {
+    calls++;
+    if (gate != null) await gate!.future;
     if (!succeeds) return 0;
     final n = _queue.turns.length;
     _queue.turns.clear();
@@ -101,4 +108,22 @@ void main() {
 
     expect(container.read(connectivityControllerProvider).pendingCount, 1);
   });
+
+  test('a concurrent syncPending is ignored while one is in flight', () async {
+    await queue.enqueue(_turnFor(1));
+    final ctrl = container.read(connectivityControllerProvider.notifier);
+    sync.gate = Completer<void>(); // hold the first sync open
+
+    final first = ctrl.syncPending(); // enters sync(), then blocks on the gate
+    await Future<void>.delayed(Duration.zero);
+    final second = ctrl.syncPending(); // must be a no-op (guarded), not a 2nd sync
+
+    sync.gate!.complete();
+    await Future.wait([first, second]);
+
+    expect(sync.calls, 1); // exactly one replay ran despite two triggers
+  });
 }
+
+PendingTurn _turnFor(int session) =>
+    PendingTurn(sessionId: session, text: 'hi', idempotencyKey: 'k$session');

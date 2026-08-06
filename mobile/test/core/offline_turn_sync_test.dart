@@ -65,19 +65,47 @@ void main() {
     expect((await queue.pending()).map((t) => t.idempotencyKey), ['a', 'b']);
   });
 
-  test('a definitive server error drops that turn and continues', () async {
+  test('a definitive client error (4xx) drops that turn and continues', () async {
     await queue.enqueue(_turn('a'));
     await queue.enqueue(_turn('b'));
     when(
       () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
-    ).thenThrow(const ApiException(statusCode: 409, code: 'conflict', message: 'ended'));
+    ).thenThrow(const ApiException(statusCode: 422, code: 'validation', message: 'bad'));
     when(
       () => conv.sendTurn(1, 'hi', idempotencyKey: 'b'),
     ).thenAnswer((_) async => 'reply');
 
     final sent = await sync.sync();
 
-    expect(sent, 1); // 'b' sent; 'a' dropped (not retried forever)
+    expect(sent, 1); // 'b' sent; 'a' dropped (it will never succeed)
     expect(await queue.pending(), isEmpty);
+  });
+
+  test('a transient 5xx keeps the turn queued for a later retry', () async {
+    await queue.enqueue(_turn('a'));
+    await queue.enqueue(_turn('b'));
+    when(
+      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+    ).thenThrow(const ApiException(statusCode: 503, code: 'server', message: 'down'));
+
+    final sent = await sync.sync();
+
+    expect(sent, 0);
+    // A 5xx is transient: nothing dropped, run stops, order preserved.
+    expect((await queue.pending()).map((t) => t.idempotencyKey), ['a', 'b']);
+  });
+
+  test('a 409 (in progress) keeps the turn queued rather than losing it', () async {
+    await queue.enqueue(_turn('a'));
+    when(
+      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+    ).thenThrow(const ApiException(statusCode: 409, code: 'ConflictError', message: 'in progress'));
+
+    final sent = await sync.sync();
+
+    expect(sent, 0);
+    // The server is still processing this exact key; retrying later gets the
+    // cached reply (or reclaims it if that request crashed) — never drop it.
+    expect((await queue.pending()).map((t) => t.idempotencyKey), ['a']);
   });
 }

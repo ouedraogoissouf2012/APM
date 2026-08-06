@@ -21,8 +21,10 @@ class IdempotencyKey(Base):
     )
     # The client-supplied idempotency key (a UUID per queued turn).
     key: Mapped[str] = mapped_column(String(80), nullable=False)
-    # The stored response to replay verbatim. For a turn it's the reply text.
-    response: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # The stored response to replay verbatim. NULL means the key is CLAIMED but
+    # the work is still running (a concurrent replay must wait, not re-process);
+    # a non-NULL value is the completed, cacheable result (for a turn, the reply).
+    response: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
