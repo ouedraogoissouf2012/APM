@@ -39,6 +39,10 @@ class ConnectivityController extends Notifier<ConnectivityState> {
   OfflineTurnQueue get _queue => ref.read(offlineTurnQueueProvider);
   OfflineTurnSync get _sync => ref.read(offlineTurnSyncProvider);
 
+  // Guards against overlapping replays: a connectivity flap + a manual "Réessayer"
+  // could otherwise start two sync() loops that both fire the same queued turn.
+  bool _syncing = false;
+
   @override
   ConnectivityState build() => const ConnectivityState();
 
@@ -61,10 +65,18 @@ class ConnectivityController extends Notifier<ConnectivityState> {
     state = ConnectivityState(online: false, pendingCount: count);
   }
 
-  /// Replays the queue; back online when nothing remains.
+  /// Replays the queue; back online when nothing remains. Re-entrant calls (e.g.
+  /// a reconnect trigger racing a manual retry) are ignored while a sync is in
+  /// flight, so the same queued turn is never replayed twice concurrently.
   Future<void> syncPending() async {
-    await _sync.sync();
-    final count = (await _queue.pending()).length;
-    state = ConnectivityState(online: count == 0, pendingCount: count);
+    if (_syncing) return;
+    _syncing = true;
+    try {
+      await _sync.sync();
+      final count = (await _queue.pending()).length;
+      state = ConnectivityState(online: count == 0, pendingCount: count);
+    } finally {
+      _syncing = false;
+    }
   }
 }

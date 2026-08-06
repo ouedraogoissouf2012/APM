@@ -12,9 +12,11 @@ class OfflineTurnSync {
   final OfflineTurnQueue _queue;
   final ConversationRepository _conversation;
 
-  /// Replays all pending turns in order. Returns the number sent. Stops early on
-  /// a network error (keeps the rest queued); a non-network error (e.g. the
-  /// session ended) drops that one turn and continues so it can't block forever.
+  /// Replays all pending turns in order. Returns the number sent. Stops early and
+  /// KEEPS the rest queued on a transient failure (offline, a 5xx, or a 409
+  /// "in progress") so nothing is lost; only a DEFINITIVE client error (a 4xx
+  /// other than 409 — e.g. the session ended) drops that one turn and continues,
+  /// so a permanently-unprocessable turn can't wedge the queue forever.
   Future<int> sync() async {
     var sent = 0;
     for (final turn in await _queue.pending()) {
@@ -27,14 +29,20 @@ class OfflineTurnSync {
         await _queue.remove(turn.idempotencyKey);
         sent++;
       } on ApiException catch (e) {
-        if (_isNetwork(e)) return sent; // still offline — retry the rest later
-        // A definitive server rejection: drop this turn so it can't wedge the
-        // queue, and move on to the next.
-        await _queue.remove(turn.idempotencyKey);
+        if (_retryLater(e)) return sent; // keep queued, retry later, in order
+        await _queue.remove(turn.idempotencyKey); // definitive: drop and continue
       }
     }
     return sent;
   }
 
-  bool _isNetwork(ApiException e) => e.statusCode == 0 || e.code == 'network';
+  /// Transient failures that must NOT drop the turn: no connection, a server-side
+  /// 5xx, or a 409 (the server is still processing this exact key — retrying
+  /// returns the cached reply once it finishes, or reclaims it if that request
+  /// crashed). Everything else (4xx) is a definitive rejection.
+  bool _retryLater(ApiException e) =>
+      e.statusCode == 0 ||
+      e.code == 'network' ||
+      e.statusCode >= 500 ||
+      e.statusCode == 409;
 }
