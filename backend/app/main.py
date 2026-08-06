@@ -10,6 +10,7 @@ from app.api.middleware import RequestContextMiddleware
 from app.config import get_settings
 from app.core.engines import ENGINE_FAKE
 from app.core.logging import configure_logging
+from app.features.analytics.router import router as analytics_router
 from app.features.auth.router import router as auth_router
 from app.features.billing.router import router as billing_router
 from app.features.conversation.router import router as conversation_router
@@ -103,6 +104,7 @@ register_exception_handlers(app)
 
 app.include_router(auth_router)
 app.include_router(billing_router)
+app.include_router(analytics_router)
 app.include_router(profile_router)
 app.include_router(progress_router)
 app.include_router(proof_router)
