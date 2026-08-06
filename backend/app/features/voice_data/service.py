@@ -4,7 +4,10 @@ Raw audio is never stored (the /transcribe upload is processed in memory then
 discarded). What persists and is derived from the learner's voice is: their
 transcribed utterances, the debrief analysis of them, the captured vocabulary
 (their real sentences), and the recurring-error review items. This service lets
-the learner EXPORT that footprint (data portability) and ERASE it.
+the learner EXPORT that footprint (data portability) and ERASE it. Export returns
+every category above; erasure also clears the two derived residues that never
+appear in the export but keep shaping the AI — the profile ``memory_summary`` and
+the cached turn replies — so an erasure leaves no voice trace behind.
 """
 
 from dataclasses import dataclass
@@ -17,12 +20,18 @@ class VoiceDataExport:
     raw_audio_retained: bool
     utterances: list[dict]  # [{session_id, started_at, text}]
     vocabulary: list[dict]  # [{word, translation, example}]
+    debriefs: list[dict]  # [{session_id, started_at, cefr_estimate, summary, errors}]
+    review_items: list[dict]  # [{error_type, latest_correction, stage, status, next_review_at}]
 
 
 class VoiceDataSource(Protocol):
     async def utterances(self, user_id: int) -> list[dict]: ...
 
     async def vocabulary(self, user_id: int) -> list[dict]: ...
+
+    async def debriefs(self, user_id: int) -> list[dict]: ...
+
+    async def review_items(self, user_id: int) -> list[dict]: ...
 
     async def purge(self, user_id: int) -> dict[str, int]:
         """Delete all voice-derived rows for the user; return counts per kind."""
@@ -38,6 +47,8 @@ class VoiceDataService:
             raw_audio_retained=False,  # never stored — see /transcribe
             utterances=await self._source.utterances(user_id),
             vocabulary=await self._source.vocabulary(user_id),
+            debriefs=await self._source.debriefs(user_id),
+            review_items=await self._source.review_items(user_id),
         )
 
     async def erase(self, user_id: int) -> dict[str, int]:

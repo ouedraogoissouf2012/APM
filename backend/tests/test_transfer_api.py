@@ -57,6 +57,23 @@ async def test_transfer_emits_a_transfer_started_event(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_transfer_rejects_an_overlong_skill(client):
+    # The skill flows into an LLM prompt and a stored analytics property, so it is
+    # bounded at the edge (max 64 chars) -> 422 rather than compiling/storing it.
+    headers = await _auth(client)
+    resp = await client.post("/me/transfer/" + "x" * 65, headers=headers)
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_transfer_rejects_a_blank_skill(client):
+    # A whitespace-only segment passes the length floor but is rejected after strip.
+    headers = await _auth(client)
+    resp = await client.post("/me/transfer/%20%20", headers=headers)
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
 async def test_transfer_requires_auth(client):
     resp = await client.post("/me/transfer/job_interview")
     assert resp.status_code == 401, resp.text

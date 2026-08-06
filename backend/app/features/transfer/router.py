@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
 from app.api.client_ip import client_ip
 from app.config import get_settings
@@ -20,7 +22,10 @@ router = APIRouter(prefix="/me/transfer", tags=["transfer"])
 
 @router.post("/{skill}", response_model=MissionOut)
 async def create_transfer_challenge(
-    skill: str,
+    # Bounded at the edge: the skill is a free path segment that flows into an LLM
+    # compilation prompt AND into a stored analytics property, so cap its length
+    # (422 past 64 chars) and reject a blank/whitespace-only value before use.
+    skill: Annotated[str, Path(min_length=1, max_length=64)],
     request: Request,
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_mission_rate_limiter),
@@ -31,6 +36,9 @@ async def create_transfer_challenge(
     role-play in an unfamiliar context. Returns a mission the learner launches
     like any other (mode='mission'); the debrief then evaluates the attempt.
     Reuses the mission rate-limit (it is an LLM compilation)."""
+    skill = skill.strip()
+    if not skill:
+        raise HTTPException(status_code=422, detail="skill must not be blank")
     client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"transfer:{client_host}:user:{current_user.id}")
     mission = await TransferService(missions).challenge(current_user, skill)

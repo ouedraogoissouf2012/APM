@@ -18,10 +18,9 @@ class VoiceConsentService:
         self._consents = consents
 
     async def get_or_create(self, user_id: int) -> VoiceConsent:
-        existing = await self._consents.get_by_user_id(user_id)
-        if existing is not None:
-            return existing
-        return await self._consents.create(VoiceConsent(user_id=user_id))
+        # Delegated to the repository so the first-touch insert is atomic against
+        # a concurrent first request (no get-then-create TOCTOU on unique user_id).
+        return await self._consents.get_or_create(user_id)
 
     async def update(self, user_id: int, changes: dict[str, Any]) -> VoiceConsent:
         consent = await self.get_or_create(user_id)
