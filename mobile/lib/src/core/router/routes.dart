@@ -31,7 +31,11 @@ abstract final class Routes {
   /// Pattern registered in the router; use [debrief] to build a concrete path.
   static const debriefPattern = '/debrief/:sessionId';
 
-  static String debrief(int sessionId) => '/debrief/$sessionId';
+  /// The debrief for a session. [scenarioId] (the practised skill) is carried as a
+  /// query param so the debrief can chain into "Ma preuve" for a scenario session.
+  static String debrief(int sessionId, {String? scenarioId}) => scenarioId == null
+      ? '/debrief/$sessionId'
+      : '/debrief/$sessionId?scenario=$scenarioId';
 
   static String conversationWith({required String mode, String? scenarioId}) =>
       scenarioId == null

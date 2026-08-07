@@ -78,6 +78,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: Routes.debriefPattern,
         builder: (_, state) => DebriefScreen(
           sessionId: int.parse(state.pathParameters['sessionId']!),
+          scenarioId: state.uri.queryParameters['scenario'],
         ),
       ),
       GoRoute(path: Routes.profile, builder: (_, _) => const ProfileScreen()),

@@ -18,9 +18,13 @@ import 'pronunciation_map.dart';
 /// The whole subtree is wrapped in [AppTheme.light] so every design-system
 /// widget picks up the cream roles without any per-widget branching.
 class DebriefScreen extends ConsumerWidget {
-  const DebriefScreen({super.key, required this.sessionId});
+  const DebriefScreen({super.key, required this.sessionId, this.scenarioId});
 
   final int sessionId;
+
+  /// The practised skill (scenario mode); null for free/mission. When present, the
+  /// debrief chains into "Ma preuve" (before/after + transfer challenge) (#198).
+  final String? scenarioId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -56,7 +60,7 @@ class DebriefScreen extends ConsumerWidget {
                   ),
                 ),
               ),
-              data: (debrief) => _DebriefBody(debrief: debrief),
+              data: (debrief) => _DebriefBody(debrief: debrief, scenarioId: scenarioId),
             ),
           );
         },
@@ -66,9 +70,10 @@ class DebriefScreen extends ConsumerWidget {
 }
 
 class _DebriefBody extends StatelessWidget {
-  const _DebriefBody({required this.debrief});
+  const _DebriefBody({required this.debrief, this.scenarioId});
 
   final Debrief debrief;
+  final String? scenarioId;
 
   @override
   Widget build(BuildContext context) {
@@ -90,9 +95,9 @@ class _DebriefBody extends StatelessWidget {
         _ToReview(errors: debrief.errors),
         const SizedBox(height: AppSpacing.xxl),
         // The mastery loop doesn't dead-end at the debrief (#198): offer the next
-        // steps — hear your own voice against the model, and review your errors —
-        // instead of only a Home button.
-        const _NextSteps(),
+        // steps — hear your own voice against the model, review your errors, and
+        // (for a scenario) see your proof — instead of only a Home button.
+        _NextSteps(scenarioId: scenarioId),
         const SizedBox(height: AppSpacing.xxl),
       ],
     );
@@ -102,7 +107,9 @@ class _DebriefBody extends StatelessWidget {
 /// "Et maintenant ?" — the post-debrief step of the guided journey. Chains the
 /// feedback into the voice mirror and the spaced review (existing screens).
 class _NextSteps extends StatelessWidget {
-  const _NextSteps();
+  const _NextSteps({this.scenarioId});
+
+  final String? scenarioId;
 
   @override
   Widget build(BuildContext context) {
@@ -114,6 +121,17 @@ class _NextSteps extends StatelessWidget {
         // The learner memory picks the next useful focus (#201): the top recurring
         // weakness due for review, surfaced before the generic options.
         const _PriorityFocus(),
+        // For a scenario, chain into the proof (before/after + transfer challenge).
+        if (scenarioId != null) ...[
+          _NextStepButton(
+            navKey: const Key('debrief_next_proof'),
+            icon: Icons.timeline,
+            title: 'Ma preuve',
+            subtitle: 'Ton avant/après, et un défi pour prouver la maîtrise',
+            onTap: () => context.push(Routes.proof(scenarioId!)),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
         _NextStepButton(
           navKey: const Key('debrief_next_echo'),
           icon: Icons.graphic_eq,

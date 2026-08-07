@@ -251,7 +251,7 @@ class _SessionTile extends StatelessWidget {
               ),
         onTap: session.cefrEstimate == null
             ? null
-            : () => context.go(Routes.debrief(session.id)),
+            : () => context.go(Routes.debrief(session.id, scenarioId: session.scenarioId)),
       ),
     );
   }
