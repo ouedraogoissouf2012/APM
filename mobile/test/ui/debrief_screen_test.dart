@@ -27,6 +27,14 @@ Future<void> _pump(WidgetTester tester, Debrief debrief) async {
         path: Routes.home,
         builder: (_, _) => const Scaffold(body: Text('Home target')),
       ),
+      GoRoute(
+        path: Routes.echo,
+        builder: (_, _) => const Scaffold(body: Text('Echo target')),
+      ),
+      GoRoute(
+        path: Routes.review,
+        builder: (_, _) => const Scaffold(body: Text('Review target')),
+      ),
     ],
   );
   await tester.pumpWidget(
@@ -119,5 +127,28 @@ void main() {
     await tester.tap(find.byKey(const Key('debrief_home_button')));
     await tester.pumpAndSettle();
     expect(find.text('Home target'), findsOneWidget);
+  });
+
+  testWidgets('offers next steps: the debrief no longer dead-ends (#198)',
+      (tester) async {
+    await _pump(tester, _debrief());
+    expect(find.text('ET MAINTENANT ?'), findsOneWidget);
+    expect(find.byKey(const Key('debrief_next_echo')), findsOneWidget);
+    expect(find.byKey(const Key('debrief_next_review')), findsOneWidget);
+  });
+
+  testWidgets('"m\'entraîner à prononcer" chains into the voice mirror (Écho)',
+      (tester) async {
+    await _pump(tester, _debrief());
+    await tester.tap(find.byKey(const Key('debrief_next_echo')));
+    await tester.pumpAndSettle();
+    expect(find.text('Echo target'), findsOneWidget);
+  });
+
+  testWidgets('"réviser mes fautes" chains into the spaced review', (tester) async {
+    await _pump(tester, _debrief());
+    await tester.tap(find.byKey(const Key('debrief_next_review')));
+    await tester.pumpAndSettle();
+    expect(find.text('Review target'), findsOneWidget);
   });
 }
