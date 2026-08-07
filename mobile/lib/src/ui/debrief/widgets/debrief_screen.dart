@@ -87,7 +87,92 @@ class _DebriefBody extends StatelessWidget {
         const SizedBox(height: AppSpacing.xl),
         _ToReview(errors: debrief.errors),
         const SizedBox(height: AppSpacing.xxl),
+        // The mastery loop doesn't dead-end at the debrief (#198): offer the next
+        // steps — hear your own voice against the model, and review your errors —
+        // instead of only a Home button.
+        const _NextSteps(),
+        const SizedBox(height: AppSpacing.xxl),
       ],
+    );
+  }
+}
+
+/// "Et maintenant ?" — the post-debrief step of the guided journey. Chains the
+/// feedback into the voice mirror and the spaced review (existing screens).
+class _NextSteps extends StatelessWidget {
+  const _NextSteps();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const OverlineText('et maintenant ?'),
+        const SizedBox(height: AppSpacing.md),
+        _NextStepButton(
+          navKey: const Key('debrief_next_echo'),
+          icon: Icons.graphic_eq,
+          title: "M'entraîner à prononcer",
+          subtitle: 'Répète et écoute ta voix face au modèle',
+          onTap: () => context.push(Routes.echo),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _NextStepButton(
+          navKey: const Key('debrief_next_review'),
+          icon: Icons.repeat,
+          title: 'Réviser mes fautes',
+          subtitle: 'Tes erreurs récurrentes, au bon moment',
+          onTap: () => context.push(Routes.review),
+        ),
+      ],
+    );
+  }
+}
+
+class _NextStepButton extends StatelessWidget {
+  const _NextStepButton({
+    required this.navKey,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final Key navKey;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return InkWell(
+      key: navKey,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.hero),
+      child: _Panel(
+        child: Row(
+          children: [
+            Icon(icon, color: colors.accent),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: AppType.body(colors.textPrimary)),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    subtitle,
+                    style: AppType.label(colors.textSecondary).copyWith(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: colors.textMuted),
+          ],
+        ),
+      ),
     );
   }
 }
