@@ -278,6 +278,50 @@ void main() {
     expect(state.turns.map((t) => t.content).toList(), ['hi', 'Hello again!']);
   });
 
+  test('launching a specific mission on 409 ends the unrelated active session '
+      'and starts the mission (does not resume the old chat)', () async {
+    // #196: a mission the learner just prepared must not be swallowed by an
+    // unrelated active session — end that one and start the requested mission.
+    final repo = _MockConversationRepository();
+    var startCalls = 0;
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+        missionId: any(named: 'missionId'),
+      ),
+    ).thenAnswer((_) async {
+      startCalls++;
+      if (startCalls == 1) {
+        throw const ApiException(
+          statusCode: 409,
+          code: 'ActiveSessionExistsError',
+          message: 'A session is already in progress',
+        );
+      }
+      return 88; // the fresh mission session
+    });
+    when(() => repo.getActiveSession()).thenAnswer(
+      (_) async => const ActiveSessionData(
+        sessionId: 59, // an old, unrelated free chat
+        mode: 'free',
+        scenarioId: null,
+        turns: [(role: 'assistant', content: 'old chat')],
+      ),
+    );
+    when(() => repo.endSession(any())).thenAnswer((_) async {});
+    final c = _container(repo, _FakeSpeech(''));
+
+    await c
+        .read(conversationViewModelProvider.notifier)
+        .start(mode: 'mission', missionId: 7);
+
+    verify(() => repo.endSession(59)).called(1); // old session ended
+    final state = c.read(conversationViewModelProvider);
+    expect(state.sessionId, 88); // the mission started, NOT the old chat resumed
+    expect(state.turns.map((t) => t.content).toList(), isNot(contains('old chat')));
+  });
+
   test('start surfaces a quota-exhausted state on 402 (no uncaught error)',
       () async {
     final repo = _MockConversationRepository();
