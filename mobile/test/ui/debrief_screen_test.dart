@@ -21,13 +21,14 @@ Future<void> _pump(
   WidgetTester tester,
   Debrief debrief, {
   List<ReviewItem> due = const [],
+  String? scenarioId,
 }) async {
   final router = GoRouter(
     initialLocation: '/debrief/1',
     routes: [
       GoRoute(
         path: Routes.debriefPattern,
-        builder: (_, _) => const DebriefScreen(sessionId: 1),
+        builder: (_, _) => DebriefScreen(sessionId: 1, scenarioId: scenarioId),
       ),
       GoRoute(
         path: Routes.home,
@@ -40,6 +41,10 @@ Future<void> _pump(
       GoRoute(
         path: Routes.review,
         builder: (_, _) => const Scaffold(body: Text('Review target')),
+      ),
+      GoRoute(
+        path: Routes.proofPattern,
+        builder: (_, _) => const Scaffold(body: Text('Proof target')),
       ),
     ],
   );
@@ -197,5 +202,21 @@ void main() {
       (tester) async {
     await _pump(tester, _debrief(), due: const []);
     expect(find.byKey(const Key('debrief_priority_focus')), findsNothing);
+  });
+
+  testWidgets('a scenario debrief chains into "Ma preuve" (#198)', (tester) async {
+    await _pump(tester, _debrief(), scenarioId: 'job_interview');
+    final proof = find.byKey(const Key('debrief_next_proof'));
+    expect(proof, findsOneWidget);
+    await tester.ensureVisible(proof);
+    await tester.tap(proof);
+    await tester.pumpAndSettle();
+    expect(find.text('Proof target'), findsOneWidget);
+  });
+
+  testWidgets('a free/mission debrief has no "Ma preuve" (no skill to prove) (#198)',
+      (tester) async {
+    await _pump(tester, _debrief()); // no scenarioId
+    expect(find.byKey(const Key('debrief_next_proof')), findsNothing);
   });
 }

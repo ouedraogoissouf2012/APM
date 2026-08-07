@@ -51,10 +51,16 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
 
   Future<void> _endSession() async {
-    final sessionId = ref.read(conversationViewModelProvider).sessionId;
+    // Read before end() resets the state — carry the skill so the debrief can chain
+    // into "Ma preuve" for a scenario session (#198).
+    final state = ref.read(conversationViewModelProvider);
+    final sessionId = state.sessionId;
+    final scenarioId = state.scenarioId;
     await ref.read(conversationViewModelProvider.notifier).end();
     if (!mounted) return;
-    context.go(sessionId != null ? Routes.debrief(sessionId) : Routes.home);
+    context.go(
+      sessionId != null ? Routes.debrief(sessionId, scenarioId: scenarioId) : Routes.home,
+    );
   }
 
   String get _topic {
