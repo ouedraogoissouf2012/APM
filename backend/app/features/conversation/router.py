@@ -49,15 +49,16 @@ async def stream_turn(
 ) -> StreamingResponse:
     """Stream the reply as Server-Sent Events: one `chunk` event per sentence
     so the client speaks it immediately, a final `done` event, or an `error`.
-    Ownership/quota checks happen before streaming begins."""
+    Ownership and session-state are validated eagerly (before the 200 is sent),
+    so a not-owned or ended session returns a proper 404/409 rather than a
+    broken stream."""
     client_host = request.client.host if request.client else "anonymous"
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
+    prepared = await service.prepare_turn(session_id, current_user, payload.text)
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            async for sentence in service.stream_turn(
-                session_id, current_user, payload.text
-            ):
+            async for sentence in service.stream_prepared(prepared):
                 yield _sse("chunk", {"text": sentence})
             yield _sse("done", {})
         except LlmProviderError:

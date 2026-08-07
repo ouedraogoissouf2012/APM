@@ -70,14 +70,41 @@ async def test_turn_stream_persists_full_reply(client):
     start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
     session_id = start.json()["session_id"]
 
-    await client.post(
-        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "hi"}
-    )
+    await client.post(f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "hi"})
     # The next non-stream turn must see the streamed reply in history.
     second = await client.post(
         f"/sessions/{session_id}/turn", headers=headers, json={"text": "again"}
     )
     assert second.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_rejects_session_not_owned(client):
+    owner = await _auth_header(client, email="owner-stream@b.com")
+    start = await client.post("/sessions/start", headers=owner, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    intruder = await _auth_header(client, email="intruder-stream@b.com")
+    resp = await client.post(
+        f"/sessions/{session_id}/turn/stream", headers=intruder, json={"text": "hi"}
+    )
+    # A non-owner must get a clean 404 — not a 200 with a broken event stream
+    # (ownership is validated before the streaming response is committed).
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_rejected_after_session_ended(client):
+    headers = await _auth_header(client, email="ended-stream@b.com")
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+    await client.post(f"/sessions/{session_id}/end", headers=headers)
+
+    resp = await client.post(
+        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "hi"}
+    )
+    # An ended session must get a clean 409, not a committed 200 stream.
+    assert resp.status_code == 409
 
 
 @pytest.mark.asyncio

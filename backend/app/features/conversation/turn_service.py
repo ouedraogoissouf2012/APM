@@ -25,6 +25,19 @@ class TurnResult:
     turns: list[dict]
 
 
+@dataclass
+class PreparedTurn:
+    """A validated turn ready to stream and then persist. Produced by
+    ConversationTurnService.prepare_turn BEFORE any streaming response starts,
+    so ownership/state failures become proper HTTP errors, not broken streams."""
+
+    session_id: int
+    turns: list[dict]
+    text: str
+    system_prompt: str
+    history: list[Message]
+
+
 class ConversationTurnService:
     def __init__(
         self,
@@ -44,18 +57,52 @@ class ConversationTurnService:
         turns = await self._persist(session_id, turns, text, reply)
         return TurnResult(reply=reply, turns=turns)
 
-    async def stream_turn(
-        self, session_id: int, user: User, text: str
-    ) -> AsyncIterator[str]:
-        """Stream the reply sentence by sentence (so the client can speak the
-        first sentence while the rest is still generating), then persist the
-        full reply once the stream completes."""
-        turns, system_prompt, history = await self._prepare(session_id, user, text)
-        parts: list[str] = []
-        async for sentence in self._llm.stream_complete(system_prompt, history):
-            parts.append(sentence)
+    async def stream_turn(self, session_id: int, user: User, text: str) -> AsyncIterator[str]:
+        """Validate, then stream the reply sentence by sentence and persist it.
+        A single entry point for callers that don't need to separate validation
+        from streaming; the streaming route splits the two (see prepare_turn)."""
+        prepared = await self.prepare_turn(session_id, user, text)
+        async for sentence in self.stream_prepared(prepared):
             yield sentence
-        await self._persist(session_id, turns, text, " ".join(parts))
+
+    async def prepare_turn(self, session_id: int, user: User, text: str) -> PreparedTurn:
+        """Validate ownership/state and build the prompt+history for a turn.
+        Call (and await) this BEFORE returning a streaming response, so a
+        not-owned or ended session surfaces as a proper 404/409 instead of a
+        broken error mid-stream — once StreamingResponse starts, the 200 status
+        is already committed and the real status can no longer be sent."""
+        turns, system_prompt, history = await self._prepare(session_id, user, text)
+        return PreparedTurn(
+            session_id=session_id,
+            turns=turns,
+            text=text,
+            system_prompt=system_prompt,
+            history=history,
+        )
+
+    async def stream_prepared(self, prepared: PreparedTurn) -> AsyncIterator[str]:
+        """Stream the reply for an already-validated turn, sentence by sentence,
+        persisting whatever was produced even if the provider fails mid-stream."""
+        parts: list[str] = []
+        try:
+            async for sentence in self._llm.stream_complete(
+                prepared.system_prompt, prepared.history
+            ):
+                parts.append(sentence)
+                yield sentence
+        finally:
+            # Persist whatever was actually produced. A mid-stream provider
+            # failure — or an early client disconnect — must not silently drop a
+            # reply the learner already heard: that would desync the transcript
+            # the next turn and the debrief read back. Nothing produced yet means
+            # nothing to persist (consistent with take_turn on a failed reply).
+            if parts:
+                await self._persist(
+                    prepared.session_id,
+                    prepared.turns,
+                    prepared.text,
+                    " ".join(parts),
+                )
 
     async def _prepare(
         self, session_id: int, user: User, text: str

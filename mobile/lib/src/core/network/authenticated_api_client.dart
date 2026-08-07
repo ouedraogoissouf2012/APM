@@ -18,12 +18,21 @@ class AuthenticatedApiClient {
   Future<Map<String, dynamic>> getJson(String path) =>
       _withRefresh((bearer) => _api.getJson(path, bearer: bearer));
 
-  /// Streams response lines (SSE). Uses the current access token; a mid-stream
-  /// 401 is not retried (the session was just validated on start), so the
-  /// caller falls back to the non-streaming turn on failure.
+  /// Streams response lines (SSE), refreshing the access token once if the
+  /// request is rejected with a 401 before the stream starts. That 401 comes
+  /// from the auth dependency (before any SSE byte), so replaying the whole
+  /// request with a fresh token is safe — there is no half-consumed stream to
+  /// duplicate. Without this, a long conversation whose access token expires
+  /// mid-session would fail spuriously, unlike every other authenticated call.
   Stream<String> postLineStream(String path, {Map<String, dynamic>? body}) async* {
     final access = await _storage.readAccessToken();
-    yield* _api.postLineStream(path, body: body, bearer: access);
+    try {
+      yield* _api.postLineStream(path, body: body, bearer: access);
+    } on ApiException catch (e) {
+      if (e.statusCode != 401) rethrow;
+      final refreshed = await _refreshAccessToken();
+      yield* _api.postLineStream(path, body: body, bearer: refreshed);
+    }
   }
 
   Future<List<dynamic>> getList(String path) =>
