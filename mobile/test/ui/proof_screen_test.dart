@@ -52,7 +52,12 @@ Proof _proof({List<String> resolved = const ['verb_tense'], List<String> worse =
 Future<void> _pump(WidgetTester tester, ProofRepository repo) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [proofRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        proofRepositoryProvider.overrideWithValue(repo),
+        // In-memory store so the screen never touches the file/path_provider store
+        // (no platform channel in a unit test); the audible player stays hidden.
+        voiceTakeStoreProvider.overrideWithValue(InMemoryVoiceTakeStore()),
+      ],
       child: const MaterialApp(home: ProofScreen(skill: 'job_interview')),
     ),
   );
