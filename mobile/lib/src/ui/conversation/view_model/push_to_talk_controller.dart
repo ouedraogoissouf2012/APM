@@ -21,6 +21,10 @@ class PushToTalkController {
   final ReplyPlayback _playback;
 
   bool _recording = false;
+  // The session whose take has already been captured for the audible before/after
+  // (#199) — so we keep ONE representative take per scenario session, not one per
+  // utterance.
+  int? _capturedForSession;
 
   /// True while recording the learner's utterance, so the view-model routes a
   /// stop tap here and cancels the recording on end().
@@ -51,6 +55,18 @@ class PushToTalkController {
     if (bytes == null || bytes.isEmpty) {
       _host.state = _host.state.copyWith(status: ConversationStatus.idle);
       return;
+    }
+    // Audible before/after (#199): keep the FIRST take of each scenario session
+    // on-device, keyed by skill, so ProofScreen can play the learner's before vs
+    // after. Best-effort — a store failure must never break the turn.
+    final skill = _host.state.scenarioId;
+    if (skill != null && _capturedForSession != sessionId) {
+      _capturedForSession = sessionId;
+      try {
+        await _ref.read(voiceTakeStoreProvider).saveTake(skill, bytes);
+      } catch (_) {
+        // best-effort: never let a capture failure break the conversation turn
+      }
     }
     _host.state = _host.state.copyWith(
       status: ConversationStatus.thinking,

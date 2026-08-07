@@ -23,6 +23,7 @@ class ConversationTurn {
 class ConversationState {
   const ConversationState({
     this.sessionId,
+    this.scenarioId,
     this.turns = const [],
     this.status = ConversationStatus.idle,
     this.error,
@@ -31,6 +32,11 @@ class ConversationState {
   });
 
   final int? sessionId;
+
+  /// The skill this session practises (scenario mode). null for free/mission.
+  /// Used to key the learner's spoken takes for the audible before/after (#199).
+  final String? scenarioId;
+
   final List<ConversationTurn> turns;
   final ConversationStatus status;
   final String? error;
@@ -48,6 +54,7 @@ class ConversationState {
 
   ConversationState copyWith({
     int? sessionId,
+    String? scenarioId,
     List<ConversationTurn>? turns,
     ConversationStatus? status,
     String? error,
@@ -58,6 +65,7 @@ class ConversationState {
   }) {
     return ConversationState(
       sessionId: sessionId ?? this.sessionId,
+      scenarioId: scenarioId ?? this.scenarioId,
       turns: turns ?? this.turns,
       status: status ?? this.status,
       error: clearError ? null : (error ?? this.error),
