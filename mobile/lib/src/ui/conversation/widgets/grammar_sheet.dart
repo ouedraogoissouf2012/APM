@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/audio/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/turn_correction.dart';
 import '../../../design_system/atoms/overline_text.dart';
+import '../reformulation.dart';
+import '../view_model/conversation_providers.dart';
 
 /// Opens the grammar detail sheet for a correction: the rule (the "why") and
 /// alternative phrasings (the "grammar options" the learner asked for).
@@ -76,9 +80,119 @@ class _GrammarSheet extends StatelessWidget {
                   ),
                 ),
             ],
+            const SizedBox(height: AppSpacing.xl),
+            // Reformulation step (#200): say the corrected sentence RIGHT NOW and
+            // get immediate feedback, instead of only reading the fix.
+            _ReformulationTile(target: correction.correction),
           ],
         ),
       ),
+    );
+  }
+}
+
+enum _ReformStatus { idle, recording, checking, done }
+
+/// "Redis-le" — records the learner re-saying the corrected sentence, transcribes
+/// it, and tells them whether they nailed it. Reuses the shared recorder + the
+/// server transcription; state is local to this tile.
+class _ReformulationTile extends ConsumerStatefulWidget {
+  const _ReformulationTile({required this.target});
+
+  final String target;
+
+  @override
+  ConsumerState<_ReformulationTile> createState() => _ReformulationTileState();
+}
+
+class _ReformulationTileState extends ConsumerState<_ReformulationTile> {
+  _ReformStatus _status = _ReformStatus.idle;
+  bool? _matched; // null = couldn't verify (mic/STT failed or silence)
+  String _heard = '';
+
+  Future<void> _onTap() async {
+    if (_status == _ReformStatus.recording) {
+      await _stopAndCheck();
+    } else if (_status != _ReformStatus.checking) {
+      await _startRecording();
+    }
+  }
+
+  Future<void> _startRecording() async {
+    final started = await ref.read(audioRecordingProvider).start();
+    if (!mounted) return;
+    if (!started) {
+      setState(() {
+        _status = _ReformStatus.done;
+        _matched = null;
+        _heard = '';
+      });
+      return;
+    }
+    setState(() => _status = _ReformStatus.recording);
+  }
+
+  Future<void> _stopAndCheck() async {
+    setState(() => _status = _ReformStatus.checking);
+    final bytes = await ref.read(audioRecordingProvider).stop();
+    String heard = '';
+    try {
+      if (bytes != null && bytes.isNotEmpty) {
+        heard = (await ref.read(conversationRepositoryProvider).transcribe(bytes)).trim();
+      }
+    } catch (_) {
+      heard = '';
+    }
+    if (!mounted) return;
+    setState(() {
+      _heard = heard;
+      _matched = heard.isEmpty ? null : reformulationMatched(widget.target, heard);
+      _status = _ReformStatus.done;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final label = switch (_status) {
+      _ReformStatus.recording => "J'ai fini",
+      _ReformStatus.checking => 'Je vérifie…',
+      _ => 'Redis-le',
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            key: const Key('reformulation_button'),
+            icon: Icon(_status == _ReformStatus.recording ? Icons.stop : Icons.mic),
+            label: Text(label),
+            onPressed: _status == _ReformStatus.checking ? null : _onTap,
+          ),
+        ),
+        if (_status == _ReformStatus.done) ...[
+          const SizedBox(height: AppSpacing.md),
+          if (_matched == true)
+            Text(
+              "C'est ça ! 👏",
+              key: const Key('reformulation_ok'),
+              style: AppType.body(colors.positive),
+            )
+          else if (_matched == false)
+            Text(
+              'Presque — j\'ai entendu : « $_heard ». Réessaie.',
+              key: const Key('reformulation_retry'),
+              style: AppType.body(colors.textSecondary),
+            )
+          else
+            Text(
+              "Je n'ai pas pu t'entendre — réessaie.",
+              key: const Key('reformulation_unheard'),
+              style: AppType.body(colors.textSecondary),
+            ),
+        ],
+      ],
     );
   }
 }
