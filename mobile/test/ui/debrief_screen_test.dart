@@ -1,8 +1,10 @@
 import 'package:apm/src/core/router/routes.dart';
 import 'package:apm/src/core/theme/app_theme.dart';
 import 'package:apm/src/data/models/debrief.dart';
+import 'package:apm/src/data/models/review_item.dart';
 import 'package:apm/src/ui/debrief/view_model/debrief_view_model.dart';
 import 'package:apm/src/ui/debrief/widgets/debrief_screen.dart';
+import 'package:apm/src/ui/review/view_model/review_view_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,7 +17,11 @@ Debrief _debrief({
 }) =>
     Debrief(cefrEstimate: cefr, summary: summary, errors: errors);
 
-Future<void> _pump(WidgetTester tester, Debrief debrief) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Debrief debrief, {
+  List<ReviewItem> due = const [],
+}) async {
   final router = GoRouter(
     initialLocation: '/debrief/1',
     routes: [
@@ -41,6 +47,7 @@ Future<void> _pump(WidgetTester tester, Debrief debrief) async {
     ProviderScope(
       overrides: [
         debriefProvider(1).overrideWith((ref) async => debrief),
+        reviewProvider.overrideWith((ref) async => due),
       ],
       child: MaterialApp.router(theme: AppTheme.dark(), routerConfig: router),
     ),
@@ -150,5 +157,45 @@ void main() {
     await tester.tap(find.byKey(const Key('debrief_next_review')));
     await tester.pumpAndSettle();
     expect(find.text('Review target'), findsOneWidget);
+  });
+
+  testWidgets('memory picks the next focus: the top due weakness is surfaced (#201)',
+      (tester) async {
+    await _pump(
+      tester,
+      _debrief(),
+      due: const [
+        ReviewItem(
+          errorType: 'verb_tense',
+          latestCorrection: 'I went',
+          stage: 0,
+          cleanStreak: 0,
+          status: 'due',
+        ),
+        ReviewItem(
+          errorType: 'article',
+          latestCorrection: 'a cat',
+          stage: 0,
+          cleanStreak: 0,
+          status: 'due',
+        ),
+      ],
+    );
+
+    // The FIRST due item is THE priority, humanised.
+    final focus = find.byKey(const Key('debrief_priority_focus'));
+    expect(focus, findsOneWidget);
+    expect(find.text('Temps du verbe'), findsOneWidget); // verb_tense
+    // Tapping it chains into the review.
+    await tester.ensureVisible(focus);
+    await tester.tap(focus);
+    await tester.pumpAndSettle();
+    expect(find.text('Review target'), findsOneWidget);
+  });
+
+  testWidgets('no due items -> no priority focus (never an empty prompt)',
+      (tester) async {
+    await _pump(tester, _debrief(), due: const []);
+    expect(find.byKey(const Key('debrief_priority_focus')), findsNothing);
   });
 }

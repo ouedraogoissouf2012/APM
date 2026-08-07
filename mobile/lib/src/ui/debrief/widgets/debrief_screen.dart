@@ -6,6 +6,8 @@ import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/debrief.dart';
 import '../../../design_system/atoms/overline_text.dart';
+import '../../review/error_type_label.dart';
+import '../../review/view_model/review_view_model.dart';
 import '../view_model/debrief_view_model.dart';
 import 'pronunciation_map.dart';
 
@@ -109,6 +111,9 @@ class _NextSteps extends StatelessWidget {
       children: [
         const OverlineText('et maintenant ?'),
         const SizedBox(height: AppSpacing.md),
+        // The learner memory picks the next useful focus (#201): the top recurring
+        // weakness due for review, surfaced before the generic options.
+        const _PriorityFocus(),
         _NextStepButton(
           navKey: const Key('debrief_next_echo'),
           icon: Icons.graphic_eq,
@@ -125,6 +130,51 @@ class _NextSteps extends StatelessWidget {
           onTap: () => context.push(Routes.review),
         ),
       ],
+    );
+  }
+}
+
+/// The memory-driven "next focus" (#201): the learner's TOP recurring weakness due
+/// for review (the schedule already orders it), so the debrief points them at the
+/// most useful thing to work next — not just a generic menu. Hidden when nothing is
+/// due (or still loading), so it never shows an empty prompt.
+class _PriorityFocus extends ConsumerWidget {
+  const _PriorityFocus();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(reviewProvider).value;
+    if (items == null || items.isEmpty) return const SizedBox.shrink();
+    final top = items.first; // due items are ordered soonest-first
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: InkWell(
+        key: const Key('debrief_priority_focus'),
+        onTap: () => context.push(Routes.review),
+        borderRadius: BorderRadius.circular(AppRadius.hero),
+        child: _Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              OverlineText('ta priorité', color: colors.accent),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                errorTypeLabel(top.errorType),
+                key: const Key('priority_focus_label'),
+                style: AppType.displayMd(colors.textPrimary),
+              ),
+              if (top.latestCorrection.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  '· « ${top.latestCorrection} »',
+                  style: AppType.body(colors.textSecondary).copyWith(fontSize: 13),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
