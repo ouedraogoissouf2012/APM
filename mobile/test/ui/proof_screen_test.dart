@@ -1,3 +1,8 @@
+import 'dart:typed_data';
+
+import 'package:apm/src/core/audio/audio_playback_service.dart';
+import 'package:apm/src/core/audio/providers.dart';
+import 'package:apm/src/core/audio/voice_take_store.dart';
 import 'package:apm/src/data/models/mission.dart';
 import 'package:apm/src/data/models/proof.dart';
 import 'package:apm/src/data/repositories/proof_repository.dart';
@@ -10,6 +15,18 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockRepo extends Mock implements ProofRepository {}
+
+/// Records which take byte-lengths were played, so the A/B test can assert the
+/// baseline then the latest were played.
+class _FakePlayback implements AudioPlaybackService {
+  final List<int> playedLengths = [];
+  @override
+  Future<void> playClip(String audioB64, String mime) async {}
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async => playedLengths.add(bytes.length);
+  @override
+  Future<void> stop() async {}
+}
 
 Mission _mission() => const Mission(
   id: 42,
@@ -83,6 +100,56 @@ void main() {
     await _pump(tester, repo);
 
     expect(find.byKey(const Key('proof_error')), findsOneWidget);
+  });
+
+  testWidgets('audible before/after: plays the first then the latest take (#199)',
+      (tester) async {
+    final repo = _MockRepo();
+    when(() => repo.forSkill('job_interview')).thenAnswer((_) async => _proof());
+    final store = InMemoryVoiceTakeStore();
+    await store.saveTake('job_interview', Uint8List.fromList(const [1, 2, 3])); // baseline
+    await store.saveTake('job_interview', Uint8List.fromList(const [4, 5, 6, 7])); // latest
+    final playback = _FakePlayback();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          proofRepositoryProvider.overrideWithValue(repo),
+          voiceTakeStoreProvider.overrideWithValue(store),
+          audioPlaybackProvider.overrideWithValue(playback),
+        ],
+        child: const MaterialApp(home: ProofScreen(skill: 'job_interview')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('audible_proof')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('play_baseline')));
+    await tester.tap(find.byKey(const Key('play_latest')));
+    await tester.pumpAndSettle();
+
+    // Baseline (3 bytes) then latest (4 bytes) were played.
+    expect(playback.playedLengths, [3, 4]);
+  });
+
+  testWidgets('audible before/after is hidden until there are two takes', (tester) async {
+    final repo = _MockRepo();
+    when(() => repo.forSkill('job_interview')).thenAnswer((_) async => _proof());
+    final store = InMemoryVoiceTakeStore();
+    await store.saveTake('job_interview', Uint8List.fromList(const [1, 2, 3])); // only baseline
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          proofRepositoryProvider.overrideWithValue(repo),
+          voiceTakeStoreProvider.overrideWithValue(store),
+        ],
+        child: const MaterialApp(home: ProofScreen(skill: 'job_interview')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('audible_proof')), findsNothing);
   });
 
   testWidgets('tapping "Tenter le transfert" compiles a challenge and launches it',
