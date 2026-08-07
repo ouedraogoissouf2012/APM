@@ -16,6 +16,36 @@ abstract class AudioRecordingService {
   Future<void> cancel();
 }
 
+/// A minimal seam over the `record` plugin — just the four operations the capture
+/// cycle uses. Injecting this (instead of the concrete [AudioRecorder]) makes the
+/// accumulate/stop logic unit-testable with a fake that emits controlled chunks
+/// and closes the stream on demand — no microphone, no platform channel.
+abstract class PcmRecorder {
+  Future<bool> hasPermission();
+  Future<Stream<Uint8List>> startStream(RecordConfig config);
+  Future<void> stop();
+  Future<void> cancel();
+}
+
+/// Adapter binding [PcmRecorder] to the real plugin.
+class RecordPcmRecorder implements PcmRecorder {
+  RecordPcmRecorder([AudioRecorder? recorder]) : _recorder = recorder ?? AudioRecorder();
+
+  final AudioRecorder _recorder;
+
+  @override
+  Future<bool> hasPermission() => _recorder.hasPermission();
+
+  @override
+  Future<Stream<Uint8List>> startStream(RecordConfig config) => _recorder.startStream(config);
+
+  @override
+  Future<void> stop() => _recorder.stop();
+
+  @override
+  Future<void> cancel() => _recorder.cancel();
+}
+
 /// Streams raw PCM chunks from the mic and assembles them into a WAV in memory.
 ///
 /// WHY streaming instead of the recorder's file mode: on web, `record`'s WAV
@@ -27,34 +57,55 @@ abstract class AudioRecordingService {
 /// stop. We then wrap the accumulated PCM in a WAV header we control (mono 16 kHz,
 /// exactly what Whisper wants), which is also smaller and faster to upload.
 class DeviceAudioRecordingService implements AudioRecordingService {
-  DeviceAudioRecordingService({AudioRecorder? recorder})
-      : _recorder = recorder ?? AudioRecorder();
+  DeviceAudioRecordingService({PcmRecorder? recorder})
+      : _recorder = recorder ?? RecordPcmRecorder();
 
-  final AudioRecorder _recorder;
+  final PcmRecorder _recorder;
 
   // Whisper is trained on 16 kHz mono; asking for it here avoids a needless
   // stereo/44.1 kHz capture (4x the bytes) and any resampling on the backend.
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
+  // Upper bound on how long stop() waits for the stream to finish flushing before
+  // giving up — so a stream that never closes cannot hang the UI.
+  static const Duration _drainTimeout = Duration(seconds: 2);
 
   StreamSubscription<Uint8List>? _sub;
   BytesBuilder? _pcm;
+  // Completes when the chunk stream closes (after the recorder stops), so stop()
+  // can wait for the last in-flight buffers instead of dropping them.
+  Completer<void>? _closed;
 
   @override
   Future<bool> start() async {
+    // Re-entrant safe: tear down any prior take first, so a second start() cannot
+    // orphan a live subscription or leak the previous PCM buffer.
+    await _teardown();
     if (!await _recorder.hasPermission()) return false;
-    _pcm = BytesBuilder(copy: false);
-    final stream = await _recorder.startStream(
-      const RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: _sampleRate,
-        numChannels: _numChannels,
-      ),
-    );
-    // Append every chunk as it arrives — nothing is buffered inside the plugin
-    // waiting to be flushed, so a long utterance cannot be truncated.
+    final Stream<Uint8List> stream;
+    try {
+      stream = await _recorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: _sampleRate,
+          numChannels: _numChannels,
+        ),
+      );
+    } catch (_) {
+      // Failure leaves NO half-open state (_pcm/_sub/_closed stay null).
+      return false;
+    }
+    final pcm = BytesBuilder(copy: false);
+    final closed = Completer<void>();
+    _pcm = pcm;
+    _closed = closed;
+    // Append every chunk as it arrives; complete `closed` when the stream ends so
+    // stop() can drain the tail.
     _sub = stream.listen(
-      (chunk) => _pcm?.add(chunk),
+      pcm.add,
+      onDone: () {
+        if (!closed.isCompleted) closed.complete();
+      },
       cancelOnError: false,
     );
     return true;
@@ -62,25 +113,40 @@ class DeviceAudioRecordingService implements AudioRecordingService {
 
   @override
   Future<Uint8List?> stop() async {
+    final sub = _sub;
+    if (sub == null) return null;
     await _recorder.stop();
-    // The stream closes on stop; give any in-flight chunk a chance to be
-    // delivered before we read the accumulated bytes, then tear down.
-    await _sub?.cancel();
-    _sub = null;
+    // Drain: the recorder.stop() closes the stream, but the final buffer(s) may
+    // still be in flight. Wait for the stream's onDone before reading — otherwise
+    // the last ~1 buffer at the plugin boundary is dropped and the sentence is cut
+    // short. Bounded by _drainTimeout so a stream that never closes can't hang.
+    final closed = _closed;
+    if (closed != null && !closed.isCompleted) {
+      await closed.future.timeout(_drainTimeout, onTimeout: () {});
+    }
+    await sub.cancel();
     final pcm = _pcm?.takeBytes();
-    _pcm = null;
+    _reset();
     if (pcm == null || pcm.isEmpty) return null;
     return wrapPcmInWav(pcm, sampleRate: _sampleRate, numChannels: _numChannels);
   }
 
   @override
   Future<void> cancel() async {
-    await _sub?.cancel();
-    _sub = null;
-    _pcm = null;
+    await _teardown();
     await _recorder.cancel();
   }
 
+  Future<void> _teardown() async {
+    await _sub?.cancel();
+    _reset();
+  }
+
+  void _reset() {
+    _sub = null;
+    _pcm = null;
+    _closed = null;
+  }
 }
 
 /// Prepends a 44-byte WAV/PCM header to raw 16-bit PCM samples, producing a

@@ -49,7 +49,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          saved ? 'Profile saved' : 'Could not save your profile — try again',
+          saved ? 'Profil enregistré' : 'Impossible d’enregistrer ton profil — réessaie',
         ),
       ),
     );
@@ -59,12 +59,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget build(BuildContext context) {
     final async = ref.watch(profileViewModelProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(title: const Text('Profil')),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
           child: Text(
-            'Could not load your profile.',
+            'Impossible de charger ton profil.',
             key: Key('profile_error'),
           ),
         ),
@@ -77,15 +77,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 key: const Key('interests_field'),
                 controller: _interests,
                 decoration: const InputDecoration(
-                  labelText: 'Interests (comma-separated)',
-                  helperText: 'e.g. football, cooking, travel',
+                  labelText: 'Centres d’intérêt (séparés par des virgules)',
+                  helperText: 'ex. football, cuisine, voyage',
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 key: const Key('goal_field'),
                 controller: _goal,
-                decoration: const InputDecoration(labelText: 'Goal'),
+                decoration: const InputDecoration(labelText: 'Objectif'),
               ),
               const SizedBox(height: 16),
               Row(
@@ -98,11 +98,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     items: const [
                       DropdownMenuItem(
                         value: 'us',
-                        child: Text('American (US)'),
+                        child: Text('Américain (US)'),
                       ),
                       DropdownMenuItem(
                         value: 'uk',
-                        child: Text('British (UK)'),
+                        child: Text('Britannique (UK)'),
                       ),
                     ],
                     onChanged: (v) => setState(() => _accent = v ?? _accent),
@@ -111,16 +111,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ),
               Row(
                 children: [
-                  const Text('Correction style'),
+                  const Text('Style de correction'),
                   const Spacer(),
                   DropdownButton<String>(
                     key: const Key('intensity_dropdown'),
                     value: _intensity,
                     items: const [
-                      DropdownMenuItem(value: 'gentle', child: Text('Gentle')),
+                      DropdownMenuItem(value: 'gentle', child: Text('Doux')),
                       DropdownMenuItem(
                         value: 'detailed',
-                        child: Text('Detailed'),
+                        child: Text('Détaillé'),
                       ),
                     ],
                     onChanged: (v) =>
@@ -132,9 +132,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               FilledButton(
                 key: const Key('save_profile_button'),
                 onPressed: _save,
-                child: const Text('Save'),
+                child: const Text('Enregistrer'),
               ),
               const SizedBox(height: 8),
+              // TRACKED DEBT (#189, first declared #166, recurred #164/#170/#175):
+              // these four product areas (memory, vocabulary, review, proof) are
+              // parked here as list tiles under the settings form — a "dumping
+              // ground", not a real information architecture. They ARE reachable
+              // (fixing the earlier dead-ends), but the proper nav belongs to the
+              // design window; re-declared here so the debt is not repeated in
+              // silence again.
               ListTile(
                 key: const Key('memory_link'),
                 contentPadding: EdgeInsets.zero,

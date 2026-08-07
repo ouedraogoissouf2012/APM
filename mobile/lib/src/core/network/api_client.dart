@@ -134,15 +134,19 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
     String? bearer,
+    Map<String, String>? headers,
   }) async* {
     final Response<ResponseBody> response;
     try {
       response = await _dio.post<ResponseBody>(
         path,
         data: body,
+        // Same header logic as the JSON verbs (bearer + custom headers, e.g. an
+        // Idempotency-Key) — shared via _headers so streaming can't silently drop
+        // a header the non-streaming path sends.
         options: Options(
           responseType: ResponseType.stream,
-          headers: bearer == null ? null : {'Authorization': 'Bearer $bearer'},
+          headers: _headers(bearer, headers),
         ),
       );
     } on DioException catch (e) {
@@ -152,12 +156,13 @@ class ApiClient {
     yield* byteStream.transform(utf8.decoder).transform(const LineSplitter());
   }
 
-  Options _options(String? bearer, [Map<String, String>? extra]) => Options(
-    headers: {
-      if (bearer != null) 'Authorization': 'Bearer $bearer',
-      ...?extra,
-    },
-  );
+  Map<String, String> _headers(String? bearer, [Map<String, String>? extra]) => {
+    if (bearer != null) 'Authorization': 'Bearer $bearer',
+    ...?extra,
+  };
+
+  Options _options(String? bearer, [Map<String, String>? extra]) =>
+      Options(headers: _headers(bearer, extra));
 
   ApiException _toApiException(DioException e) {
     final status = e.response?.statusCode ?? 0;
