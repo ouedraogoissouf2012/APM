@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:apm/src/core/audio/audio_playback_service.dart';
 import 'package:apm/src/core/audio/audio_recording_service.dart';
 import 'package:apm/src/core/audio/providers.dart';
+import 'package:apm/src/core/audio/voice_take_store.dart';
 import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
@@ -189,6 +190,17 @@ class _BlockingSpeech implements SpeechService {
   }
 }
 
+/// Records which spoken takes were captured on-device, to assert the audible
+/// before/after capture (#199).
+class _SpyTakeStore implements VoiceTakeStore {
+  final List<({String skill, int len})> saved = [];
+  @override
+  Future<void> saveTake(String skill, Uint8List bytes) async =>
+      saved.add((skill: skill, len: bytes.length));
+  @override
+  Future<VoiceTakes?> takesFor(String skill) async => null;
+}
+
 ProviderContainer _container(
   ConversationRepository repo,
   SpeechService speech, {
@@ -196,6 +208,7 @@ ProviderContainer _container(
   bool serverStt = false,
   AudioPlaybackService? audio,
   AudioRecordingService? recorder,
+  VoiceTakeStore? takeStore,
 }) {
   final c = ProviderContainer(
     overrides: [
@@ -203,6 +216,7 @@ ProviderContainer _container(
       speechServiceProvider.overrideWithValue(speech),
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
+      if (takeStore != null) voiceTakeStoreProvider.overrideWithValue(takeStore),
       // Avoid any real /config network fetch in tests.
       runtimeConfigProvider.overrideWith(
         (ref) async => RuntimeConfig(
@@ -516,6 +530,55 @@ void main() {
       turns.any((t) => t.role == 'assistant' && t.content == 'I am well, thank you.'),
       isTrue,
     );
+  });
+
+  test('a scenario take is captured on-device for the audible before/after (#199)',
+      () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+        missionId: any(named: 'missionId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.transcribe(any())).thenAnswer((_) async => 'hello');
+    when(() => repo.streamTurn(any(), any()))
+        .thenAnswer((_) => Stream.value(const ReplySentence('hi')));
+    final store = _SpyTakeStore();
+    final c = _container(repo, _FakeSpeech(''), serverStt: true, takeStore: store);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start(mode: 'scenario', scenarioId: 'job_interview');
+    await vm.listenAndRespond(); // push-to-talk: start recording
+    await vm.stopConversation(); // stop -> transcribe -> capture the take
+
+    // The _FakeRecorder yields 3 bytes; keyed by the scenario skill.
+    expect(store.saved, [(skill: 'job_interview', len: 3)]);
+  });
+
+  test('a free session captures no take — there is no skill to key it (#199)',
+      () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+        missionId: any(named: 'missionId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.transcribe(any())).thenAnswer((_) async => 'hello');
+    when(() => repo.streamTurn(any(), any()))
+        .thenAnswer((_) => Stream.value(const ReplySentence('hi')));
+    final store = _SpyTakeStore();
+    final c = _container(repo, _FakeSpeech(''), serverStt: true, takeStore: store);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start(); // free mode, no scenario
+    await vm.listenAndRespond();
+    await vm.stopConversation();
+
+    expect(store.saved, isEmpty);
   });
 
   test('plays server audio and skips the on-device voice when serverTts is on',

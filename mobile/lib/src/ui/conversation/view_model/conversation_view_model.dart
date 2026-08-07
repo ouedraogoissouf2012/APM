@@ -53,6 +53,10 @@ class ConversationViewModel extends Notifier<ConversationState>
 
     int sessionId;
     List<ConversationTurn> turns;
+    // The skill actually being practised (for the audible-take capture, #199):
+    // the requested scenario normally, or the resumed session's scenario on a
+    // target-less 409 resume.
+    String? effectiveScenarioId = scenarioId;
     try {
       sessionId = await repo.startSession(
         mode: mode,
@@ -98,6 +102,7 @@ class ConversationViewModel extends Notifier<ConversationState>
         ];
       } else {
         sessionId = active.sessionId;
+        effectiveScenarioId = active.scenarioId;
         turns = active.turns.isEmpty
             ? [
                 ConversationTurn(
@@ -121,6 +126,7 @@ class ConversationViewModel extends Notifier<ConversationState>
     if (!ref.mounted) return;
     state = ConversationState(
       sessionId: sessionId,
+      scenarioId: effectiveScenarioId,
       turns: turns,
       error: speechReady ? null : 'Microphone is not available',
     );
