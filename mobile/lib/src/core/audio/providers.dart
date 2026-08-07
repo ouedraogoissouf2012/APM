@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'audio_playback_service.dart';
 import 'audio_recording_service.dart';
 import 'voice_take_store.dart';
+// Native persists takes to files; web falls back to in-memory (chosen at compile
+// time by the presence of dart:io).
+import 'persistent_voice_take_store.dart'
+    if (dart.library.io) 'persistent_voice_take_store_io.dart';
 
 /// Audio infrastructure providers live in core so any feature (conversation,
 /// echo, ...) depends on core instead of importing another feature's view model
@@ -16,9 +20,10 @@ final audioRecordingProvider = Provider<AudioRecordingService>(
 );
 
 /// On-device store of the learner's spoken takes, for the audible before/after
-/// proof (#199). Single instance per app run (in-memory for now).
+/// proof (#199). Persistent (files) on native so the before/after survives a
+/// restart; in-memory on web (tracked debt). Single instance per app run.
 final voiceTakeStoreProvider = Provider<VoiceTakeStore>(
-  (ref) => InMemoryVoiceTakeStore(),
+  (ref) => createVoiceTakeStore(),
 );
 
 /// The baseline + latest takes for a skill (null until there are two to compare).
