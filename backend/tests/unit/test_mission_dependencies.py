@@ -26,6 +26,11 @@ def test_fake_engine_uses_the_fake_llm():
 
 @pytest.mark.parametrize("engine", ["deepseek", "groq", "groq_fallback"])
 def test_a_real_engine_uses_a_real_llm_not_the_fake(engine, monkeypatch):
-    monkeypatch.setattr(get_settings(), "mission_engine", engine)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "mission_engine", engine)
+    # Dummy keys so the provider CONSTRUCTS (no network at build time) without real
+    # credentials — CI has none, and build_feature_llm refuses an empty key.
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
     service = get_mission_service(db=None)
     assert not isinstance(_llm(service), FakeMissionLlm)
