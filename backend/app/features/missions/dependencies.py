@@ -2,11 +2,11 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.engines import ENGINE_DEEPSEEK
+from app.core.engines import ENGINE_FAKE
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
-from app.features.conversation.factory import shared_llm_provider
+from app.features.conversation.factory import build_feature_llm
 from app.features.conversation.providers.interfaces import (
     TextCompletionProvider as LlmProvider,
 )
@@ -33,21 +33,17 @@ def get_mission_rate_limiter() -> RateLimiter:
 
 def get_mission_service(db: AsyncSession = Depends(get_db)) -> MissionService:
     settings = get_settings()
-    # Default "fake" returns a valid (generic) brief; "deepseek" does real compilation.
+    # Default "fake" returns a valid (generic) brief. A real engine does real
+    # compilation — and via build_feature_llm (like the conversation/debrief), so
+    # missions get the SAME options, including the robust "groq_fallback" chain
+    # (Groq -> DeepSeek). Missions no longer break if the DeepSeek key alone dies (#209).
     llm: LlmProvider
-    if settings.mission_engine == ENGINE_DEEPSEEK:
-        # Cached: one LLM client (one connection pool) per configuration.
-        llm = shared_llm_provider(
-            engine=ENGINE_DEEPSEEK,
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
-            model=settings.deepseek_model,
-            timeout_seconds=settings.deepseek_timeout_seconds,
-            max_retries=settings.deepseek_max_retries,
-            max_tokens=settings.deepseek_mission_max_tokens,
-        )
-    else:
+    if settings.mission_engine == ENGINE_FAKE:
         llm = FakeMissionLlm()
+    else:
+        llm = build_feature_llm(
+            settings.mission_engine, settings, settings.deepseek_mission_max_tokens
+        )
     return MissionService(
         missions=SqlAlchemyMissionRepository(db),
         compiler=MissionCompiler(llm),
