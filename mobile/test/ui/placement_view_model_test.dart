@@ -134,7 +134,9 @@ void main() {
     ).called(1);
   });
 
-  test('submit reports failure without throwing (placement is optional)', () async {
+  test('submit reports a network failure without throwing (placement is optional)', () async {
+    final conv = _MockConversationRepository();
+    when(() => conv.transcribe(any())).thenAnswer((_) async => 'answer');
     final onboarding = _MockOnboardingRepository();
     when(
       () => onboarding.submitPlacement(
@@ -143,16 +145,46 @@ void main() {
         goal: any(named: 'goal'),
       ),
     ).thenThrow(Exception('network down'));
+    final c = _container(conv: conv, onboarding: onboarding);
+    final vm = c.read(placementViewModelProvider.notifier);
+
+    // Record a real answer first, so submit actually hits the network path.
+    await vm.startRecording();
+    await vm.stopAndTranscribe();
+    final ok = await vm.submit(interests: const [], goal: '');
+
+    expect(ok, isFalse);
+    expect(c.read(placementViewModelProvider).status, PlacementStatus.failed);
+    verify(
+      () => onboarding.submitPlacement(
+        answers: any(named: 'answers'),
+        interests: any(named: 'interests'),
+        goal: any(named: 'goal'),
+      ),
+    ).called(1);
+  });
+
+  test('submit is skipped when nothing was heard (no bogus beginner level)', () async {
+    final onboarding = _MockOnboardingRepository();
     final c = _container(
       conv: _MockConversationRepository(),
       onboarding: onboarding,
     );
     final vm = c.read(placementViewModelProvider.notifier);
 
+    // No answers recorded at all -> must NOT submit a placement the backend would
+    // score as a real (beginner) level (#189: STT failure != a real level).
     final ok = await vm.submit(interests: const [], goal: '');
 
     expect(ok, isFalse);
     expect(c.read(placementViewModelProvider).status, PlacementStatus.failed);
+    verifyNever(
+      () => onboarding.submitPlacement(
+        answers: any(named: 'answers'),
+        interests: any(named: 'interests'),
+        goal: any(named: 'goal'),
+      ),
+    );
   });
 
   test('a failed mic start surfaces a failed status', () async {
@@ -167,5 +199,23 @@ void main() {
     await vm.startRecording();
 
     expect(c.read(placementViewModelProvider).status, PlacementStatus.failed);
+  });
+
+  test('a failed mic start can be retried (not a permanent dead-end)', () async {
+    final recorder = _FakeRecorder()..startResult = false;
+    final c = _container(
+      conv: _MockConversationRepository(),
+      onboarding: _MockOnboardingRepository(),
+      recorder: recorder,
+    );
+    final vm = c.read(placementViewModelProvider.notifier);
+
+    await vm.startRecording();
+    expect(c.read(placementViewModelProvider).status, PlacementStatus.failed);
+
+    // The learner grants permission and tries again — `failed` must not trap them.
+    recorder.startResult = true;
+    await vm.startRecording();
+    expect(c.read(placementViewModelProvider).status, PlacementStatus.recording);
   });
 }

@@ -231,9 +231,6 @@ class _DrillCard extends StatelessWidget {
 }
 
 /// Bottom navigation — four sections (DESIGN_SPEC §6.3). "Parler" active.
-///
-/// The Memory screen does not exist yet; its tab routes home for now rather
-/// than to a dead link — it will point to /memory once that screen lands.
 class _HomeNavBar extends StatelessWidget {
   const _HomeNavBar({required this.colors});
 
@@ -266,7 +263,7 @@ class _HomeNavBar extends StatelessWidget {
               icon: Icons.favorite_border,
               label: 'Mémoire',
               color: colors.textMuted,
-              onTap: () => context.go(Routes.home),
+              onTap: () => context.go(Routes.memory),
             ),
             _NavItem(
               navKey: const Key('nav_progress'),

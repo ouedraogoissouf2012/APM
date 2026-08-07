@@ -81,6 +81,34 @@ void main() {
     expect(c.read(missionViewModelProvider).status, MissionStatus.failed);
   });
 
+  test('a failed recompile clears the previously compiled brief', () async {
+    // #189: a stale brief that no longer matches the input must not stay visible
+    // and launchable after a failed recompile.
+    final repo = _MockMissionRepo();
+    var calls = 0;
+    when(
+      () => repo.compile(
+        sourceType: any(named: 'sourceType'),
+        content: any(named: 'content'),
+      ),
+    ).thenAnswer((_) async {
+      calls++;
+      if (calls == 1) return _brief();
+      throw Exception('down');
+    });
+    final c = _container(repo);
+    final vm = c.read(missionViewModelProvider.notifier);
+
+    await vm.compile('first offer');
+    expect(c.read(missionViewModelProvider).mission, isNotNull);
+
+    final ok = await vm.compile('a different offer'); // this one fails
+    expect(ok, isFalse);
+    final state = c.read(missionViewModelProvider);
+    expect(state.status, MissionStatus.failed);
+    expect(state.mission, isNull); // stale brief gone — nothing to launch
+  });
+
   test('changing the source type clears a previously compiled brief', () async {
     final repo = _MockMissionRepo();
     when(

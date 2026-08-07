@@ -56,7 +56,10 @@ class MissionViewModel extends Notifier<MissionState> {
   /// input is rejected locally (no wasted network/LLM call).
   Future<bool> compile(String content) async {
     if (content.trim().isEmpty) return false;
-    state = state.copyWith(status: MissionStatus.compiling);
+    // Clear any previously compiled brief up front: if this compile fails, the UI
+    // must not keep showing (and let the learner launch) a stale brief that no
+    // longer matches the current input.
+    state = state.copyWith(status: MissionStatus.compiling, clearMission: true);
     try {
       final mission = await ref
           .read(missionRepositoryProvider)

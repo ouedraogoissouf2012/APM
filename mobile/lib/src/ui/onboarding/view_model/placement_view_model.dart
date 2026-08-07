@@ -61,8 +61,17 @@ class PlacementViewModel extends Notifier<PlacementState> {
   @override
   PlacementState build() => const PlacementState();
 
+  /// Whether any answer captured real speech. Used to avoid submitting a placement
+  /// where the mic/STT never produced anything — which would otherwise be scored as
+  /// a genuine (bottom) level, indistinguishable from a real beginner.
+  bool get hasAnySpeech => state.answers.any((a) => a.trim().isNotEmpty);
+
   Future<void> startRecording() async {
-    if (state.status != PlacementStatus.idle) return;
+    // Allow a retry from `failed`: a microphone permission/hardware error must not
+    // be a permanent dead-end — the learner can grant access and try again.
+    if (state.status != PlacementStatus.idle && state.status != PlacementStatus.failed) {
+      return;
+    }
     final started = await ref.read(audioRecordingProvider).start();
     if (!started) {
       state = state.copyWith(status: PlacementStatus.failed);
@@ -111,6 +120,14 @@ class PlacementViewModel extends Notifier<PlacementState> {
     required List<String> interests,
     required String goal,
   }) async {
+    // If NOTHING was heard across all questions, don't submit a placement the
+    // backend would score as a real (beginner) level — a silent mic/STT failure is
+    // not evidence of the learner's English. Surface it so the UI can offer retry
+    // or an honest skip instead of silently pinning them at the bottom.
+    if (!hasAnySpeech) {
+      state = state.copyWith(status: PlacementStatus.failed);
+      return false;
+    }
     state = state.copyWith(status: PlacementStatus.submitting);
     try {
       final result = await ref
