@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/audio/providers.dart';
 import '../../../core/router/routes.dart';
 import '../../../data/models/proof.dart';
 import '../../review/error_type_label.dart';
@@ -142,6 +143,9 @@ class _ProofBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
+        // Audible before/after (#199): when two spoken takes exist for this skill,
+        // let the learner HEAR the progress, not just read the CEFR delta.
+        _AudibleProof(skill: skill),
         if (proof.resolved.isNotEmpty) ...[
           Text('Tu as corrigé', style: theme.textTheme.titleMedium),
           const SizedBox(height: 6),
@@ -178,6 +182,54 @@ class _ProofBody extends StatelessWidget {
         const SizedBox(height: 8),
         _TransferButton(skill: skill),
       ],
+    );
+  }
+}
+
+/// The audible before/after (#199): plays the learner's own first vs latest take
+/// on this skill, back to back. Hidden until there are two takes to compare, so it
+/// never shows an empty player. Takes live on-device only (#128).
+class _AudibleProof extends ConsumerWidget {
+  const _AudibleProof({required this.skill});
+
+  final String skill;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final takes = ref.watch(voiceTakesProvider(skill)).value;
+    if (takes == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Card(
+      key: const Key('audible_proof'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Écoute ton avant/après', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                OutlinedButton.icon(
+                  key: const Key('play_baseline'),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Ta voix — avant'),
+                  onPressed: () =>
+                      ref.read(audioPlaybackProvider).playBytes(takes.baseline, 'audio/wav'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('play_latest'),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Ta voix — maintenant'),
+                  onPressed: () =>
+                      ref.read(audioPlaybackProvider).playBytes(takes.latest, 'audio/wav'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
