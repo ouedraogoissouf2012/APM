@@ -71,13 +71,15 @@ async def stream_turn(
     """Stream the reply as Server-Sent Events: one `chunk` event per sentence
     so the client speaks it immediately, then at most one `correction` event
     (the learner's mistake + fix + rule + alternatives), a final `done`, or an
-    `error`. Ownership/quota checks happen before streaming begins."""
+    `error`. Ownership and session state are validated eagerly (proper 404/409)
+    before the stream is committed."""
     client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
+    prepared = await service.prepare_turn(session_id, current_user, payload.text)
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            async for event in service.stream_turn(session_id, current_user, payload.text):
+            async for event in service.stream_prepared(prepared):
                 if isinstance(event, ReplyChunk):
                     yield _sse("chunk", {"text": event.text})
                 elif isinstance(event, AudioChunk):

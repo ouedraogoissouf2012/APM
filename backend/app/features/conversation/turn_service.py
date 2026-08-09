@@ -66,6 +66,22 @@ class CorrectionReady:
 TurnStreamEvent = ReplyChunk | AudioChunk | CorrectionReady
 
 
+@dataclass
+class PreparedTurn:
+    """A validated turn, ready to stream and persist. Built by
+    ConversationTurnService.prepare_turn BEFORE any streaming response begins, so
+    ownership/state failures surface as a proper 404/409 instead of a committed
+    200 stream that then emits a generic error."""
+
+    session_id: int
+    user: User
+    text: str
+    turns: list[dict]
+    system_prompt: str
+    history: list[Message]
+    intensity: str
+
+
 class ConversationTurnService:
     def __init__(
         self,
@@ -99,15 +115,43 @@ class ConversationTurnService:
     async def stream_turn(
         self, session_id: int, user: User, text: str
     ) -> AsyncIterator[TurnStreamEvent]:
-        """Stream the reply sentence by sentence (text appears live) AND speak each
-        sentence as it is produced: the audio for sentence N is synthesized while
-        the LLM is still writing sentence N+1, so the voice starts after the first
-        sentence (~1-2 s) instead of after the whole reply plus its synthesis
-        (~5 s). The client plays the clips sequentially (await playClip), so
-        per-sentence clips never cut each other off. A grammar correction for the
+        """Validate, then stream + persist. A single entry point for callers that
+        don't need to separate validation from streaming; the streaming route
+        splits the two so ownership/state errors get a proper HTTP status (see
+        prepare_turn and stream_prepared)."""
+        prepared = await self.prepare_turn(session_id, user, text)
+        async for event in self.stream_prepared(prepared):
+            yield event
+
+    async def prepare_turn(self, session_id: int, user: User, text: str) -> PreparedTurn:
+        """Validate ownership/state and build the prompt+history for a turn. Call
+        (and await) this BEFORE returning a StreamingResponse: a not-owned or ended
+        session then raises to the exception handlers (404/409). Once the stream
+        starts the 200 is committed and the real status can no longer be sent — the
+        failure would only surface as a generic error event."""
+        turns, system_prompt, history, intensity = await self._prepare(session_id, user, text)
+        return PreparedTurn(
+            session_id=session_id,
+            user=user,
+            text=text,
+            turns=turns,
+            system_prompt=system_prompt,
+            history=history,
+            intensity=intensity,
+        )
+
+    async def stream_prepared(self, prepared: PreparedTurn) -> AsyncIterator[TurnStreamEvent]:
+        """Stream the reply for an already-validated turn sentence by sentence AND
+        speak each sentence as it is produced: the audio for sentence N is
+        synthesized while the LLM is still writing sentence N+1, so the voice starts
+        after the first sentence (~1-2 s) instead of after the whole reply plus its
+        synthesis (~5 s). The client plays the clips sequentially (await playClip),
+        so per-sentence clips never cut each other off. A grammar correction for the
         learner's utterance is computed IN PARALLEL and emitted last, so the gold
         chip never breaks the flow."""
-        turns, system_prompt, history, intensity = await self._prepare(session_id, user, text)
+        session_id, user, text = prepared.session_id, prepared.user, prepared.text
+        turns, system_prompt, history = prepared.turns, prepared.system_prompt, prepared.history
+        intensity = prepared.intensity
         correction_task: asyncio.Future[TurnCorrection | None] | None = None
         # Synthesis of the previous sentence, running while the next one is being
         # generated. Awaited just before its audio is emitted, so clips stay ordered
