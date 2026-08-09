@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.exceptions import ConflictError, NotFoundError
+from app.domain.exceptions import ConflictError, LlmProviderError, NotFoundError
 from app.features.auth.models import User
 from app.features.conversation.correction import TurnCorrection, TurnCorrector
 from app.features.conversation.turn_service import (
@@ -102,6 +102,21 @@ class _StreamingLlm:
         self.seen_history = history
         for chunk in self._chunks:
             yield chunk
+
+
+class _PartialThenFailingLlm:
+    """Streams a few sentences, then the provider dies mid-reply."""
+
+    def __init__(self, chunks) -> None:
+        self._chunks = chunks
+
+    async def complete(self, system_prompt, history):  # pragma: no cover - unused
+        raise LlmProviderError("LLM provider failed")
+
+    async def stream_complete(self, system_prompt, history):
+        for chunk in self._chunks:
+            yield chunk
+        raise LlmProviderError("LLM provider failed")
 
 
 def _user() -> User:
@@ -386,6 +401,46 @@ async def test_stream_turn_rejects_ended_session():
     service = _service(_FakeSessions(owner_id=7, ended=True), _FakeTranscripts(), llm)
     with pytest.raises(ConflictError):
         _ = [c async for c in service.stream_turn(1, _user(), "hello")]
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_persists_partial_reply_when_stream_fails_midway():
+    # The provider dies after two sentences the learner has already heard. The
+    # exchange must NOT vanish from the transcript, or the next turn's history
+    # (and the end-of-session debrief) silently loses what was actually said.
+    transcripts = _FakeTranscripts()
+    llm = _PartialThenFailingLlm(["Hi there.", "How are"])
+    service = _service(_FakeSessions(owner_id=7), transcripts, llm)
+
+    seen: list[str] = []
+    with pytest.raises(LlmProviderError):
+        async for event in service.stream_turn(1, _user(), "hello"):
+            if isinstance(event, ReplyChunk):
+                seen.append(event.text)
+
+    assert seen == ["Hi there.", "How are"]
+    assert transcripts.saved == (
+        1,
+        [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "Hi there. How are"},
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_persists_nothing_when_it_fails_before_any_output():
+    # Nothing was produced, so there is nothing to persist — consistent with
+    # take_turn, which saves nothing when the reply itself fails.
+    transcripts = _FakeTranscripts()
+    llm = _PartialThenFailingLlm([])
+    service = _service(_FakeSessions(owner_id=7), transcripts, llm)
+
+    with pytest.raises(LlmProviderError):
+        async for _event in service.stream_turn(1, _user(), "hello"):
+            pass
+
+    assert transcripts.saved is None
 
 
 @pytest.mark.asyncio
