@@ -61,13 +61,13 @@ Future<void> _pump(
 }
 
 void main() {
-  testWidgets('renders on the cream (light) surface — narrative inversion',
+  testWidgets('renders on the app dark surface — one consistent theme, no inversion',
       (tester) async {
     await _pump(tester, _debrief());
-    // The debrief content lives in light mode regardless of the app's dark
-    // default — assert on a context BELOW the local Theme inversion.
+    // The debrief no longer inverts to a light "carnet": it shares the app's dark
+    // theme so there is no jarring dark→light jump out of the conversation.
     final ctx = tester.element(find.byKey(const Key('cefr_estimate')));
-    expect(Theme.of(ctx).brightness, Brightness.light);
+    expect(Theme.of(ctx).brightness, Brightness.dark);
   });
 
   testWidgets('shows the CEFR level as the hero metric', (tester) async {
