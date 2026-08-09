@@ -1,6 +1,10 @@
+import 'indexed_db_voice_take_kv.dart';
+import 'kv_voice_take_store.dart';
 import 'voice_take_store.dart';
 
-/// Default / web factory. The web build has no filesystem, so takes live for the
-/// app run only. Persistent web storage (IndexedDB) is a tracked follow-up — the
-/// native build (below, chosen by conditional import) already persists to files.
-VoiceTakeStore createVoiceTakeStore() => InMemoryVoiceTakeStore();
+/// Default / web factory. The web build now persists takes in IndexedDB (#205) so
+/// the audible before/after survives a page reload — matching the native build,
+/// which persists to files (chosen instead of this file by the conditional import
+/// on `dart.library.io`).
+VoiceTakeStore createVoiceTakeStore() =>
+    KvVoiceTakeStore(IndexedDbVoiceTakeKv());
