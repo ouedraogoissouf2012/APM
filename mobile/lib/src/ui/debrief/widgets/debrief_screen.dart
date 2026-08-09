@@ -11,12 +11,13 @@ import '../../review/view_model/review_view_model.dart';
 import '../view_model/debrief_view_model.dart';
 import 'pronunciation_map.dart';
 
-/// End-of-session debrief — DESIGN_SPEC §5.5 / §7. Rendered on the **cream**
-/// (light) surface: a deliberate narrative inversion. The conversation happens
-/// in the dark "tunnel"; the learner steps into the light to read their debrief.
+/// End-of-session debrief — DESIGN_SPEC §5.5 / §7. Rendered on the app's default
+/// **dark** surface, like every other screen: the learner asked for one
+/// consistent theme rather than the earlier light "carnet" inversion, so there is
+/// no jarring dark→light jump when stepping out of the conversation.
 ///
-/// The whole subtree is wrapped in [AppTheme.light] so every design-system
-/// widget picks up the cream roles without any per-widget branching.
+/// Every widget reads its colours through the semantic [AppSemanticColors] roles
+/// (`context.colors`), so the dark theme applies without any per-widget branching.
 class DebriefScreen extends ConsumerWidget {
   const DebriefScreen({super.key, required this.sessionId, this.scenarioId});
 
@@ -29,41 +30,34 @@ class DebriefScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(debriefProvider(sessionId));
-    return Theme(
-      data: AppTheme.light(),
-      child: Builder(
-        builder: (context) {
-          final colors = context.colors;
-          return Scaffold(
-            backgroundColor: colors.background,
-            appBar: AppBar(
-              backgroundColor: colors.background,
-              title: Text('Ton bilan', style: AppType.displayMd(colors.textPrimary)),
-              actions: [
-                IconButton(
-                  key: const Key('debrief_home_button'),
-                  icon: const Icon(Icons.home_outlined),
-                  color: colors.textSecondary,
-                  onPressed: () => context.go(Routes.home),
-                ),
-              ],
+    final colors = context.colors;
+    return Scaffold(
+      backgroundColor: colors.background,
+      appBar: AppBar(
+        backgroundColor: colors.background,
+        title: Text('Ton bilan', style: AppType.displayMd(colors.textPrimary)),
+        actions: [
+          IconButton(
+            key: const Key('debrief_home_button'),
+            icon: const Icon(Icons.home_outlined),
+            color: colors.textSecondary,
+            onPressed: () => context.go(Routes.home),
+          ),
+        ],
+      ),
+      body: async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Text(
+              "Impossible de charger ton bilan.",
+              key: const Key('debrief_error'),
+              style: AppType.body(colors.textSecondary),
             ),
-            body: async.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (_, _) => Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.xl),
-                  child: Text(
-                    "Impossible de charger ton bilan.",
-                    key: const Key('debrief_error'),
-                    style: AppType.body(colors.textSecondary),
-                  ),
-                ),
-              ),
-              data: (debrief) => _DebriefBody(debrief: debrief, scenarioId: scenarioId),
-            ),
-          );
-        },
+          ),
+        ),
+        data: (debrief) => _DebriefBody(debrief: debrief, scenarioId: scenarioId),
       ),
     );
   }
@@ -175,7 +169,7 @@ class _PriorityFocus extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              OverlineText('ta priorité', color: colors.accent),
+              const OverlineText('ta priorité'),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 errorTypeLabel(top.errorType),
@@ -283,7 +277,7 @@ class _WhatWorked extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        OverlineText('ce qui a marché', color: colors.positive),
+        const OverlineText('ce qui a marché'),
         const SizedBox(height: AppSpacing.md),
         Text(summary, style: AppType.body(colors.textPrimary)),
       ],
@@ -304,7 +298,7 @@ class _ToReview extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        OverlineText('à reprendre', color: colors.accent),
+        const OverlineText('à reprendre'),
         const SizedBox(height: AppSpacing.md),
         if (errors.isEmpty)
           Text(
@@ -374,7 +368,7 @@ class _CorrectionPanel extends StatelessWidget {
             _LabeledLines(
               label: 'tu peux aussi dire',
               lines: error.alternatives,
-              color: colors.correction,
+              color: colors.textMuted,
             ),
         ],
       ),
