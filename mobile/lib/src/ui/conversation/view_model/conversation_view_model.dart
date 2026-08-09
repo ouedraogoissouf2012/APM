@@ -24,8 +24,9 @@ final conversationViewModelProvider =
       ConversationViewModel.new,
     );
 
-/// Drives one turn at a time: listen (device STT) -> send to backend (DeepSeek)
-/// -> speak the reply (device TTS). Turn-based, no real-time audio streaming.
+/// Drives one turn at a time: listen (device or server STT) -> send to the
+/// backend -> voice the reply, which streams back sentence by sentence as text
+/// (spoken on-device) or as neural audio clips (server TTS), played in order.
 ///
 /// Orchestrates the extracted pieces (#121): [ReplyPlayback] consumes the reply
 /// stream for both input modes. It implements [ConversationHost] so those pieces
@@ -172,6 +173,7 @@ class ConversationViewModel extends Notifier<ConversationState>
       return;
     }
     _loop.stop();
+    await _playback.cancel();
     await ref.read(speechServiceProvider).stopListening();
     if (ref.mounted && state.sessionId != null) {
       state = state.copyWith(
@@ -184,6 +186,7 @@ class ConversationViewModel extends Notifier<ConversationState>
   Future<void> end() async {
     _loop.stop();
     await _pushToTalk.cancel();
+    await _playback.cancel();
     await ref.read(speechServiceProvider).stopListening();
     final id = state.sessionId;
     if (id != null) {

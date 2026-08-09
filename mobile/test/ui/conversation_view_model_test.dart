@@ -75,6 +75,44 @@ class _SlowAudio implements AudioPlaybackService {
   Future<void> stop() async {}
 }
 
+/// Neural-audio player a test can drive: [playClip] blocks until [release] (or
+/// [stop]) so a clip can be held "playing", records [stopCalls], and signals
+/// [firstPlayStarted] when the first clip begins.
+class _ControllableAudio implements AudioPlaybackService {
+  final List<String> played = [];
+  int stopCalls = 0;
+  final firstPlayStarted = Completer<void>();
+  final List<Completer<void>> _gates = [];
+  bool _open = false;
+
+  @override
+  Future<void> playClip(String audioB64, String mime) async {
+    if (!firstPlayStarted.isCompleted) firstPlayStarted.complete();
+    if (!_open) {
+      final gate = Completer<void>();
+      _gates.add(gate);
+      await gate.future;
+    }
+    played.add(audioB64);
+  }
+
+  void release() {
+    _open = true;
+    for (final g in _gates) {
+      if (!g.isCompleted) g.complete();
+    }
+  }
+
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async {}
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    release();
+  }
+}
+
 /// Fake recorder that yields fixed bytes on stop, for the push-to-talk path.
 class _FakeRecorder implements AudioRecordingService {
   bool started = false;
@@ -639,16 +677,88 @@ void main() {
     final vm = c.read(conversationViewModelProvider.notifier);
 
     await vm.start();
-    await vm.listenAndRespond();
+    final loop = vm.listenAndRespond();
 
     // The FULL text is shown even though NO clip has finished playing yet — the
-    // stream was not blocked by playback.
+    // stream was not blocked by playback (the clips are still gated here).
+    await pumpEventQueue();
     expect(c.read(conversationViewModelProvider).turns.last.content, 'First. Second.');
 
-    // Now let the clips finish: both play, in order.
+    // Now let the clips finish: both play, in order, and the loop completes.
     audio.release();
-    await vm.awaitPlaybackForTest();
+    await loop;
     expect(audio.played, ['QQ==', 'Qg==']);
+  });
+
+  test('stopConversation stops in-flight neural reply audio', () async {
+    // With server TTS, the reply plays as neural clips in the background. Tapping
+    // stop must actually silence them — not leave the assistant talking after the
+    // learner ended the turn.
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(const [
+        ReplySentence('Bye.'),
+        AudioClip('QUJD', 'audio/mpeg'),
+      ]),
+    );
+    final audio = _ControllableAudio(); // the clip stays "playing"
+    final c = _container(repo, _FakeSpeech('hi'), serverTts: true, audio: audio);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    final loop = vm.listenAndRespond();
+    await audio.firstPlayStarted.future; // the neural clip is now playing
+
+    await vm.stopConversation();
+    expect(audio.stopCalls, 1); // the voice was actually stopped
+
+    audio.release(); // let anything still pending unwind
+    await loop;
+  });
+
+  test('hands-free loop waits for neural audio to finish before listening '
+      'again (no mic-during-audio echo)', () async {
+    // The bug: with server TTS the neural clip plays in the background; the loop
+    // must NOT reopen the mic while it is still playing, or the device recognizer
+    // captures the assistant's own voice.
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.streamTurn(any(), any())).thenAnswer(
+      (_) => Stream.fromIterable(const [
+        ReplySentence('More?'),
+        AudioClip('QQ==', 'audio/mpeg'),
+      ]),
+    );
+    final audio = _ControllableAudio(); // clip blocks until released
+    final speech = _FakeSpeech('hi', thenSilence: true);
+    final c = _container(repo, speech, serverTts: true, audio: audio);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    final loop = vm.listenAndRespond();
+    await audio.firstPlayStarted.future; // reply produced; clip now playing
+    await pumpEventQueue();
+
+    // The mic was NOT reopened while the clip is still playing.
+    expect(speech.listenCalls, 1);
+
+    audio.release(); // clip finishes -> the loop may continue
+    await loop;
+
+    // Only after the audio finished did the loop listen again.
+    expect(speech.listenCalls, greaterThanOrEqualTo(2));
+    expect(audio.played, ['QQ==']);
   });
 
   test('attaches a streamed correction to the learner turn', () async {
