@@ -43,10 +43,10 @@ class ReplyChunk:
 
 @dataclass(frozen=True)
 class AudioChunk:
-    """Base64-encoded synthesized audio for the WHOLE reply as a single clip,
-    emitted after the reply text so the client plays a real neural voice instead
-    of the robotic on-device one. It is one clip (not one per sentence) because
-    playing many short clips back-to-back cuts sentences off on the client. Only
+    """Base64-encoded synthesized audio for ONE reply sentence, emitted right
+    after that sentence's text so the client can start the neural voice while the
+    rest of the reply is still being written. The client plays the per-sentence
+    clips sequentially (a background queue) so they never cut each other off. Only
     produced when a server-side TTS is configured."""
 
     audio_b64: str

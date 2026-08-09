@@ -121,12 +121,21 @@ class ReplyPlayback {
     }
   }
 
-  /// Awaits any in-flight background playback. Used by callers that need the
-  /// audio finished (e.g. tests) — production never blocks the turn on it.
+  /// Awaits any in-flight background playback. Used by the loop before it opens
+  /// the mic again (so the recognizer never captures the assistant's own neural
+  /// voice) and by tests that need the audio finished.
   Future<void> awaitPlayback() async {
     while (_playbackTask != null) {
       await _playbackTask;
     }
+  }
+
+  /// Stops and discards any queued or in-flight reply audio — called when the
+  /// learner stops or ends the conversation, so the neural voice does not keep
+  /// talking after the session is over.
+  Future<void> cancel() async {
+    _clipQueue.clear();
+    await _ref.read(audioPlaybackProvider).stop();
   }
 
   /// Sets (or replaces) the current assistant turn as its text streams in, and

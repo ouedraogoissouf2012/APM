@@ -81,7 +81,18 @@ class TurnLoopController {
       turns: [..._host.state.turns, ConversationTurn(kRoleUser, heard)],
       status: ConversationStatus.thinking,
     );
-    return _playback.streamReplyAndSpeak(sessionId, heard, isLive: () => isActive);
+    final carryOn = await _playback.streamReplyAndSpeak(
+      sessionId,
+      heard,
+      isLive: () => isActive,
+    );
+    if (!carryOn) return false;
+    // Let any neural reply audio finish playing BEFORE reopening the mic for the
+    // next turn — otherwise the device recognizer captures the assistant's own
+    // voice (echo). No-op with the on-device voice (already spoken inline) or
+    // when there is no server audio queued.
+    await _playback.awaitPlayback();
+    return isActive;
   }
 
   /// Listens for one utterance, streaming partial words to the UI.
