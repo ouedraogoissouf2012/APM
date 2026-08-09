@@ -12,6 +12,7 @@ abstract final class Routes {
   static const conversation = '/conversation';
   static const profile = '/profile';
   static const memory = '/memory';
+  static const learn = '/learn';
   static const scenarios = '/scenarios';
   static const echo = '/echo';
   static const vocabulary = '/vocabulary';
