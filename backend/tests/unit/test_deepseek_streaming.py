@@ -118,3 +118,46 @@ async def test_stream_wraps_failures_in_domain_error():
     )
     with pytest.raises(LlmProviderError):
         await _collect(provider, "s", [Message(role="user", content="x")])
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_split_a_decimal_number():
+    # "3.50" must never become "3." + "50": that period is followed by a digit,
+    # not a space, so it is not a sentence boundary. A real boundary follows.
+    deltas = ["It costs 3.50 dollars. Thanks!"]
+    provider = DeepSeekLlmProvider(
+        client=_StreamingClient({}, deltas), model="deepseek-chat", max_tokens=200
+    )
+    chunks = await _collect(provider, "s", [Message(role="user", content="x")])
+    assert chunks == ["It costs 3.50 dollars.", "Thanks!"]
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_split_on_a_common_abbreviation():
+    # "Mr. Smith" must stay one clip, not "Mr." + "Smith ...".
+    deltas = ["Mr. Smith is here. Bye!"]
+    provider = DeepSeekLlmProvider(
+        client=_StreamingClient({}, deltas), model="deepseek-chat", max_tokens=200
+    )
+    chunks = await _collect(provider, "s", [Message(role="user", content="x")])
+    assert chunks == ["Mr. Smith is here.", "Bye!"]
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_split_on_eg():
+    deltas = ["Try fruit, e.g. apples. Yum!"]
+    provider = DeepSeekLlmProvider(
+        client=_StreamingClient({}, deltas), model="deepseek-chat", max_tokens=200
+    )
+    chunks = await _collect(provider, "s", [Message(role="user", content="x")])
+    assert chunks == ["Try fruit, e.g. apples.", "Yum!"]
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_split_on_initials():
+    deltas = ["J. R. Tolkien wrote it. Nice!"]
+    provider = DeepSeekLlmProvider(
+        client=_StreamingClient({}, deltas), model="deepseek-chat", max_tokens=200
+    )
+    chunks = await _collect(provider, "s", [Message(role="user", content="x")])
+    assert chunks == ["J. R. Tolkien wrote it.", "Nice!"]
