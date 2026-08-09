@@ -113,29 +113,41 @@ class ConversationTurnService:
         # generated. Awaited just before its audio is emitted, so clips stay ordered
         # yet overlap generation (the latency win).
         pending_audio: asyncio.Future[bytes] | None = None
+        parts: list[str] = []
         try:
-            parts: list[str] = []
-            async for sentence in self._llm.stream_complete(system_prompt, history):
-                parts.append(sentence)
-                yield ReplyChunk(sentence)
-                # Emit the previous sentence's finished audio before kicking off the
-                # next, keeping clips in order.
+            try:
+                async for sentence in self._llm.stream_complete(system_prompt, history):
+                    parts.append(sentence)
+                    yield ReplyChunk(sentence)
+                    # Emit the previous sentence's finished audio before kicking off the
+                    # next, keeping clips in order.
+                    async for event in self._drain_audio(pending_audio):
+                        yield event
+                    pending_audio = self._start_synthesis(sentence)
+                    # Start the correction only once the reply is already streaming,
+                    # so its concurrent LLM call cannot delay the reply's first token
+                    # (the latency the learner actually feels).
+                    if correction_task is None and self._corrector is not None:
+                        correction_task = asyncio.ensure_future(
+                            self._corrector.correct(
+                                text, user.cefr_level, user.native_language, intensity
+                            )
+                        )
+                # Emit the last sentence's audio.
                 async for event in self._drain_audio(pending_audio):
                     yield event
-                pending_audio = self._start_synthesis(sentence)
-                # Start the correction only once the reply is already streaming,
-                # so its concurrent LLM call cannot delay the reply's first token
-                # (the latency the learner actually feels).
-                if correction_task is None and self._corrector is not None:
-                    correction_task = asyncio.ensure_future(
-                        self._corrector.correct(
-                            text, user.cefr_level, user.native_language, intensity
-                        )
-                    )
-            # Emit the last sentence's audio.
-            async for event in self._drain_audio(pending_audio):
-                yield event
-            pending_audio = None
+                pending_audio = None
+            except Exception:
+                # The reply stream failed partway through. Persist what the learner
+                # already heard so the exchange isn't silently dropped — a lost
+                # partial reply would desync the next turn's history and the debrief.
+                # Then re-raise so the router emits an `error` event. A clean client
+                # disconnect arrives as CancelledError/GeneratorExit (not Exception)
+                # and is intentionally NOT persisted here: a DB write during request
+                # teardown is unsafe, and the normal path already saved on success.
+                if parts:
+                    await self._persist(session_id, user, turns, text, " ".join(parts))
+                raise
             full_reply = " ".join(parts)
             await self._persist(session_id, user, turns, text, full_reply)
             if correction_task is not None:
