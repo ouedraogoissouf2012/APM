@@ -78,7 +78,7 @@ void main() {
   testWidgets('bottom navigation exposes the four sections', (tester) async {
     await _pump(tester);
     expect(find.byKey(const Key('nav_talk')), findsOneWidget);
-    expect(find.byKey(const Key('nav_memory')), findsOneWidget);
+    expect(find.byKey(const Key('nav_learn')), findsOneWidget);
     expect(find.byKey(const Key('nav_progress')), findsOneWidget);
     expect(find.byKey(const Key('nav_profile')), findsOneWidget);
   });

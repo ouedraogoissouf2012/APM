@@ -135,40 +135,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 child: const Text('Enregistrer'),
               ),
               const SizedBox(height: 8),
-              // TRACKED DEBT (#189, first declared #166, recurred #164/#170/#175):
-              // these four product areas (memory, vocabulary, review, proof) are
-              // parked here as list tiles under the settings form — a "dumping
-              // ground", not a real information architecture. They ARE reachable
-              // (fixing the earlier dead-ends), but the proper nav belongs to the
-              // design window; re-declared here so the debt is not repeated in
-              // silence again.
-              ListTile(
-                key: const Key('memory_link'),
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.psychology_outlined),
-                title: const Text('Ce que je sais de toi'),
-                subtitle: const Text('Voir et éditer la mémoire de l’assistant'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push(Routes.memory),
-              ),
-              ListTile(
-                key: const Key('vocabulary_link'),
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.menu_book_outlined),
-                title: const Text('Mon carnet'),
-                subtitle: const Text('Les mots vus en session, à réviser'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push(Routes.vocabulary),
-              ),
-              ListTile(
-                key: const Key('review_link'),
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.repeat),
-                title: const Text('À réviser'),
-                subtitle: const Text('Tes fautes récurrentes, au bon moment'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push(Routes.review),
-              ),
+              // Voice consent/privacy is genuinely account-adjacent, so it stays
+              // with the profile settings. The learning zones that used to pile up
+              // here (memory, notebook, review) — the tracked "dumping ground"
+              // debt (#189, first #166) — now live in the "Apprendre" hub (#194).
               ListTile(
                 key: const Key('voice_privacy_link'),
                 contentPadding: EdgeInsets.zero,

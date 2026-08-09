@@ -259,11 +259,11 @@ class _HomeNavBar extends StatelessWidget {
               onTap: () => context.go(Routes.scenarios),
             ),
             _NavItem(
-              navKey: const Key('nav_memory'),
-              icon: Icons.favorite_border,
-              label: 'Mémoire',
+              navKey: const Key('nav_learn'),
+              icon: Icons.school_outlined,
+              label: 'Apprendre',
               color: colors.textMuted,
-              onTap: () => context.go(Routes.memory),
+              onTap: () => context.go(Routes.learn),
             ),
             _NavItem(
               navKey: const Key('nav_progress'),
