@@ -22,6 +22,12 @@ from app.features.idempotency.repository import IdempotencyRepository
 STALE_CLAIM_SECONDS = 120
 
 
+def _turn_lock_key(session_id: int) -> str:
+    """Namespaced so a session's turn lock can never collide with a
+    client-supplied Idempotency-Key (a UUID) sharing the same (user, key) table."""
+    return f"turn-lock:session:{session_id}"
+
+
 class IdempotencyService:
     def __init__(
         self,
@@ -65,6 +71,29 @@ class IdempotencyService:
             raise
         await self._repo.complete(user_id, key, result)
         return result
+
+    async def acquire_turn_lock(self, user_id: int, session_id: int) -> bool:
+        """Claim the single-in-flight-turn lock for a session.
+
+        Returns True iff acquired; False iff a turn is already in flight for this
+        session (the caller must then reject the concurrent turn with 409).
+
+        `/turn/stream` carries no per-request idempotency key, so without this two
+        concurrent turns for one session (a double-tap, or a retry fired while the
+        first is still streaming) read the SAME base transcript and the second's
+        persist OVERWRITES the first (a lost turn) while both charge the quota
+        (#229). Acquired before the base is read and released when the stream ends,
+        so the whole read→persist critical section is serialised. Built on the same
+        atomic claim as the idempotency keys, so a stream that crashes without
+        releasing self-heals after STALE_CLAIM_SECONDS instead of wedging the
+        session forever.
+        """
+        stale_before = self._now() - timedelta(seconds=STALE_CLAIM_SECONDS)
+        return await self._repo.claim(user_id, _turn_lock_key(session_id), stale_before)
+
+    async def release_turn_lock(self, user_id: int, session_id: int) -> None:
+        """Release a session's turn lock so the next turn can proceed."""
+        await self._repo.release(user_id, _turn_lock_key(session_id))
 
     @staticmethod
     def _resolve(response: str | None) -> str:
