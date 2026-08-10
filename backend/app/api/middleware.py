@@ -15,6 +15,7 @@ import uuid
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.logging import request_id_var
 from app.domain.exceptions import PayloadTooLargeError
 
 _logger = logging.getLogger("apm.request")
@@ -116,6 +117,9 @@ class RequestContextMiddleware:
 
         request_headers = Headers(scope=scope)
         request_id = request_headers.get("X-Request-ID") or uuid.uuid4().hex
+        # Expose the id to every log emitted while handling this request (#235), so an
+        # error deep in the app correlates to its request. Reset after, to not leak.
+        token = request_id_var.set(request_id)
         start = time.monotonic()
         status_code = 500  # default if the app never sends a start message
 
@@ -144,7 +148,10 @@ class RequestContextMiddleware:
                 )
             await send(message)
 
-        await self._app(scope, receive, send_wrapper)
+        try:
+            await self._app(scope, receive, send_wrapper)
+        finally:
+            request_id_var.reset(token)
 
 
 def _is_https(scope: Scope, headers: Headers) -> bool:
