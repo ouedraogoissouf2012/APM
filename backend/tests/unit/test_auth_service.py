@@ -6,6 +6,7 @@ from app.domain.exceptions import (
     EmailAlreadyExistsError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
+    NotFoundError,
 )
 from app.features.auth.service import AuthService
 from tests.unit.fakes import InMemoryRefreshTokenRepository, InMemoryUserRepository
@@ -141,3 +142,76 @@ async def test_get_authenticated_user_unknown_user_raises():
     token = create_access_token(subject="999")
     with pytest.raises(AuthenticationError):
         await service.get_authenticated_user(token)
+
+
+# ---- Account lifecycle (#232) ----
+
+
+@pytest.mark.asyncio
+async def test_deactivated_user_cannot_authenticate():
+    service = _service()
+    reg = await service.register("d@b.com", "s3cret!pass", "fr")
+    reg.user.is_active = False  # an admin suspended the account
+    with pytest.raises(AuthenticationError):
+        await service.get_authenticated_user(reg.access_token)
+
+
+@pytest.mark.asyncio
+async def test_deactivated_user_cannot_refresh():
+    service = _service()
+    reg = await service.register("d2@b.com", "s3cret!pass", "fr")
+    reg.user.is_active = False
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh(reg.refresh_token)
+
+
+@pytest.mark.asyncio
+async def test_refresh_reuse_revokes_the_whole_family():
+    # Presenting an already-rotated token again is a theft signal: EVERY session
+    # (incl. the attacker's freshly-rotated one) must die (#232).
+    service = _service()
+    reg = await service.register("reuse@b.com", "s3cret!pass", "fr")
+    rotated = await service.refresh(reg.refresh_token)  # reg token now revoked
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh(reg.refresh_token)  # reuse -> revoke the family
+    # The attacker's rotated token is now dead too.
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh(rotated.refresh_token)
+
+
+@pytest.mark.asyncio
+async def test_change_password_requires_old_and_revokes_sessions():
+    service = _service()
+    reg = await service.register("cp@b.com", "s3cret!pass", "fr")
+    await service.change_password(reg.user, "s3cret!pass", "n3w!password")
+    # The old session is revoked...
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh(reg.refresh_token)
+    # ...and the new password works.
+    result = await service.login("cp@b.com", "n3w!password")
+    assert result.user.id == reg.user.id
+
+
+@pytest.mark.asyncio
+async def test_change_password_wrong_old_raises():
+    service = _service()
+    reg = await service.register("cp2@b.com", "s3cret!pass", "fr")
+    with pytest.raises(InvalidCredentialsError):
+        await service.change_password(reg.user, "WRONG", "n3w!password")
+
+
+@pytest.mark.asyncio
+async def test_set_active_deactivates_and_revokes_sessions():
+    service = _service()
+    reg = await service.register("sa@b.com", "s3cret!pass", "fr")
+    await service.set_active(reg.user.id, False)
+    assert reg.user.is_active is False
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh(reg.refresh_token)
+
+
+@pytest.mark.asyncio
+async def test_set_active_unknown_user_raises():
+    service = _service()
+    with pytest.raises(NotFoundError):
+        await service.set_active(9999, False)

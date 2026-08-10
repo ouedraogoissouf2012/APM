@@ -26,6 +26,9 @@ class User(Base):
     # settable through the API — an attacker who could would self-promote. Set it
     # in the database (or a CLI) to bootstrap the first admin.
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Lets an admin suspend a compromised/abusive account WITHOUT a destructive
+    # DELETE (#232): a deactivated user can neither authenticate nor refresh.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Daily quota tracking (reset when quota_date rolls over)
     quota_date: Mapped[date | None] = mapped_column(Date, nullable=True)

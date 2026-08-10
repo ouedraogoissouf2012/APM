@@ -5,6 +5,7 @@ Refresh tokens are stored hashed; refreshing rotates (revokes the old, issues a
 new one). Depends only on repository interfaces and pure security helpers.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -22,9 +23,12 @@ from app.domain.exceptions import (
     EmailAlreadyExistsError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
+    NotFoundError,
 )
 from app.features.auth.models import User
 from app.features.auth.repository import RefreshTokenRepository, UserRepository
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -95,7 +99,18 @@ class AuthService:
         try:
             record = await self._refresh.lock_by_hash(hash_token(raw_refresh_token))
             now = datetime.now(UTC)
-            if record is None or record.revoked_at is not None:
+            if record is None:
+                raise InvalidRefreshTokenError("Invalid refresh token")
+            if record.revoked_at is not None:
+                # Reuse of an already-rotated token is a theft signal (OWASP / RFC 6749
+                # §10.4): revoke the WHOLE family — committed here so the rollback below
+                # doesn't undo it — then reject, so neither the thief nor the victim
+                # keeps a working session (#232).
+                await self._refresh.revoke_all_for_user(record.user_id, now, commit=True)
+                _logger.warning(
+                    "Refresh token reuse detected for user %s — revoked all sessions",
+                    record.user_id,
+                )
                 raise InvalidRefreshTokenError("Invalid refresh token")
             expires_at = record.expires_at
             if expires_at.tzinfo is None:
@@ -103,7 +118,7 @@ class AuthService:
             if expires_at <= now:
                 raise InvalidRefreshTokenError("Refresh token expired")
             user = await self._users.get_by_id(record.user_id)
-            if user is None:
+            if user is None or user.is_active is False:
                 raise InvalidRefreshTokenError("Invalid refresh token")
 
             # Single transaction: lock old token, revoke it, create replacement, commit.
@@ -128,4 +143,27 @@ class AuthService:
         user = await self._users.get_by_id(int(subject))
         if user is None:
             raise AuthenticationError("User not found")
+        if user.is_active is False:  # None (never persisted) / True both count as active
+            raise AuthenticationError("Account is deactivated")
         return user
+
+    async def change_password(self, user: User, old_password: str, new_password: str) -> None:
+        """Change the learner's password (authenticated). Requires the current
+        password, then revokes every existing session so a leaked password can't
+        keep a foothold (#232)."""
+        if not verify_password(old_password, user.hashed_password):
+            raise InvalidCredentialsError("Current password is incorrect")
+        user.hashed_password = hash_password(new_password)
+        await self._users.save(user)
+        await self._refresh.revoke_all_for_user(user.id, datetime.now(UTC))
+
+    async def set_active(self, user_id: int, active: bool) -> None:
+        """Admin: (de)activate an account without destroying its data (#232).
+        Deactivating also revokes every refresh token so existing sessions die."""
+        user = await self._users.get_by_id(user_id)
+        if user is None:
+            raise NotFoundError("User not found")
+        user.is_active = active
+        await self._users.save(user)
+        if not active:
+            await self._refresh.revoke_all_for_user(user_id, datetime.now(UTC))

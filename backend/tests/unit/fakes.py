@@ -42,6 +42,13 @@ class InMemoryRefreshTokenRepository:
     ) -> None:
         token.revoked_at = revoked_at
 
+    async def revoke_all_for_user(
+        self, user_id: int, revoked_at: datetime, *, commit: bool = True
+    ) -> None:
+        for token in self._by_hash.values():
+            if token.user_id == user_id and token.revoked_at is None:
+                token.revoked_at = revoked_at
+
     async def commit(self) -> None:
         pass
 
