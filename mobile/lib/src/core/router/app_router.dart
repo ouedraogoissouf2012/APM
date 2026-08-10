@@ -37,7 +37,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     refreshListenable: refresh,
     redirect: (context, state) {
       final auth = ref.read(authViewModelProvider);
-      if (auth.isLoading) return null;
       final signedIn = auth.value != null;
       final atPublicEntry =
           state.matchedLocation == Routes.onboarding ||
@@ -45,36 +44,28 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           state.matchedLocation == Routes.register;
       // La galerie du design system est hors parcours auth (debug only).
       if (kDebugMode && state.matchedLocation == Routes.devGallery) return null;
+      // While auth is loading, keep the user on a public page to avoid flashing
+      // a protected route. Once auth completes, this redirect fires again to
+      // navigate to the intended destination or enforce auth.
+      if (auth.isLoading) {
+        return atPublicEntry ? null : Routes.onboarding;
+      }
       if (!signedIn && !atPublicEntry) return Routes.onboarding;
       if (signedIn && atPublicEntry) {
         // A just-registered learner goes through the spoken placement first
         // (skippable); a returning learner from login/onboarding goes home.
-        return state.matchedLocation == Routes.register
-            ? Routes.placement
-            : Routes.home;
+        return state.matchedLocation == Routes.register ? Routes.placement : Routes.home;
       }
       return null;
     },
     routes: [
-      GoRoute(
-        path: Routes.onboarding,
-        builder: (_, _) => const OnboardingScreen(),
-      ),
+      GoRoute(path: Routes.onboarding, builder: (_, _) => const OnboardingScreen()),
       GoRoute(path: Routes.login, builder: (_, _) => const LoginScreen()),
       GoRoute(path: Routes.register, builder: (_, _) => const RegisterScreen()),
       GoRoute(path: Routes.home, builder: (_, _) => const HomeScreen()),
-      GoRoute(
-        path: Routes.placement,
-        builder: (_, _) => const PlacementScreen(),
-      ),
-      GoRoute(
-        path: Routes.history,
-        builder: (_, _) => const SessionHistoryScreen(),
-      ),
-      GoRoute(
-        path: Routes.conversation,
-        builder: (_, _) => const ConversationScreen(),
-      ),
+      GoRoute(path: Routes.placement, builder: (_, _) => const PlacementScreen()),
+      GoRoute(path: Routes.history, builder: (_, _) => const SessionHistoryScreen()),
+      GoRoute(path: Routes.conversation, builder: (_, _) => const ConversationScreen()),
       GoRoute(
         path: Routes.debriefPattern,
         builder: (_, state) => DebriefScreen(
@@ -85,38 +76,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: Routes.profile, builder: (_, _) => const ProfileScreen()),
       GoRoute(path: Routes.memory, builder: (_, _) => const MemoryScreen()),
       GoRoute(path: Routes.learn, builder: (_, _) => const LearnScreen()),
-      GoRoute(
-        path: Routes.voicePrivacy,
-        builder: (_, _) => const VoicePrivacyScreen(),
-      ),
+      GoRoute(path: Routes.voicePrivacy, builder: (_, _) => const VoicePrivacyScreen()),
       GoRoute(
         path: Routes.proofPattern,
-        builder: (_, state) =>
-            ProofScreen(skill: state.pathParameters['skill']!),
+        builder: (_, state) => ProofScreen(skill: state.pathParameters['skill']!),
       ),
-      GoRoute(
-        path: Routes.vocabulary,
-        builder: (_, _) => const VocabularyScreen(),
-      ),
+      GoRoute(path: Routes.vocabulary, builder: (_, _) => const VocabularyScreen()),
       GoRoute(path: Routes.review, builder: (_, _) => const ReviewScreen()),
-      GoRoute(
-        path: Routes.newMission,
-        builder: (_, _) => const NewMissionScreen(),
-      ),
-      GoRoute(
-        path: Routes.scenarios,
-        builder: (_, _) => const ScenariosScreen(),
-      ),
+      GoRoute(path: Routes.newMission, builder: (_, _) => const NewMissionScreen()),
+      GoRoute(path: Routes.scenarios, builder: (_, _) => const ScenariosScreen()),
       GoRoute(path: Routes.echo, builder: (_, _) => const EchoScreen()),
-      GoRoute(
-        path: Routes.minimalPairs,
-        builder: (_, _) => const MinimalPairsScreen(),
-      ),
-      if (kDebugMode)
-        GoRoute(
-          path: Routes.devGallery,
-          builder: (_, _) => const GalleryPage(),
-        ),
+      GoRoute(path: Routes.minimalPairs, builder: (_, _) => const MinimalPairsScreen()),
+      if (kDebugMode) GoRoute(path: Routes.devGallery, builder: (_, _) => const GalleryPage()),
     ],
   );
 });
