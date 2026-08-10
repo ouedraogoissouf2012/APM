@@ -25,6 +25,12 @@ abstract class VoiceTakeStore {
   /// The baseline + latest takes for [skill], or null until there are TWO
   /// distinct takes to compare (mirrors the text proof's "need two sessions" rule).
   Future<VoiceTakes?> takesFor(String skill);
+
+  /// Erases ALL local takes for every skill — the on-device half of "erase my
+  /// voice data" (#219). The audible before/after lives ONLY on the device
+  /// (#128), so a server-only delete would leave the raw audio behind and make
+  /// the UI's "erased" claim a lie.
+  Future<void> eraseAll();
 }
 
 /// In-memory store — takes live for the app run. A persistent on-device
@@ -50,5 +56,11 @@ class InMemoryVoiceTakeStore implements VoiceTakeStore {
       return null;
     }
     return VoiceTakes(baseline: baseline, latest: latest);
+  }
+
+  @override
+  Future<void> eraseAll() async {
+    _baseline.clear();
+    _latest.clear();
   }
 }

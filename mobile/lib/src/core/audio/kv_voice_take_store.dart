@@ -15,6 +15,9 @@ abstract class VoiceTakeKvStore {
 
   /// Stores [bytes] at [key], overwriting any previous value.
   Future<void> write(String key, Uint8List bytes);
+
+  /// Removes every entry — the on-device erase (#219).
+  Future<void> clear();
 }
 
 /// [VoiceTakeStore] implemented over a persistent [VoiceTakeKvStore], mirroring
@@ -52,6 +55,9 @@ class KvVoiceTakeStore implements VoiceTakeStore {
     if (_equal(baseline, latest)) return null;
     return VoiceTakes(baseline: baseline, latest: latest);
   }
+
+  @override
+  Future<void> eraseAll() => _kv.clear();
 
   /// Skill -> a safe key stem (skills are scenario ids/slugs, but be defensive).
   static String _safe(String skill) =>

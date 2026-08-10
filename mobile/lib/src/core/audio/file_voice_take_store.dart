@@ -50,6 +50,15 @@ class FileVoiceTakeStore implements VoiceTakeStore {
     return VoiceTakes(baseline: b, latest: l);
   }
 
+  @override
+  Future<void> eraseAll() async {
+    // Delete the whole takes directory (raw WAV files) — #219. Don't create it
+    // first: resolve the handle and remove it only if it exists; a later saveTake
+    // recreates it lazily via _dir_().
+    final dir = _dir ??= await _openDir();
+    if (await dir.exists()) await dir.delete(recursive: true);
+  }
+
   /// Skill -> a safe filename stem (skills are scenario ids, but be defensive).
   static String _safe(String skill) => skill.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
 

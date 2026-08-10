@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:apm/src/core/audio/providers.dart';
+import 'package:apm/src/core/audio/voice_take_store.dart';
 import 'package:apm/src/data/models/voice_consent.dart';
 import 'package:apm/src/data/repositories/voice_privacy_repository.dart';
 import 'package:apm/src/ui/privacy/view_model/voice_privacy_view_model.dart';
@@ -9,6 +13,18 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockRepo extends Mock implements VoicePrivacyRepository {}
 
+/// Spy for the on-device take store: records whether the local raw audio was
+/// actually wiped by the erase action (#219).
+class _SpyVoiceTakeStore implements VoiceTakeStore {
+  bool erased = false;
+  @override
+  Future<void> eraseAll() async => erased = true;
+  @override
+  Future<void> saveTake(String skill, Uint8List bytes) async {}
+  @override
+  Future<VoiceTakes?> takesFor(String skill) async => null;
+}
+
 VoiceConsent _consent({bool transcription = true}) => VoiceConsent(
   transcription: transcription,
   scoring: false,
@@ -16,10 +32,19 @@ VoiceConsent _consent({bool transcription = true}) => VoiceConsent(
   modelTraining: false,
 );
 
-Future<void> _pump(WidgetTester tester, VoicePrivacyRepository repo) async {
+Future<void> _pump(
+  WidgetTester tester,
+  VoicePrivacyRepository repo, {
+  VoiceTakeStore? store,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [voicePrivacyRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        voicePrivacyRepositoryProvider.overrideWithValue(repo),
+        // Override the on-device store so tests never touch path_provider /
+        // IndexedDB and can assert the local wipe happens.
+        voiceTakeStoreProvider.overrideWithValue(store ?? _SpyVoiceTakeStore()),
+      ],
       child: const MaterialApp(home: VoicePrivacyScreen()),
     ),
   );
@@ -64,11 +89,34 @@ void main() {
     await tester.tap(find.byKey(const Key('erase_voice_data')));
     await tester.pumpAndSettle();
 
-    // Confirmation dialog shown; nothing deleted yet.
+    // Confirmation dialog shown; nothing deleted yet, and it is HONEST about the
+    // on-device recordings that will be wiped (#219).
     verifyNever(repo.eraseData);
+    expect(find.textContaining('sur cet appareil'), findsOneWidget);
     await tester.tap(find.text('Effacer').last);
     await tester.pumpAndSettle();
     verify(repo.eraseData).called(1);
+  });
+
+  testWidgets('erase wipes the on-device voice takes, not just the server (#219)',
+      (tester) async {
+    final repo = _MockRepo();
+    when(repo.getConsent).thenAnswer((_) async => _consent());
+    when(repo.eraseData).thenAnswer((_) async => {'transcripts': 1});
+    final store = _SpyVoiceTakeStore();
+
+    await _pump(tester, repo, store: store);
+    await tester.tap(find.byKey(const Key('erase_voice_data')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Effacer').last);
+    await tester.pumpAndSettle();
+
+    // The raw local takes are actually deleted...
+    expect(store.erased, isTrue);
+    // ...AND the server data...
+    verify(repo.eraseData).called(1);
+    // ...and only then does the UI claim success (no longer a lie).
+    expect(find.text('Tes données voix ont été effacées'), findsOneWidget);
   });
 
   testWidgets('error state shows a message', (tester) async {

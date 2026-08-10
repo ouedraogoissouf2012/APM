@@ -232,11 +232,14 @@ class _BlockingSpeech implements SpeechService {
 /// before/after capture (#199).
 class _SpyTakeStore implements VoiceTakeStore {
   final List<({String skill, int len})> saved = [];
+  final List<String> erasedCalls = [];
   @override
   Future<void> saveTake(String skill, Uint8List bytes) async =>
       saved.add((skill: skill, len: bytes.length));
   @override
   Future<VoiceTakes?> takesFor(String skill) async => null;
+  @override
+  Future<void> eraseAll() async => erasedCalls.add('eraseAll');
 }
 
 ProviderContainer _container(
