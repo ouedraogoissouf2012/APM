@@ -13,6 +13,7 @@ import 'package:apm/src/data/models/profile.dart';
 import 'package:apm/src/data/models/progress_snapshot.dart';
 import 'package:apm/src/data/models/streak.dart';
 import 'package:apm/src/data/models/turn_correction.dart';
+import 'package:apm/src/data/models/voice_consent.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
 import 'package:apm/src/data/repositories/profile_repository.dart';
 import 'package:apm/src/data/repositories/progress_repository.dart';
@@ -23,6 +24,7 @@ import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_view_model.dart';
 import 'package:apm/src/ui/history/view_model/progress_view_model.dart';
 import 'package:apm/src/ui/home/view_model/streak_view_model.dart';
+import 'package:apm/src/ui/privacy/view_model/voice_privacy_view_model.dart';
 import 'package:apm/src/ui/profile/view_model/profile_view_model.dart';
 import 'package:apm/src/ui/review/view_model/review_view_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -278,6 +280,17 @@ ProviderContainer _container(
           demoMode: false,
           serverTts: serverTts,
           serverStt: serverStt,
+        ),
+      ),
+      // effectiveServerSttProvider (#225) also watches consent; default to the
+      // protective consent (transcription on) so the STT path behaves as before
+      // unless a test overrides it. Without this the provider fetches for real.
+      voiceConsentProvider.overrideWith(
+        (ref) async => const VoiceConsent(
+          transcription: true,
+          scoring: false,
+          b2bShare: false,
+          modelTraining: false,
         ),
       ),
     ],

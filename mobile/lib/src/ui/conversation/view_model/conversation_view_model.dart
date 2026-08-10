@@ -145,8 +145,9 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
     }
     // Server STT (Whisper via Groq): push-to-talk. This tap starts recording;
     // the next tap stops, transcribes and responds. No hands-free auto-loop,
-    // because accurate transcription needs a clean full recording.
-    if (await ref.read(serverSttProvider.future)) {
+    // because accurate transcription needs a clean full recording. The user's
+    // transcription consent is honored: revoking it forces on-device STT.
+    if (await ref.read(effectiveServerSttProvider.future)) {
       await _pushToTalk.startRecording();
       return;
     }

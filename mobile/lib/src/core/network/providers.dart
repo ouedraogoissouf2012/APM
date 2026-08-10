@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/repositories/runtime_config_repository.dart';
+import '../../ui/privacy/view_model/voice_privacy_view_model.dart';
 import '../config/app_config.dart';
 import '../storage/token_storage.dart';
 import 'api_client.dart';
@@ -54,4 +55,14 @@ final serverTtsProvider = FutureProvider<bool>((ref) async {
 /// browser recognizer).
 final serverSttProvider = FutureProvider<bool>((ref) async {
   return (await ref.watch(runtimeConfigProvider.future)).serverStt;
+});
+
+/// True when the learner has consented to transcription AND the backend
+/// supports it. Honors the user's privacy choice: revoking transcription
+/// consent forces on-device STT fallback, even if the backend has it enabled.
+final effectiveServerSttProvider = FutureProvider<bool>((ref) async {
+  final serverAvailable = await ref.watch(serverSttProvider.future);
+  if (!serverAvailable) return false;
+  final consent = await ref.watch(voiceConsentProvider.future);
+  return consent.transcription;
 });
