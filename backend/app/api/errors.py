@@ -55,13 +55,26 @@ def _make_handler(http_status: int) -> Callable[[Request, Exception], Awaitable[
 
 async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Anything not a mapped DomainError is a bug, not an expected 4xx: log it with
-    the stack + the request's correlation id (via the log filter), and return the
-    SAME normalized envelope as every other error — never a bare Starlette
-    'Internal Server Error' that leaves nothing to trace (#235)."""
-    _logger.error("Unhandled exception: %s %s", request.method, request.url.path, exc_info=exc)
+    the stack + the request's correlation id, and return the SAME normalized
+    envelope as every other error — never a bare Starlette 'Internal Server Error'
+    that leaves nothing to trace (#235).
+
+    This runs in the OUTERMOST ServerErrorMiddleware, after RequestContextMiddleware
+    has already reset the request-id contextvar as the exception unwound. So we read
+    the id from the ASGI scope (which survives), pass it to the log explicitly, and
+    echo it on the response so a user can quote it (#257)."""
+    request_id = request.scope.get("apm_request_id", "-")
+    _logger.error(
+        "Unhandled exception: %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exc,
+        extra={"request_id": request_id},
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"error": {"code": "InternalServerError", "message": "Internal server error"}},
+        headers={"X-Request-ID": request_id},
     )
 
 
