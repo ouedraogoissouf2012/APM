@@ -5,7 +5,10 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
 import '../../../core/speech/speech_service.dart';
 import '../../../data/models/session_modes.dart';
+import '../../history/view_model/progress_view_model.dart';
+import '../../home/view_model/streak_view_model.dart';
 import '../../profile/view_model/profile_view_model.dart';
+import '../../review/view_model/review_view_model.dart';
 import 'conversation_host.dart';
 import 'conversation_providers.dart';
 import 'conversation_script.dart';
@@ -16,13 +19,11 @@ import 'turn_loop_controller.dart';
 
 // speechServiceProvider and conversationRepositoryProvider now live in
 // conversation_providers.dart, re-exported here so existing importers keep working.
-export 'conversation_providers.dart'
-    show conversationRepositoryProvider, speechServiceProvider;
+export 'conversation_providers.dart' show conversationRepositoryProvider, speechServiceProvider;
 
-final conversationViewModelProvider =
-    NotifierProvider<ConversationViewModel, ConversationState>(
-      ConversationViewModel.new,
-    );
+final conversationViewModelProvider = NotifierProvider<ConversationViewModel, ConversationState>(
+  ConversationViewModel.new,
+);
 
 /// Drives one turn at a time: listen (device or server STT) -> send to the
 /// backend -> voice the reply, which streams back sentence by sentence as text
@@ -31,25 +32,19 @@ final conversationViewModelProvider =
 /// Orchestrates the extracted pieces (#121): [ReplyPlayback] consumes the reply
 /// stream for both input modes. It implements [ConversationHost] so those pieces
 /// read/write the shared state through a narrow seam rather than the Notifier.
-class ConversationViewModel extends Notifier<ConversationState>
-    implements ConversationHost {
+class ConversationViewModel extends Notifier<ConversationState> implements ConversationHost {
   @override
   ConversationState build() => const ConversationState();
 
   late final ReplyPlayback _playback = ReplyPlayback(ref, this);
-  late final PushToTalkController _pushToTalk =
-      PushToTalkController(ref, this, _playback);
+  late final PushToTalkController _pushToTalk = PushToTalkController(ref, this, _playback);
   late final TurnLoopController _loop = TurnLoopController(ref, this, _playback);
 
   // ConversationHost: the seam the extracted controllers use.
   @override
   bool get mounted => ref.mounted;
 
-  Future<void> start({
-    String mode = kSessionModeFree,
-    String? scenarioId,
-    int? missionId,
-  }) async {
+  Future<void> start({String mode = kSessionModeFree, String? scenarioId, int? missionId}) async {
     final repo = ref.read(conversationRepositoryProvider);
 
     int sessionId;
@@ -59,11 +54,7 @@ class ConversationViewModel extends Notifier<ConversationState>
     // target-less 409 resume.
     String? effectiveScenarioId = scenarioId;
     try {
-      sessionId = await repo.startSession(
-        mode: mode,
-        scenarioId: scenarioId,
-        missionId: missionId,
-      );
+      sessionId = await repo.startSession(mode: mode, scenarioId: scenarioId, missionId: missionId);
       turns = [
         ConversationTurn(
           kRoleAssistant,
@@ -114,10 +105,7 @@ class ConversationViewModel extends Notifier<ConversationState>
                   ),
                 ),
               ]
-            : [
-                for (final t in active.turns)
-                  ConversationTurn(t.role, t.content),
-              ];
+            : [for (final t in active.turns) ConversationTurn(t.role, t.content)];
       }
     }
 
@@ -176,10 +164,7 @@ class ConversationViewModel extends Notifier<ConversationState>
     await _playback.cancel();
     await ref.read(speechServiceProvider).stopListening();
     if (ref.mounted && state.sessionId != null) {
-      state = state.copyWith(
-        status: ConversationStatus.idle,
-        clearPartial: true,
-      );
+      state = state.copyWith(status: ConversationStatus.idle, clearPartial: true);
     }
   }
 
@@ -199,9 +184,7 @@ class ConversationViewModel extends Notifier<ConversationState>
     if (ref.mounted) await _pushToTalk.cancel();
     if (ref.mounted) await _playback.cancel();
     if (ref.mounted) await ref.read(speechServiceProvider).stopListening();
-    if (ref.mounted &&
-        state.sessionId != null &&
-        state.status != ConversationStatus.idle) {
+    if (ref.mounted && state.sessionId != null && state.status != ConversationStatus.idle) {
       state = state.copyWith(status: ConversationStatus.idle, clearPartial: true);
     }
   }
@@ -214,6 +197,11 @@ class ConversationViewModel extends Notifier<ConversationState>
     final id = state.sessionId;
     if (id != null) {
       await ref.read(conversationRepositoryProvider).endSession(id);
+      if (ref.mounted) {
+        ref.invalidate(streakProvider);
+        ref.invalidate(reviewProvider);
+        ref.invalidate(progressProvider);
+      }
     }
     state = const ConversationState();
   }

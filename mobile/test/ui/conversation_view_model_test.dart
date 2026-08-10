@@ -10,19 +10,33 @@ import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
 import 'package:apm/src/data/models/profile.dart';
+import 'package:apm/src/data/models/progress_snapshot.dart';
+import 'package:apm/src/data/models/streak.dart';
 import 'package:apm/src/data/models/turn_correction.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
 import 'package:apm/src/data/repositories/profile_repository.dart';
+import 'package:apm/src/data/repositories/progress_repository.dart';
+import 'package:apm/src/data/repositories/review_repository.dart';
 import 'package:apm/src/data/repositories/runtime_config_repository.dart';
+import 'package:apm/src/data/repositories/streak_repository.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_view_model.dart';
+import 'package:apm/src/ui/history/view_model/progress_view_model.dart';
+import 'package:apm/src/ui/home/view_model/streak_view_model.dart';
 import 'package:apm/src/ui/profile/view_model/profile_view_model.dart';
+import 'package:apm/src/ui/review/view_model/review_view_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockConversationRepository extends Mock
     implements ConversationRepository {}
+
+class _MockStreakRepository extends Mock implements StreakRepository {}
+
+class _MockReviewRepository extends Mock implements ReviewRepository {}
+
+class _MockProgressRepository extends Mock implements ProgressRepository {}
 
 /// Records which audio clips were played, so tests can assert the server voice
 /// is used (and the on-device voice is not).
@@ -826,6 +840,89 @@ void main() {
 
     expect(c.read(conversationViewModelProvider).sessionId, isNull);
     verify(() => repo.endSession(9)).called(1);
+  });
+
+  test('end() invalidates the streak/review/progress providers', () async {
+    // After ending a session, the cached streak/review/progress data must be
+    // cleared so the home/history/review screens show fresh data, not stale
+    // cached values (#237).
+    var streakCallCount = 0;
+    var reviewCallCount = 0;
+    var progressCallCount = 0;
+
+    final streakRepo = _MockStreakRepository();
+    final reviewRepo = _MockReviewRepository();
+    final progressRepo = _MockProgressRepository();
+
+    when(() => streakRepo.load()).thenAnswer((_) async {
+      streakCallCount++;
+      return const Streak(
+        currentStreak: 5,
+        longestStreak: 10,
+        weeklyGoalMinutes: 60,
+        minutesThisWeek: 30,
+      );
+    });
+    when(() => reviewRepo.dueItems()).thenAnswer((_) async {
+      reviewCallCount++;
+      return [];
+    });
+    when(() => progressRepo.load()).thenAnswer((_) async {
+      progressCallCount++;
+      return const ProgressSnapshot(
+        sessions: [],
+        cefrTrend: [],
+        recurringErrors: [],
+      );
+    });
+
+    final conversationRepo = _repoReturning(9);
+    when(() => conversationRepo.endSession(any())).thenAnswer((_) async {});
+
+    final c = ProviderContainer(
+      overrides: [
+        conversationRepositoryProvider.overrideWithValue(conversationRepo),
+        speechServiceProvider.overrideWithValue(_FakeSpeech('')),
+        audioPlaybackProvider.overrideWithValue(_FakeAudio()),
+        audioRecordingProvider.overrideWithValue(_FakeRecorder()),
+        streakRepositoryProvider.overrideWithValue(streakRepo),
+        reviewRepositoryProvider.overrideWithValue(reviewRepo),
+        progressRepositoryProvider.overrideWithValue(progressRepo),
+        runtimeConfigProvider.overrideWith(
+          (ref) async => const RuntimeConfig(
+            demoMode: false,
+            serverTts: false,
+            serverStt: false,
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+
+    final vm = c.read(conversationViewModelProvider.notifier);
+    await vm.start();
+
+    // Load the providers to populate the cache
+    await c.read(streakProvider.future);
+    await c.read(reviewProvider.future);
+    await c.read(progressProvider.future);
+
+    expect(streakCallCount, 1);
+    expect(reviewCallCount, 1);
+    expect(progressCallCount, 1);
+
+    // Call end() which should invalidate all three providers
+    await vm.end();
+
+    // Reading them again should trigger fresh fetches
+    await c.read(streakProvider.future);
+    await c.read(reviewProvider.future);
+    await c.read(progressProvider.future);
+
+    // Each provider should have been evaluated twice
+    expect(streakCallCount, 2);
+    expect(reviewCallCount, 2);
+    expect(progressCallCount, 2);
   });
 
   test('cancel stops the mic but keeps the session open (#222)', () async {
