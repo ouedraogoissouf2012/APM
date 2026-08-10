@@ -18,10 +18,29 @@ from app.core.rate_limit import (
 
 
 def build_rate_limiter(
-    *, namespace: str, max_hits: int, window_seconds: int, redis_url: str
+    *,
+    namespace: str,
+    max_hits: int,
+    window_seconds: int,
+    redis_url: str,
+    max_keys: int = 1000,
 ) -> RateLimiter:
+    """Build a rate limiter backend from config.
+
+    If redis_url is empty, returns InMemoryRateLimiter (dev/test only, single worker).
+    In production (multi-worker uvicorn), set REDIS_URL to share limits across instances.
+
+    Args:
+        namespace: Namespace for the rate limit keys (e.g., "login", "conversation").
+        max_hits: Max attempts within the window before limiting.
+        window_seconds: Time window duration.
+        redis_url: Redis URL (empty → in-memory, single-process).
+        max_keys: Max entries in the in-memory dict (prevents DoS via high-cardinality keys).
+    """
     if not redis_url.strip():
-        return InMemoryRateLimiter(max_hits=max_hits, window_seconds=window_seconds)
+        return InMemoryRateLimiter(
+            max_hits=max_hits, window_seconds=window_seconds, max_keys=max_keys
+        )
     # Import redis lazily so dev/test installs need no Redis dependency.
     from redis.asyncio import Redis
 

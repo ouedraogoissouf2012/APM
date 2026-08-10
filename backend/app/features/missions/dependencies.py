@@ -17,13 +17,15 @@ from app.features.missions.service import MissionService
 
 _settings = get_settings()
 
-# Process-wide limiter. Swap for RedisRateLimiter to scale across instances;
-# the RateLimiter interface and route callers stay unchanged.
+# Process-wide limiter, backend chosen from config (Redis when REDIS_URL is set,
+# else in-memory with max_keys cap to prevent DoS via high-cardinality keys #234).
+# The RateLimiter interface and route callers stay unchanged.
 _mission_rate_limiter = build_rate_limiter(
     namespace="mission",
     max_hits=_settings.mission_rate_limit_max,
     window_seconds=_settings.mission_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
+    max_keys=_settings.rate_limit_max_keys,
 )
 
 

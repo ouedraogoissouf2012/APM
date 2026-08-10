@@ -21,24 +21,28 @@ _bearer = HTTPBearer(auto_error=False)
 _settings = get_settings()
 
 # Process-wide limiters, backend chosen from config (Redis when REDIS_URL is set,
-# else in-memory). The RateLimiter interface and route callers stay unchanged.
+# else in-memory with max_keys cap to prevent DoS via high-cardinality keys #234).
+# The RateLimiter interface and route callers stay unchanged.
 _register_rate_limiter = build_rate_limiter(
     namespace="register",
     max_hits=_settings.register_rate_limit_max,
     window_seconds=_settings.register_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
+    max_keys=_settings.rate_limit_max_keys,
 )
 _login_rate_limiter = build_rate_limiter(
     namespace="login",
     max_hits=_settings.login_rate_limit_max,
     window_seconds=_settings.login_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
+    max_keys=_settings.rate_limit_max_keys,
 )
 _refresh_rate_limiter = build_rate_limiter(
     namespace="refresh",
     max_hits=_settings.refresh_rate_limit_max,
     window_seconds=_settings.refresh_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
+    max_keys=_settings.rate_limit_max_keys,
 )
 
 
