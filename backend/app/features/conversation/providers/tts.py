@@ -10,6 +10,8 @@ for MVP/testing; swap for Piper (fully local) or a paid provider for production
 via the same TtsProvider seam.
 """
 
+import asyncio
+
 from app.domain.exceptions import LlmProviderError
 
 # Default neural voices per BCP-47 accent tag. The "Multilingual" voices are
@@ -21,6 +23,11 @@ _VOICE_BY_TAG = {
 }
 _DEFAULT_VOICE = "en-US-AvaMultilingualNeural"
 
+# edge-tts talks to an UNOFFICIAL Microsoft endpoint — no key, no SLA, and
+# nothing previously stopped a hung connection from blocking a turn indefinitely
+# (#230). Bounded here (contained to this file); injectable for tests.
+_DEFAULT_TIMEOUT_SECONDS = 10.0
+
 
 def voice_for_language(language_tag: str) -> str:
     return _VOICE_BY_TAG.get(language_tag.lower().replace("_", "-"), _DEFAULT_VOICE)
@@ -29,18 +36,25 @@ def voice_for_language(language_tag: str) -> str:
 class EdgeTtsProvider:
     """Neural TTS via Microsoft Edge's free read-aloud voices (no key)."""
 
-    def __init__(self, voice: str = _DEFAULT_VOICE) -> None:
+    def __init__(
+        self, voice: str = _DEFAULT_VOICE, timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS
+    ) -> None:
         self._voice = voice
+        self._timeout_seconds = timeout_seconds
 
     async def synthesize(self, text: str) -> bytes:
         import edge_tts
 
         communicate = edge_tts.Communicate(text, self._voice)
-        buffer = bytearray()
-        try:
+
+        async def _collect() -> bytes:
+            buffer = bytearray()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     buffer.extend(chunk["data"])
-        except Exception as exc:  # network / endpoint failure
+            return bytes(buffer)
+
+        try:
+            return await asyncio.wait_for(_collect(), timeout=self._timeout_seconds)
+        except Exception as exc:  # network / endpoint failure OR timeout (#230)
             raise LlmProviderError("TTS synthesis failed") from exc
-        return bytes(buffer)

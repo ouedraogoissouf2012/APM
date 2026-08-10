@@ -15,16 +15,36 @@ from app.features.conversation.providers.interfaces import (
     VerboseTranscript,
 )
 
+# Without an explicit timeout/max_retries, the openai SDK's defaults apply — a
+# ~600s connect timeout and up to 2 silent retries — on the critical path the
+# learner is waiting on for a reply (#230). Bounded here (contained to this
+# file, no config.py change); injectable for tests.
+_STT_TIMEOUT_SECONDS = 15.0
+_STT_MAX_RETRIES = 1
+
 
 class GroqSttProvider:
     """Whisper transcription via Groq. Language is pinned to English: the
     learner is practising English (imperfectly), so we must not let Whisper
     auto-detect and transcribe their French."""
 
-    def __init__(self, api_key: str, base_url: str, model: str, prompt: str = "") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        prompt: str = "",
+        timeout_seconds: float = _STT_TIMEOUT_SECONDS,
+        max_retries: int = _STT_MAX_RETRIES,
+    ) -> None:
         from openai import AsyncOpenAI
 
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout_seconds,
+            max_retries=max_retries,
+        )
         self._model = model
         # Context prompt biasing decoding toward plausible everyday words; empty
         # to disable. Passed to every request so behaviour is consistent.
