@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_exception_handlers
-from app.api.middleware import RequestContextMiddleware
+from app.api.middleware import BodySizeLimitMiddleware, RequestContextMiddleware
 from app.config import get_settings
 from app.core.engines import ENGINE_FAKE
 from app.core.logging import configure_logging
@@ -91,6 +91,9 @@ def _silent_wav() -> bytes:
 
 app = FastAPI(title="APM Backend", lifespan=lifespan)
 
+# Innermost: reject an oversized body with 413 before Starlette buffers it (#221),
+# while its response still flows out through the request-context logging + headers.
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 app.add_middleware(RequestContextMiddleware, enable_hsts=settings.app_env == "production")
 app.add_middleware(
     CORSMiddleware,

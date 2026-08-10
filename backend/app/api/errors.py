@@ -18,6 +18,7 @@ from app.domain.exceptions import (
     InvalidCredentialsError,
     LlmProviderError,
     NotFoundError,
+    PayloadTooLargeError,
     QuotaExhaustedError,
     RateLimitedError,
 )
@@ -30,6 +31,7 @@ _STATUS_BY_EXCEPTION: list[tuple[type[DomainError], int]] = [
     (NotFoundError, status.HTTP_404_NOT_FOUND),
     (QuotaExhaustedError, status.HTTP_402_PAYMENT_REQUIRED),
     (RateLimitedError, status.HTTP_429_TOO_MANY_REQUESTS),
+    (PayloadTooLargeError, status.HTTP_413_CONTENT_TOO_LARGE),
     (ConflictError, status.HTTP_409_CONFLICT),
     (DebriefAnalysisError, status.HTTP_502_BAD_GATEWAY),
     (LlmProviderError, status.HTTP_502_BAD_GATEWAY),

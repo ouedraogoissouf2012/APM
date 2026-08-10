@@ -54,6 +54,10 @@ class RateLimitedError(DomainError):
     """The caller made too many requests in the allowed window."""
 
 
+class PayloadTooLargeError(DomainError):
+    """The request body exceeded the allowed maximum size (#221)."""
+
+
 class DebriefAnalysisError(DomainError):
     """The debrief LLM returned output that could not be parsed."""
 
