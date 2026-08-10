@@ -8,6 +8,7 @@ injected so the whole flow is deterministically testable.
 
 from datetime import datetime
 
+from app.core.pagination import resolve_limit
 from app.features.review.models import ReviewItem
 from app.features.review.repository import ReviewRepository
 from app.features.review.scheduler import (
@@ -64,8 +65,12 @@ class ReviewService:
             await self._repo.rollback()
             raise
 
-    async def list_due(self, user_id: int, now: datetime) -> list[ReviewItem]:
-        return await self._repo.list_due(user_id, now)
+    async def list_due(
+        self, user_id: int, now: datetime, *, limit: int | None = None
+    ) -> list[ReviewItem]:
+        # Naturally bounded by the error-type taxonomy, but cap it anyway so the
+        # endpoint can never issue an unbounded query (#233).
+        return await self._repo.list_due(user_id, now, limit=resolve_limit(limit))
 
 
 def _to_state(item: ReviewItem | None) -> ReviewState:

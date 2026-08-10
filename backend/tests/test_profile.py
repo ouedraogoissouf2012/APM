@@ -90,3 +90,38 @@ async def test_update_profile_rejects_unknown_accent(client):
     headers = await _auth_header(client)
     resp = await client.put("/me/profile", headers=headers, json={"accent": "fr"})
     assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_profile_rejects_too_many_interests(client):
+    headers = await _auth_header(client)
+    resp = await client.put(
+        "/me/profile", headers=headers, json={"interests": [f"i{n}" for n in range(21)]}
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_profile_rejects_overlong_interest(client):
+    headers = await _auth_header(client)
+    resp = await client.put("/me/profile", headers=headers, json={"interests": ["x" * 51]})
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_profile_rejects_overlong_goal(client):
+    headers = await _auth_header(client)
+    resp = await client.put("/me/profile", headers=headers, json={"goal": "x" * 501})
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_profile_accepts_interests_at_the_bounds(client):
+    headers = await _auth_header(client)
+    resp = await client.put(
+        "/me/profile",
+        headers=headers,
+        json={"interests": [f"i{n}" for n in range(20)], "goal": "x" * 500},
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["interests"]) == 20

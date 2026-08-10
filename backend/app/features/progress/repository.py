@@ -13,9 +13,11 @@ class SqlAlchemyProgressDataSource:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def cefr_points(self, user_id: int) -> list[CefrPoint]:
-        # Every completed session (has a debrief) with its estimate, oldest first
-        # so the trend reads left-to-right in time.
+    async def cefr_points(self, user_id: int, *, limit: int) -> list[CefrPoint]:
+        # The most recent `limit` completed sessions (has a debrief) with its
+        # estimate. Fetched newest-first + bounded so the query can't load every
+        # session ever (#233), then flipped to ascending so the trend still reads
+        # left-to-right in time.
         rows = await self._session.execute(
             select(
                 ConversationSession.id,
@@ -24,11 +26,14 @@ class SqlAlchemyProgressDataSource:
             )
             .join(Debrief, Debrief.session_id == ConversationSession.id)
             .where(ConversationSession.user_id == user_id)
-            .order_by(ConversationSession.started_at.asc())
+            .order_by(ConversationSession.started_at.desc(), ConversationSession.id.desc())
+            .limit(limit)
         )
-        return [
+        points = [
             CefrPoint(session_id=r.id, started_at=r.started_at, level=r.cefr_estimate) for r in rows
         ]
+        points.reverse()
+        return points
 
     async def recent_error_rows(self, user_id: int, session_window: int) -> list[tuple[str, str]]:
         # The most recent `session_window` debriefs, newest first; each debrief's

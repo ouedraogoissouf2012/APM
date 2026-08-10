@@ -12,8 +12,10 @@ class _StubSource:
         self._points = points
         self._rows = rows
         self.window_seen: int | None = None
+        self.trend_limit_seen: int | None = None
 
-    async def cefr_points(self, user_id):
+    async def cefr_points(self, user_id, *, limit):
+        self.trend_limit_seen = limit
         return self._points
 
     async def recent_error_rows(self, user_id, session_window):
@@ -86,6 +88,15 @@ async def test_passes_the_configured_session_window_to_the_source():
     service = ProgressService(source)
     await service.snapshot(1)
     assert source.window_seen == ProgressService.RECENT_DEBRIEFS_WINDOW
+
+
+@pytest.mark.asyncio
+async def test_bounds_the_cefr_trend_query():
+    # The trend must never ask the source for an unbounded number of points (#233).
+    source = _StubSource([], [])
+    service = ProgressService(source)
+    await service.snapshot(1)
+    assert source.trend_limit_seen == ProgressService.MAX_TREND_POINTS
 
 
 @pytest.mark.asyncio

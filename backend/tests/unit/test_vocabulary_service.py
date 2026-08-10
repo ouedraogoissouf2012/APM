@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.core.pagination import MAX_PAGE_SIZE
 from app.domain.exceptions import NotFoundError
 from app.features.debrief.domain import VocabularyWord
 from app.features.vocabulary.models import STATUS_KNOWN, STATUS_REVIEW, VocabularyEntry
@@ -12,6 +13,7 @@ class _InMemoryVocabRepository:
     def __init__(self) -> None:
         self._rows: dict[tuple[int, str], VocabularyEntry] = {}
         self._seq = 0
+        self.last_limit: int | None = None
 
     async def upsert(self, user_id, session_id, word, phonetic, translation, example):
         key = (user_id, word)
@@ -35,8 +37,16 @@ class _InMemoryVocabRepository:
             existing.session_id = session_id
             existing.status = STATUS_REVIEW
 
-    async def list_for_user(self, user_id):
-        return [e for e in self._rows.values() if e.user_id == user_id]
+    async def list_for_user(self, user_id, *, limit, before_id=None):
+        self.last_limit = limit
+        rows = sorted(
+            (e for e in self._rows.values() if e.user_id == user_id),
+            key=lambda e: e.id,
+            reverse=True,  # newest (highest id) first, like the SQL impl
+        )
+        if before_id is not None:
+            rows = [e for e in rows if e.id < before_id]
+        return rows[:limit]
 
     async def get_owned(self, entry_id, user_id):
         return next(
@@ -124,3 +134,32 @@ async def test_mark_other_users_entry_is_not_found():
     entry_id = (await service.list_notebook(1))[0].id
     with pytest.raises(NotFoundError):
         await service.mark(entry_id, user_id=999, status=STATUS_KNOWN)
+
+
+@pytest.mark.asyncio
+async def test_list_notebook_is_paginated_by_keyset():
+    service, repo = _service()
+    for i in range(5):
+        await service.capture(1, 1, [VocabularyWord(word=f"w{i}")])
+
+    page1 = await service.list_notebook(1, limit=2)
+    assert [e.word for e in page1] == ["w4", "w3"]  # newest first
+    page2 = await service.list_notebook(1, limit=2, before_id=page1[-1].id)
+    assert [e.word for e in page2] == ["w2", "w1"]
+    page3 = await service.list_notebook(1, limit=2, before_id=page2[-1].id)
+    assert [e.word for e in page3] == ["w0"]
+
+
+@pytest.mark.asyncio
+async def test_list_notebook_clamps_requested_limit_to_max():
+    # An unbounded/oversized request must never reach the repository un-clamped.
+    service, repo = _service()
+    await service.list_notebook(1, limit=10_000)
+    assert repo.last_limit == MAX_PAGE_SIZE
+
+
+@pytest.mark.asyncio
+async def test_list_notebook_uses_a_bounded_default_limit():
+    service, repo = _service()
+    await service.list_notebook(1)
+    assert repo.last_limit is not None and repo.last_limit <= MAX_PAGE_SIZE
