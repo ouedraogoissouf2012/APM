@@ -175,7 +175,11 @@ class SessionService:
         if session.ended_at is not None:
             return session  # idempotent: ending an already-ended session is a no-op
 
-        user = await self._users.get_by_id(user_id)
+        # Lock the user row like start()/record_turn_activity (#228): _close_session
+        # bills the quota — a read-modify-write on minutes_used_today — so a plain get
+        # would lost-update against a concurrent last-turn metering. FOR UPDATE
+        # serialises end() with those paths (same shared DB session -> commit releases).
+        user = await self._users.lock(user_id)
         await self._close_session(session, user, datetime.now(UTC))
         await self._sessions.commit()
         return session

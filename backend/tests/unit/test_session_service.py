@@ -328,3 +328,50 @@ async def test_history_returns_recent_sessions_for_user_only():
 
     assert [item.id for item in history] == [newer.session.id, older.session.id]
     assert history[0].scenario_id == "restaurant"
+
+
+class _LockTrackingUserRepo(InMemoryUserRepository):
+    """Records whether a call took the row lock (FOR UPDATE) or a plain get."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.locked_ids: list[int] = []
+        self.got_ids: list[int] = []
+
+    async def lock(self, user_id: int) -> User | None:
+        self.locked_ids.append(user_id)
+        return await super().lock(user_id)
+
+    async def get_by_id(self, user_id: int) -> User | None:
+        self.got_ids.append(user_id)
+        return await super().get_by_id(user_id)
+
+
+@pytest.mark.asyncio
+async def test_end_locks_the_user_row_for_the_quota_write():
+    # #228: end() bills the quota (a read-modify-write on minutes_used_today), so it
+    # MUST take the row lock like start()/record_turn_activity — an unlocked get would
+    # lost-update against a concurrent last-turn metering.
+    users = _LockTrackingUserRepo()
+    user = await users.create(
+        User(
+            email="q@b.com",
+            hashed_password="x",
+            native_language="fr",
+            tier="free",
+            quota_date=date.today(),
+            minutes_used_today=0.0,
+        )
+    )
+    service = SessionService(InMemorySessionRepository(), users, free_daily_minutes=10)
+    started = await service.start(user.id, "free", None)
+    past = datetime.now(UTC) - timedelta(minutes=2)
+    started.session.started_at = past
+    started.session.last_activity_at = past
+
+    users.locked_ids.clear()  # ignore the lock start() already took
+    users.got_ids.clear()
+    await service.end(started.session.id, user.id)
+
+    assert user.id in users.locked_ids  # end() locked the user for the quota write
+    assert user.id not in users.got_ids  # and did NOT read it with an unlocked get
