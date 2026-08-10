@@ -29,7 +29,7 @@ class ReviewRepository(Protocol):
 
     async def rollback(self) -> None: ...
 
-    async def list_due(self, user_id: int, now: datetime) -> list[ReviewItem]: ...
+    async def list_due(self, user_id: int, now: datetime, *, limit: int) -> list[ReviewItem]: ...
 
 
 class SqlAlchemyReviewRepository:
@@ -86,9 +86,10 @@ class SqlAlchemyReviewRepository:
     async def rollback(self) -> None:
         await self._session.rollback()
 
-    async def list_due(self, user_id: int, now: datetime) -> list[ReviewItem]:
+    async def list_due(self, user_id: int, now: datetime, *, limit: int) -> list[ReviewItem]:
         # Items to review now: not mastered, and either due already (next_review_at
-        # in the past) or never scheduled. Ordered by soonest due first.
+        # in the past) or never scheduled. Ordered by soonest due first, with an id
+        # tiebreaker for a deterministic page, and bounded (#233).
         result = await self._session.scalars(
             select(ReviewItem)
             .where(
@@ -96,6 +97,7 @@ class SqlAlchemyReviewRepository:
                 ReviewItem.status != STATUS_MASTERED,
                 (ReviewItem.next_review_at.is_(None)) | (ReviewItem.next_review_at <= now),
             )
-            .order_by(ReviewItem.next_review_at.asc().nulls_first())
+            .order_by(ReviewItem.next_review_at.asc().nulls_first(), ReviewItem.id.asc())
+            .limit(limit)
         )
         return list(result)

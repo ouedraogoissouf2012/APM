@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.core.pagination import DEFAULT_PAGE_SIZE
 from app.features.review.models import STATUS_DUE, STATUS_MASTERED, ReviewItem
 from app.features.review.scheduler import MASTERY_STREAK
 from app.features.review.service import ReviewService
@@ -15,6 +16,7 @@ class _InMemoryReviewRepo:
     def __init__(self) -> None:
         self._rows: dict[tuple[int, str], ReviewItem] = {}
         self._seq = 0
+        self.last_due_limit: int | None = None
 
     async def list_for_user(self, user_id):
         return [i for (u, _), i in self._rows.items() if u == user_id]
@@ -40,12 +42,16 @@ class _InMemoryReviewRepo:
     async def rollback(self):
         pass
 
-    async def list_due(self, user_id, now):
-        return [
+    async def list_due(self, user_id, now, *, limit):
+        self.last_due_limit = limit
+        due = [
             i
             for i in await self.list_for_user(user_id)
             if i.status != STATUS_MASTERED and (i.next_review_at is None or i.next_review_at <= now)
         ]
+        # Soonest due first (nulls first), id tiebreaker — mirror the SQL order.
+        due.sort(key=lambda i: (i.next_review_at is not None, i.next_review_at or now, i.id))
+        return due[:limit]
 
 
 def _service():
@@ -125,3 +131,12 @@ async def test_blank_error_type_is_ignored():
     service, repo = _service()
     await service.record_session(1, {"": "x", "  ": "y"}, NOW)
     assert await repo.list_for_user(1) == []
+
+
+@pytest.mark.asyncio
+async def test_list_due_passes_a_bounded_limit():
+    # The endpoint's list must be capped even though the error-type taxonomy is
+    # naturally small (#233).
+    service, repo = _service()
+    await service.list_due(1, NOW)
+    assert repo.last_due_limit == DEFAULT_PAGE_SIZE

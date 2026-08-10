@@ -100,3 +100,28 @@ async def test_cannot_mark_another_users_entry(client, db_session):
 async def test_list_requires_auth(client):
     resp = await client.get("/vocabulary")
     assert resp.status_code == 401, resp.text
+
+
+@pytest.mark.asyncio
+async def test_notebook_is_paginated_by_keyset(client, db_session):
+    headers, user_id = await _register(client)
+    service = VocabularyService(SqlAlchemyVocabularyRepository(db_session))
+    for i in range(3):
+        await service.capture(user_id, None, [VocabularyWord(word=f"word{i}")])
+
+    page1 = await client.get("/vocabulary?limit=2", headers=headers)
+    assert page1.status_code == 200, page1.text
+    body1 = page1.json()
+    assert [e["word"] for e in body1] == ["word2", "word1"]  # newest first
+
+    last_id = body1[-1]["id"]
+    page2 = await client.get(f"/vocabulary?limit=2&before_id={last_id}", headers=headers)
+    assert page2.status_code == 200, page2.text
+    assert [e["word"] for e in page2.json()] == ["word0"]
+
+
+@pytest.mark.asyncio
+async def test_list_rejects_oversized_limit(client):
+    headers, _ = await _register(client)
+    resp = await client.get("/vocabulary?limit=10000", headers=headers)
+    assert resp.status_code == 422, resp.text  # le=MAX_PAGE_SIZE enforced at the boundary

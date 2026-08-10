@@ -32,8 +32,9 @@ class ProgressSnapshot:
 
 
 class ProgressDataSource(Protocol):
-    async def cefr_points(self, user_id: int) -> list[CefrPoint]:
-        """Completed sessions with a CEFR estimate, oldest first."""
+    async def cefr_points(self, user_id: int, *, limit: int) -> list[CefrPoint]:
+        """The learner's most recent `limit` completed sessions with a CEFR
+        estimate, oldest first (so the trend reads left-to-right in time)."""
         ...
 
     async def recent_error_rows(self, user_id: int, session_window: int) -> list[tuple[str, str]]:
@@ -46,12 +47,15 @@ class ProgressService:
     # Mirror the previous client window/limits so the surfaced numbers are stable.
     RECENT_DEBRIEFS_WINDOW = 5
     MAX_RECURRING_ERRORS = 3
+    # Cap the CEFR trend so /me/progress can't load every session a heavy user
+    # ever completed (#233). 100 recent points is plenty for a progress chart.
+    MAX_TREND_POINTS = 100
 
     def __init__(self, source: ProgressDataSource) -> None:
         self._source = source
 
     async def snapshot(self, user_id: int) -> ProgressSnapshot:
-        trend = await self._source.cefr_points(user_id)
+        trend = await self._source.cefr_points(user_id, limit=self.MAX_TREND_POINTS)
         rows = await self._source.recent_error_rows(user_id, self.RECENT_DEBRIEFS_WINDOW)
         return ProgressSnapshot(
             cefr_trend=trend,

@@ -20,7 +20,12 @@ class VocabularyRepository(Protocol):
         """Insert a card, or refresh its context if the (user, word) already exists."""
         ...
 
-    async def list_for_user(self, user_id: int) -> list[VocabularyEntry]: ...
+    async def list_for_user(
+        self, user_id: int, *, limit: int, before_id: int | None = None
+    ) -> list[VocabularyEntry]:
+        """One page of the user's notebook, newest first. ``before_id`` is a
+        keyset cursor: pass the last id already seen to get the next page."""
+        ...
 
     async def get_owned(self, entry_id: int, user_id: int) -> VocabularyEntry | None: ...
 
@@ -65,12 +70,17 @@ class SqlAlchemyVocabularyRepository:
         await self._session.execute(stmt)
         await self._session.commit()
 
-    async def list_for_user(self, user_id: int) -> list[VocabularyEntry]:
-        result = await self._session.scalars(
-            select(VocabularyEntry)
-            .where(VocabularyEntry.user_id == user_id)
-            .order_by(VocabularyEntry.created_at.desc())
-        )
+    async def list_for_user(
+        self, user_id: int, *, limit: int, before_id: int | None = None
+    ) -> list[VocabularyEntry]:
+        stmt = select(VocabularyEntry).where(VocabularyEntry.user_id == user_id)
+        if before_id is not None:
+            stmt = stmt.where(VocabularyEntry.id < before_id)
+        # id DESC == newest first: ids are monotonic with created_at
+        # (autoincrement), so this preserves the previous created_at DESC order
+        # while giving a single-column keyset cursor that scales past OFFSET.
+        stmt = stmt.order_by(VocabularyEntry.id.desc()).limit(limit)
+        result = await self._session.scalars(stmt)
         return list(result)
 
     async def get_owned(self, entry_id: int, user_id: int) -> VocabularyEntry | None:
