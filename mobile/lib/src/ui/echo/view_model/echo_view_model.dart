@@ -11,7 +11,8 @@ final echoRepositoryProvider = Provider<EchoRepository>(
   (ref) => EchoRepository(ref.watch(authenticatedApiClientProvider)),
 );
 
-final echoViewModelProvider = NotifierProvider<EchoViewModel, EchoState>(
+final echoViewModelProvider =
+    NotifierProvider.autoDispose<EchoViewModel, EchoState>(
   EchoViewModel.new,
 );
 

@@ -41,4 +41,8 @@ class WebAudioPlayer {
       _audio = null;
     }
   }
+
+  Future<void> dispose() async {
+    await stop();
+  }
 }

@@ -12,7 +12,11 @@ import 'persistent_voice_take_store.dart'
 /// echo, ...) depends on core instead of importing another feature's view model
 /// for plumbing. Tests override these by name.
 final audioPlaybackProvider = Provider<AudioPlaybackService>(
-  (ref) => DeviceAudioPlaybackService(),
+  (ref) {
+    final service = DeviceAudioPlaybackService();
+    ref.onDispose(service.dispose);
+    return service;
+  },
 );
 
 final audioRecordingProvider = Provider<AudioRecordingService>(

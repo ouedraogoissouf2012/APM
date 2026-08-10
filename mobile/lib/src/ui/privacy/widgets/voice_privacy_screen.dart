@@ -27,17 +27,27 @@ class VoicePrivacyScreen extends ConsumerWidget {
   }
 }
 
-class _Body extends ConsumerWidget {
+class _Body extends ConsumerStatefulWidget {
   const _Body({required this.consent});
 
   final VoiceConsent consent;
 
+  @override
+  ConsumerState<_Body> createState() => _BodyState();
+}
+
+class _BodyState extends ConsumerState<_Body> {
+  bool _togglePending = false;
+  bool _exportPending = false;
+  bool _erasePending = false;
+
   Future<void> _toggle(
     BuildContext context,
-    WidgetRef ref,
     String field,
     bool value,
   ) async {
+    if (_togglePending) return;
+    _togglePending = true;
     try {
       await ref
           .read(voicePrivacyRepositoryProvider)
@@ -49,10 +59,14 @@ class _Body extends ConsumerWidget {
           const SnackBar(content: Text('Échec — réessaie')),
         );
       }
+    } finally {
+      _togglePending = false;
     }
   }
 
-  Future<void> _export(BuildContext context, WidgetRef ref) async {
+  Future<void> _export(BuildContext context) async {
+    if (_exportPending) return;
+    _exportPending = true;
     try {
       final data = await ref.read(voicePrivacyRepositoryProvider).exportData();
       final utterances = (data['utterances'] as List?)?.length ?? 0;
@@ -63,7 +77,7 @@ class _Body extends ConsumerWidget {
         builder: (ctx) => AlertDialog(
           title: const Text('Export de tes données voix'),
           content: Text(
-            'Aucun enregistrement audio n’est conservé.\n\n'
+            'Aucun enregistrement audio n\'est conservé.\n\n'
             '$utterances phrase(s) dite(s) et $vocabulary mot(s) de vocabulaire '
             'sont associés à ton compte.',
           ),
@@ -81,10 +95,13 @@ class _Body extends ConsumerWidget {
           const SnackBar(content: Text('Export impossible — réessaie')),
         );
       }
+    } finally {
+      _exportPending = false;
     }
   }
 
-  Future<void> _erase(BuildContext context, WidgetRef ref) async {
+  Future<void> _erase(BuildContext context) async {
+    if (_erasePending) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -107,6 +124,7 @@ class _Body extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
+    _erasePending = true;
     try {
       // Erase BOTH sides: the on-device raw takes (they live ONLY here by design
       // #128, #219) AND the server-derived data. Local first — it is the most
@@ -125,16 +143,18 @@ class _Body extends ConsumerWidget {
           const SnackBar(content: Text('Effacement impossible — réessaie')),
         );
       }
+    } finally {
+      _erasePending = false;
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          'Ta voix t’appartient. L’audio est traité puis supprimé — jamais '
+          'Ta voix t\'appartient. L\'audio est traité puis supprimé — jamais '
           'conservé. Tu contrôles le reste ci-dessous.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
@@ -144,38 +164,46 @@ class _Body extends ConsumerWidget {
           title: const Text('Transcription serveur'),
           subtitle: const Text(
             'Meilleure reconnaissance de ton accent. Sinon, reconnaissance sur '
-            'l’appareil.',
+            'l\'appareil.',
           ),
-          value: consent.transcription,
-          onChanged: (v) => _toggle(context, ref, 'transcription', v),
+          value: widget.consent.transcription,
+          onChanged: _togglePending
+              ? null
+              : (v) => _toggle(context, 'transcription', v),
         ),
         SwitchListTile(
           key: const Key('consent_scoring'),
           title: const Text('Analyse de prononciation'),
           subtitle: const Text('Scores de prononciation (désactivé par défaut).'),
-          value: consent.scoring,
-          onChanged: (v) => _toggle(context, ref, 'scoring', v),
+          value: widget.consent.scoring,
+          onChanged: _togglePending
+              ? null
+              : (v) => _toggle(context, 'scoring', v),
         ),
         SwitchListTile(
           key: const Key('consent_b2b_share'),
           title: const Text('Partage avec mon école / employeur'),
           subtitle: const Text('Jamais sans ton choix explicite.'),
-          value: consent.b2bShare,
-          onChanged: (v) => _toggle(context, ref, 'b2b_share', v),
+          value: widget.consent.b2bShare,
+          onChanged: _togglePending
+              ? null
+              : (v) => _toggle(context, 'b2b_share', v),
         ),
         SwitchListTile(
           key: const Key('consent_model_training'),
           title: const Text('Amélioration des modèles'),
           subtitle: const Text('Utiliser mes données pour entraîner les modèles.'),
-          value: consent.modelTraining,
-          onChanged: (v) => _toggle(context, ref, 'model_training', v),
+          value: widget.consent.modelTraining,
+          onChanged: _togglePending
+              ? null
+              : (v) => _toggle(context, 'model_training', v),
         ),
         const Divider(height: 32),
         OutlinedButton.icon(
           key: const Key('export_voice_data'),
           icon: const Icon(Icons.download_outlined),
           label: const Text('Exporter mes données'),
-          onPressed: () => _export(context, ref),
+          onPressed: _exportPending ? null : () => _export(context),
         ),
         const SizedBox(height: 8),
         TextButton.icon(
@@ -183,7 +211,7 @@ class _Body extends ConsumerWidget {
           icon: const Icon(Icons.delete_outline),
           label: const Text('Effacer mes données voix'),
           style: TextButton.styleFrom(foregroundColor: Colors.red),
-          onPressed: () => _erase(context, ref),
+          onPressed: _erasePending ? null : () => _erase(context),
         ),
       ],
     );

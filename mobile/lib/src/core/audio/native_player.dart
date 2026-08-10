@@ -15,4 +15,6 @@ class WebAudioPlayer {
   }
 
   Future<void> stop() => _player.stop();
+
+  Future<void> dispose() => _player.dispose();
 }

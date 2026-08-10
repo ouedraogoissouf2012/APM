@@ -14,7 +14,7 @@ final minimalPairsRepositoryProvider = Provider<MinimalPairsRepository>(
 );
 
 final minimalPairsViewModelProvider =
-    NotifierProvider<MinimalPairsViewModel, MinimalPairsState>(
+    NotifierProvider.autoDispose<MinimalPairsViewModel, MinimalPairsState>(
       MinimalPairsViewModel.new,
     );
 
