@@ -111,6 +111,58 @@ async def test_turn_stream_persists_full_reply(client):
 
 
 @pytest.mark.asyncio
+async def test_turn_stream_refuses_a_second_turn_while_one_is_in_flight(client, db_session):
+    # #229: /turn/stream has no Idempotency-Key, so a per-session lock serialises
+    # turns. With a turn already in flight (its lock held), a concurrent turn is
+    # refused with 409 instead of reading the same base transcript, overwriting the
+    # first reply and double-charging the quota.
+    from sqlalchemy import select
+
+    from app.features.auth.models import User
+    from app.features.idempotency.repository import SqlAlchemyIdempotencyRepository
+    from app.features.idempotency.service import IdempotencyService
+
+    email = "inflight-stream@b.com"
+    headers = await _auth_header(client, email=email)
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    user_id = (await db_session.execute(select(User.id).where(User.email == email))).scalar_one()
+    lock = IdempotencyService(SqlAlchemyIdempotencyRepository(db_session))
+    assert await lock.acquire_turn_lock(user_id, session_id) is True  # a turn is "in flight"
+
+    blocked = await client.post(
+        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "two"}
+    )
+    assert blocked.status_code == 409, blocked.text
+
+    # Once the in-flight turn releases, a new turn is accepted again.
+    await lock.release_turn_lock(user_id, session_id)
+    ok = await client.post(
+        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "three"}
+    )
+    assert ok.status_code == 200, ok.text
+
+
+@pytest.mark.asyncio
+async def test_a_completed_stream_turn_releases_the_lock_for_the_next(client):
+    # A normal stream must release the lock when it ends, or the session would be
+    # wedged for every following turn. Two SEQUENTIAL streamed turns both succeed.
+    headers = await _auth_header(client, email="seq-stream@b.com")
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    first = await client.post(
+        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "one"}
+    )
+    assert first.status_code == 200, first.text
+    second = await client.post(
+        f"/sessions/{session_id}/turn/stream", headers=headers, json={"text": "two"}
+    )
+    assert second.status_code == 200, second.text
+
+
+@pytest.mark.asyncio
 async def test_turn_stream_emits_a_correction_event_after_the_reply(client):
     app.dependency_overrides[get_conversation_turn_service] = _service_with_correction
     try:

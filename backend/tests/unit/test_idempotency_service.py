@@ -6,7 +6,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.domain.exceptions import ConflictError
-from app.features.idempotency.service import IdempotencyService
+from app.features.idempotency.service import (
+    STALE_CLAIM_SECONDS,
+    IdempotencyService,
+    _turn_lock_key,
+)
 
 
 class _InMemoryRepo:
@@ -183,3 +187,41 @@ async def test_a_fresh_pending_claim_is_not_reclaimed():
     with pytest.raises(ConflictError):
         await service.run_once(1, "k", work)
     assert calls["n"] == 0  # did not steal the live claim
+
+
+# --- Per-session turn lock (#229): one in-flight /turn/stream per session ------
+
+
+@pytest.mark.asyncio
+async def test_turn_lock_blocks_a_concurrent_turn_for_the_same_session():
+    service, _ = _service()
+    assert await service.acquire_turn_lock(1, session_id=5) is True
+    # A second turn for the same session while the first holds the lock is refused
+    # (the router turns this False into a 409) — no lost-update, no double-charge.
+    assert await service.acquire_turn_lock(1, session_id=5) is False
+
+
+@pytest.mark.asyncio
+async def test_releasing_the_turn_lock_lets_the_next_turn_acquire():
+    service, _ = _service()
+    assert await service.acquire_turn_lock(1, 5) is True
+    await service.release_turn_lock(1, 5)
+    assert await service.acquire_turn_lock(1, 5) is True  # free again after release
+
+
+@pytest.mark.asyncio
+async def test_turn_locks_are_independent_per_session_and_per_user():
+    service, _ = _service()
+    assert await service.acquire_turn_lock(1, 5) is True
+    assert await service.acquire_turn_lock(1, 6) is True  # a different session
+    assert await service.acquire_turn_lock(2, 5) is True  # a different user
+
+
+@pytest.mark.asyncio
+async def test_a_stale_turn_lock_is_reclaimed_so_a_crash_cannot_wedge_a_session():
+    # A stream that crashed without releasing must not lock the session forever:
+    # after STALE_CLAIM_SECONDS the next turn reclaims the abandoned lock.
+    service, repo = _service()
+    stale_age = timedelta(seconds=STALE_CLAIM_SECONDS + 60)
+    repo.seed_pending(1, _turn_lock_key(5), created_at=datetime.now(UTC) - stale_age)
+    assert await service.acquire_turn_lock(1, 5) is True  # reclaimed, not stuck

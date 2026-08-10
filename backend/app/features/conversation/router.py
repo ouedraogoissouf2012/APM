@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from app.api.client_ip import client_ip
 from app.config import get_settings
 from app.core.rate_limit import RateLimiter
-from app.domain.exceptions import LlmProviderError
+from app.domain.exceptions import ConflictError, LlmProviderError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.conversation.dependencies import (
@@ -67,6 +67,7 @@ async def stream_turn(
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
     service: ConversationTurnService = Depends(get_conversation_turn_service),
+    idempotency: IdempotencyService = Depends(get_idempotency_service),
 ) -> StreamingResponse:
     """Stream the reply as Server-Sent Events: one `chunk` event per sentence
     so the client speaks it immediately, then at most one `correction` event
@@ -75,7 +76,24 @@ async def stream_turn(
     before the stream is committed."""
     client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
-    prepared = await service.prepare_turn(session_id, current_user, payload.text)
+
+    # One in-flight turn per session (#229). Unlike /turn this endpoint has no
+    # Idempotency-Key, so two concurrent turns (double-tap, or a retry fired while
+    # the first is still streaming) would read the same base transcript and the
+    # second's persist would OVERWRITE the first + double-charge the quota. Acquire
+    # BEFORE prepare_turn reads the base so the whole read→persist section is
+    # serialised; a concurrent turn is refused with 409. Released when the stream
+    # ends (or auto-reclaimed after ~120s if the request crashes mid-stream).
+    if not await idempotency.acquire_turn_lock(current_user.id, session_id):
+        raise ConflictError("A turn is already in progress for this session")
+    prepared = None
+    try:
+        prepared = await service.prepare_turn(session_id, current_user, payload.text)
+    finally:
+        if prepared is None:
+            # prepare failed (not owned / ended / cancelled) before any streaming —
+            # free the lock so the session isn't wedged until the stale window.
+            await idempotency.release_turn_lock(current_user.id, session_id)
 
     async def event_stream() -> AsyncIterator[str]:
         try:
@@ -95,6 +113,10 @@ async def stream_turn(
             # the client hanging (#123). Logged for diagnosis.
             logging.getLogger(__name__).exception("Unexpected error during turn stream")
             yield _sse("error", {"message": "Turn failed"})
+        finally:
+            # Runs on normal completion, on error, AND on client disconnect
+            # (GeneratorExit) — so the session's turn lock is always freed.
+            await idempotency.release_turn_lock(current_user.id, session_id)
 
     return StreamingResponse(
         event_stream(),
