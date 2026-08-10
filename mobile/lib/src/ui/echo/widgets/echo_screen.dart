@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../../../data/models/echo.dart';
 import '../../../data/models/pronunciation_scoring.dart';
 import '../../../design_system/atoms/app_button.dart';
@@ -25,10 +26,20 @@ class EchoScreen extends ConsumerStatefulWidget {
   ConsumerState<EchoScreen> createState() => _EchoScreenState();
 }
 
-class _EchoScreenState extends ConsumerState<EchoScreen> {
+class _EchoScreenState extends ConsumerState<EchoScreen>
+    with PracticeScreenLifecycle {
+  // Captured while mounted; teardown must not touch `ref` during dispose.
+  EchoViewModel? _vm;
+
+  /// Discard an in-progress recording and free the mic when this screen is
+  /// backgrounded or left (#222).
+  @override
+  Future<void> stopPractice() async => _vm?.cancel();
+
   @override
   void initState() {
     super.initState();
+    _vm = ref.read(echoViewModelProvider.notifier);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Only load a phrase if the server can actually run shadowing.
       final tts = await ref.read(serverTtsProvider.future);

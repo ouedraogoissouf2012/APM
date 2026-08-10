@@ -828,6 +828,47 @@ void main() {
     verify(() => repo.endSession(9)).called(1);
   });
 
+  test('cancel stops the mic but keeps the session open (#222)', () async {
+    // Leaving the screen / backgrounding must silence the mic WITHOUT ending the
+    // session server-side (so it can resume) — unlike end().
+    final repo = _repoReturning(9);
+    // Deliberately do NOT stub endSession: cancel must never call it.
+    final speech = _FakeSpeech('');
+    final c = _container(repo, speech);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.cancel();
+
+    expect(speech.stopped, isTrue); // the recognizer was stopped
+    expect(c.read(conversationViewModelProvider).sessionId, 9); // session kept
+    expect(c.read(conversationViewModelProvider).status, ConversationStatus.idle);
+    verifyNever(() => repo.endSession(any())); // NOT finalized
+  });
+
+  test('cancel halts an in-progress hands-free loop without ending it (#222)',
+      () async {
+    // The acute case: a hands-free loop is listening when the learner backgrounds
+    // the app. cancel() must stop the recognizer and the loop, leaving the session
+    // open — the mic cannot keep running off-screen.
+    final repo = _repoReturning(5, reply: 'Go on');
+    final speech = _BlockingSpeech('more');
+    final c = _container(repo, speech);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    unawaited(vm.listenAndRespond());
+    await speech.listenStarted.future; // a turn is genuinely listening
+
+    await vm.cancel();
+    speech.releaseListen(''); // the recognizer returns empty after the stop
+
+    expect(speech.stopped, isTrue);
+    expect(c.read(conversationViewModelProvider).sessionId, 5); // kept, not ended
+    expect(c.read(conversationViewModelProvider).status, ConversationStatus.idle);
+    verifyNever(() => repo.endSession(any()));
+  });
+
   group('automatic turn chaining', () {
     test('after the assistant replies, it listens again without a new tap',
         () async {

@@ -141,6 +141,19 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
     await loadPair();
   }
 
+  /// Stops (discarding) an in-progress production recording when the learner
+  /// leaves the screen or backgrounds the app (#222), so the mic can't stay hot
+  /// off-screen. Returns to the pre-record 'guessed' step so the round can be
+  /// resumed. Idempotent — a no-op outside the recording phase.
+  Future<void> cancel() async {
+    // ref.mounted FIRST: cancel() runs from the screen's dispose, where the
+    // provider may already be gone (a disposed ProviderScope in tests / app
+    // teardown) — reading `state` or `ref` then throws UnmountedRefException.
+    if (!ref.mounted || state.phase != PairPhase.recording) return;
+    await ref.read(audioRecordingProvider).cancel();
+    if (ref.mounted) state = state.copyWith(phase: PairPhase.guessed);
+  }
+
   void _fail(String message) {
     if (!ref.mounted) return;
     state = state.copyWith(phase: PairPhase.idle, error: message);

@@ -183,6 +183,29 @@ class ConversationViewModel extends Notifier<ConversationState>
     }
   }
 
+  /// Stops the microphone, the turn loop and any in-flight playback/recording
+  /// WITHOUT ending the session server-side — used when the screen is left or the
+  /// app is backgrounded (#222) so the mic and hands-free loop cannot keep running
+  /// off-screen. The session stays open so the learner can resume it (a re-entry
+  /// resumes via the 409 path); [end] is the deliberate "Terminer". Idempotent:
+  /// safe to call when already idle or after [end] has reset the state.
+  Future<void> cancel() async {
+    _loop.stop(); // pure flag, no ref — always safe
+    // Re-check ref.mounted before EACH ref use: this runs from the screen's
+    // dispose, and the provider can be torn down during an await gap (e.g. app
+    // teardown / a disposed ProviderScope), after which touching ref throws
+    // UnmountedRefException. The checks are synchronous-adjacent to each call, so
+    // there is no window between the guard and the ref.read.
+    if (ref.mounted) await _pushToTalk.cancel();
+    if (ref.mounted) await _playback.cancel();
+    if (ref.mounted) await ref.read(speechServiceProvider).stopListening();
+    if (ref.mounted &&
+        state.sessionId != null &&
+        state.status != ConversationStatus.idle) {
+      state = state.copyWith(status: ConversationStatus.idle, clearPartial: true);
+    }
+  }
+
   Future<void> end() async {
     _loop.stop();
     await _pushToTalk.cancel();
