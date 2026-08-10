@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60  # short-lived access token
     refresh_token_expire_days: int = 30
+    # A rotated refresh token re-presented within this window is treated as a benign
+    # near-simultaneous retry (a network retry, or a second device) — the stale token
+    # is rejected but the family is NOT revoked. Beyond it, reuse is a theft signal
+    # and revokes every session (#253). Kept short: benign retries land within
+    # seconds, while a stolen-token replay is typically minutes/hours later.
+    refresh_reuse_grace_seconds: int = 30
 
     login_rate_limit_max: int = 5  # attempts
     login_rate_limit_window_seconds: int = 60

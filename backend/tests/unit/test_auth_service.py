@@ -1,6 +1,8 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
-from app.core.security import create_access_token, decode_access_token
+from app.core.security import create_access_token, decode_access_token, hash_token
 from app.domain.exceptions import (
     AuthenticationError,
     EmailAlreadyExistsError,
@@ -18,6 +20,14 @@ def _service() -> AuthService:
         InMemoryRefreshTokenRepository(),
         refresh_ttl_days=30,
     )
+
+
+def _backdate_revocation(service: AuthService, raw_token: str, *, seconds: int) -> None:
+    """Simulate elapsed time since a token was rotated: move its revoked_at into the
+    past so re-presenting it falls OUTSIDE the grace window — a theft replay, not a
+    near-simultaneous retry. Reaches into the in-memory fake (a test double)."""
+    record = service._refresh._by_hash[hash_token(raw_token)]  # type: ignore[attr-defined]
+    record.revoked_at = datetime.now(UTC) - timedelta(seconds=seconds)
 
 
 @pytest.mark.asyncio
@@ -166,17 +176,33 @@ async def test_deactivated_user_cannot_refresh():
 
 
 @pytest.mark.asyncio
-async def test_refresh_reuse_revokes_the_whole_family():
-    # Presenting an already-rotated token again is a theft signal: EVERY session
-    # (incl. the attacker's freshly-rotated one) must die (#232).
+async def test_refresh_reuse_beyond_grace_revokes_the_whole_family():
+    # Re-presenting a rotated token LONG after rotation is a theft replay: EVERY
+    # session (incl. the attacker's freshly-rotated one) must die (#232).
     service = _service()
     reg = await service.register("reuse@b.com", "s3cret!pass", "fr")
     rotated = await service.refresh(reg.refresh_token)  # reg token now revoked
+    _backdate_revocation(service, reg.refresh_token, seconds=120)  # past the grace window
     with pytest.raises(InvalidRefreshTokenError):
-        await service.refresh(reg.refresh_token)  # reuse -> revoke the family
+        await service.refresh(reg.refresh_token)  # stale reuse -> revoke the family
     # The attacker's rotated token is now dead too.
     with pytest.raises(InvalidRefreshTokenError):
         await service.refresh(rotated.refresh_token)
+
+
+@pytest.mark.asyncio
+async def test_refresh_reuse_within_grace_does_not_nuke_sessions():
+    # A near-simultaneous benign retry (a network retry, or a second device racing
+    # the rotation) must NOT log the learner out everywhere (#253): the stale token
+    # is rejected, but the freshly-rotated one keeps working.
+    service = _service()  # default 30 s grace
+    reg = await service.register("benign@b.com", "s3cret!pass", "fr")
+    rotated = await service.refresh(reg.refresh_token)  # reg.revoked_at = now
+    with pytest.raises(InvalidRefreshTokenError):
+        await service.refresh(reg.refresh_token)  # stale token rejected...
+    # ...but the family survives: the current session still refreshes.
+    again = await service.refresh(rotated.refresh_token)
+    assert again.refresh_token != rotated.refresh_token
 
 
 @pytest.mark.asyncio

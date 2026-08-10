@@ -66,7 +66,13 @@ def get_auth_service(
     users: UserRepository = Depends(get_user_repository),
     refresh_tokens: RefreshTokenRepository = Depends(get_refresh_token_repository),
 ) -> AuthService:
-    return AuthService(users, refresh_tokens, get_settings().refresh_token_expire_days)
+    settings = get_settings()
+    return AuthService(
+        users,
+        refresh_tokens,
+        settings.refresh_token_expire_days,
+        reuse_grace_seconds=settings.refresh_reuse_grace_seconds,
+    )
 
 
 async def get_current_user(

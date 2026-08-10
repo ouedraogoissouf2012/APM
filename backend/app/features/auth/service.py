@@ -56,10 +56,12 @@ class AuthService:
         users: UserRepository,
         refresh_tokens: RefreshTokenRepository,
         refresh_ttl_days: int,
+        reuse_grace_seconds: int = 30,
     ) -> None:
         self._users = users
         self._refresh = refresh_tokens
         self._refresh_ttl_days = refresh_ttl_days
+        self._reuse_grace_seconds = reuse_grace_seconds
 
     async def _issue_tokens(self, user: User, *, commit: bool = True) -> AuthResult:
         raw_refresh = generate_refresh_token()
@@ -102,15 +104,24 @@ class AuthService:
             if record is None:
                 raise InvalidRefreshTokenError("Invalid refresh token")
             if record.revoked_at is not None:
-                # Reuse of an already-rotated token is a theft signal (OWASP / RFC 6749
-                # §10.4): revoke the WHOLE family — committed here so the rollback below
-                # doesn't undo it — then reject, so neither the thief nor the victim
-                # keeps a working session (#232).
-                await self._refresh.revoke_all_for_user(record.user_id, now, commit=True)
-                _logger.warning(
-                    "Refresh token reuse detected for user %s — revoked all sessions",
-                    record.user_id,
-                )
+                # Reuse of an already-rotated token. A reuse LONG after rotation is a
+                # theft signal (OWASP / RFC 6749 §10.4): revoke the WHOLE family —
+                # committed here so the rollback below doesn't undo it — so neither
+                # thief nor victim keeps a session. But a reuse within a short grace
+                # window is almost always a BENIGN near-simultaneous retry (a network
+                # retry, or a second device racing the rotation): nuking every session
+                # over it logs the learner out everywhere and partly undoes the mobile
+                # single-flight fix (#253). Inside the window we reject only this stale
+                # token; the freshly-rotated one keeps working.
+                revoked_at = record.revoked_at
+                if revoked_at.tzinfo is None:
+                    revoked_at = revoked_at.replace(tzinfo=UTC)
+                if (now - revoked_at).total_seconds() > self._reuse_grace_seconds:
+                    await self._refresh.revoke_all_for_user(record.user_id, now, commit=True)
+                    _logger.warning(
+                        "Refresh token reuse detected for user %s — revoked all sessions",
+                        record.user_id,
+                    )
                 raise InvalidRefreshTokenError("Invalid refresh token")
             expires_at = record.expires_at
             if expires_at.tzinfo is None:
