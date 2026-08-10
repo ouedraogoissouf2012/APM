@@ -120,6 +120,11 @@ class RequestContextMiddleware:
         # Expose the id to every log emitted while handling this request (#235), so an
         # error deep in the app correlates to its request. Reset after, to not leak.
         token = request_id_var.set(request_id)
+        # The contextvar is reset in the `finally` below AS an exception unwinds —
+        # so it is already gone by the time the OUTERMOST 500 handler runs. Stash the
+        # id on the ASGI scope too (it survives), so that handler can still correlate
+        # the crash to its request and echo it on the response (#257).
+        scope["apm_request_id"] = request_id
         start = time.monotonic()
         status_code = 500  # default if the app never sends a start message
 
