@@ -190,10 +190,15 @@ class ConversationViewModel extends Notifier<ConversationState>
   /// resumes via the 409 path); [end] is the deliberate "Terminer". Idempotent:
   /// safe to call when already idle or after [end] has reset the state.
   Future<void> cancel() async {
-    _loop.stop();
-    await _pushToTalk.cancel();
-    await _playback.cancel();
-    await ref.read(speechServiceProvider).stopListening();
+    _loop.stop(); // pure flag, no ref — always safe
+    // Re-check ref.mounted before EACH ref use: this runs from the screen's
+    // dispose, and the provider can be torn down during an await gap (e.g. app
+    // teardown / a disposed ProviderScope), after which touching ref throws
+    // UnmountedRefException. The checks are synchronous-adjacent to each call, so
+    // there is no window between the guard and the ref.read.
+    if (ref.mounted) await _pushToTalk.cancel();
+    if (ref.mounted) await _playback.cancel();
+    if (ref.mounted) await ref.read(speechServiceProvider).stopListening();
     if (ref.mounted &&
         state.sessionId != null &&
         state.status != ConversationStatus.idle) {

@@ -23,15 +23,18 @@ class MinimalPairsScreen extends ConsumerStatefulWidget {
 
 class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen>
     with PracticeScreenLifecycle {
+  // Captured while mounted; teardown must not touch `ref` during dispose.
+  MinimalPairsViewModel? _vm;
+
   /// Discard an in-progress recording and free the mic when this screen is
   /// backgrounded or left (#222).
   @override
-  Future<void> stopPractice() =>
-      ref.read(minimalPairsViewModelProvider.notifier).cancel();
+  Future<void> stopPractice() async => _vm?.cancel();
 
   @override
   void initState() {
     super.initState();
+    _vm = ref.read(minimalPairsViewModelProvider.notifier);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final tts = await ref.read(serverTtsProvider.future);
       final stt = await ref.read(serverSttProvider.future);

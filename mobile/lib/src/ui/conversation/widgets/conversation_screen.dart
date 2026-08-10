@@ -35,15 +35,21 @@ class ConversationScreen extends ConsumerStatefulWidget {
 
 class _ConversationScreenState extends ConsumerState<ConversationScreen>
     with PracticeScreenLifecycle {
+  // Captured while mounted so teardown never touches `ref` during dispose —
+  // Riverpod forbids using a widget's `ref` once it is unmounting. The notifier
+  // outlives the widget (its provider is not autoDispose), so the reference stays
+  // valid.
+  ConversationViewModel? _vm;
+
   /// Cut the mic + hands-free loop when this screen is backgrounded or left,
   /// without ending the session (#222). The "Terminer" button uses [end]/[_endSession].
   @override
-  Future<void> stopPractice() =>
-      ref.read(conversationViewModelProvider.notifier).cancel();
+  Future<void> stopPractice() async => _vm?.cancel();
 
   @override
   void initState() {
     super.initState();
+    _vm = ref.read(conversationViewModelProvider.notifier);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final params = GoRouterState.of(context).uri.queryParameters;

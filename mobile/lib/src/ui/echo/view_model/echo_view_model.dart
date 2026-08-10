@@ -157,7 +157,10 @@ class EchoViewModel extends Notifier<EchoState> {
   /// screen or backgrounds the app (#222), so the mic can't stay hot off-screen.
   /// Idempotent — a no-op outside the recording phase.
   Future<void> cancel() async {
-    if (state.phase != EchoPhase.recording) return;
+    // ref.mounted FIRST: cancel() runs from the screen's dispose, where the
+    // provider may already be gone (a disposed ProviderScope in tests / app
+    // teardown) — reading `state` or `ref` then throws UnmountedRefException.
+    if (!ref.mounted || state.phase != EchoPhase.recording) return;
     await ref.read(audioRecordingProvider).cancel();
     if (ref.mounted) state = state.copyWith(phase: EchoPhase.idle);
   }

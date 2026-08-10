@@ -146,7 +146,10 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
   /// off-screen. Returns to the pre-record 'guessed' step so the round can be
   /// resumed. Idempotent — a no-op outside the recording phase.
   Future<void> cancel() async {
-    if (state.phase != PairPhase.recording) return;
+    // ref.mounted FIRST: cancel() runs from the screen's dispose, where the
+    // provider may already be gone (a disposed ProviderScope in tests / app
+    // teardown) — reading `state` or `ref` then throws UnmountedRefException.
+    if (!ref.mounted || state.phase != PairPhase.recording) return;
     await ref.read(audioRecordingProvider).cancel();
     if (ref.mounted) state = state.copyWith(phase: PairPhase.guessed);
   }

@@ -27,6 +27,11 @@ mixin PracticeScreenLifecycle<T extends ConsumerStatefulWidget>
   AppLifecycleListener? _lifecycle;
 
   /// Stop the microphone, any in-progress recording, playback and turn loop.
+  ///
+  /// MUST NOT use this widget's `ref` — it runs on dispose, where Riverpod throws
+  /// "Using ref when a widget is about to or has been unmounted is unsafe". Read
+  /// the view-model notifier once in [initState] (while mounted) and cache it;
+  /// the notifier outlives the widget, so calling its method here is safe.
   @protected
   Future<void> stopPractice();
 
