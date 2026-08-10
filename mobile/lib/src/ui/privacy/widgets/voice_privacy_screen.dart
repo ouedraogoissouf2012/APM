@@ -56,7 +56,7 @@ class _BodyState extends ConsumerState<_Body> {
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(‘Échec — réessaie’)),
+          const SnackBar(content: Text('Échec — réessaie')),
         );
       }
     } finally {
@@ -69,22 +69,22 @@ class _BodyState extends ConsumerState<_Body> {
     _exportPending = true;
     try {
       final data = await ref.read(voicePrivacyRepositoryProvider).exportData();
-      final utterances = (data[‘utterances’] as List?)?.length ?? 0;
-      final vocabulary = (data[‘vocabulary’] as List?)?.length ?? 0;
+      final utterances = (data['utterances'] as List?)?.length ?? 0;
+      final vocabulary = (data['vocabulary'] as List?)?.length ?? 0;
       if (!context.mounted) return;
       showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text(‘Export de tes données voix’),
+          title: const Text('Export de tes données voix'),
           content: Text(
-            ‘Aucun enregistrement audio n’est conservé.\n\n’
-            ‘$utterances phrase(s) dite(s) et $vocabulary mot(s) de vocabulaire ‘
-            ‘sont associés à ton compte.’,
+            'Aucun enregistrement audio n\'est conservé.\n\n'
+            '$utterances phrase(s) dite(s) et $vocabulary mot(s) de vocabulaire '
+            'sont associés à ton compte.',
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text(‘OK’),
+              child: const Text('OK'),
             ),
           ],
         ),
@@ -92,7 +92,7 @@ class _BodyState extends ConsumerState<_Body> {
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(‘Export impossible — réessaie’)),
+          const SnackBar(content: Text('Export impossible — réessaie')),
         );
       }
     } finally {
@@ -105,20 +105,20 @@ class _BodyState extends ConsumerState<_Body> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text(‘Effacer mes données voix ?’),
+        title: const Text('Effacer mes données voix ?'),
         content: const Text(
-          ‘Tes phrases dites, tes bilans, ton vocabulaire, tes révisions et tes ‘
-          ‘enregistrements vocaux sur cet appareil seront supprimés. Ton compte ‘
-          ‘est conservé. Irréversible.’,
+          'Tes phrases dites, tes bilans, ton vocabulaire, tes révisions et tes '
+          'enregistrements vocaux sur cet appareil seront supprimés. Ton compte '
+          'est conservé. Irréversible.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text(‘Annuler’),
+            child: const Text('Annuler'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(‘Effacer’),
+            child: const Text('Effacer'),
           ),
         ],
       ),
@@ -134,13 +134,13 @@ class _BodyState extends ConsumerState<_Body> {
       await ref.read(voicePrivacyRepositoryProvider).eraseData();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(‘Tes données voix ont été effacées’)),
+          const SnackBar(content: Text('Tes données voix ont été effacées')),
         );
       }
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(‘Effacement impossible — réessaie’)),
+          const SnackBar(content: Text('Effacement impossible — réessaie')),
         );
       }
     } finally {
@@ -154,62 +154,62 @@ class _BodyState extends ConsumerState<_Body> {
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          ‘Ta voix t’appartient. L’audio est traité puis supprimé — jamais ‘
-          ‘conservé. Tu contrôles le reste ci-dessous.’,
+          'Ta voix t\'appartient. L\'audio est traité puis supprimé — jamais '
+          'conservé. Tu contrôles le reste ci-dessous.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 12),
         SwitchListTile(
-          key: const Key(‘consent_transcription’),
-          title: const Text(‘Transcription serveur’),
+          key: const Key('consent_transcription'),
+          title: const Text('Transcription serveur'),
           subtitle: const Text(
-            ‘Meilleure reconnaissance de ton accent. Sinon, reconnaissance sur ‘
-            ‘l’appareil.’,
+            'Meilleure reconnaissance de ton accent. Sinon, reconnaissance sur '
+            'l\'appareil.',
           ),
           value: widget.consent.transcription,
           onChanged: _togglePending
               ? null
-              : (v) => _toggle(context, ‘transcription’, v),
+              : (v) => _toggle(context, 'transcription', v),
         ),
         SwitchListTile(
-          key: const Key(‘consent_scoring’),
-          title: const Text(‘Analyse de prononciation’),
-          subtitle: const Text(‘Scores de prononciation (désactivé par défaut).’),
+          key: const Key('consent_scoring'),
+          title: const Text('Analyse de prononciation'),
+          subtitle: const Text('Scores de prononciation (désactivé par défaut).'),
           value: widget.consent.scoring,
           onChanged: _togglePending
               ? null
-              : (v) => _toggle(context, ‘scoring’, v),
+              : (v) => _toggle(context, 'scoring', v),
         ),
         SwitchListTile(
-          key: const Key(‘consent_b2b_share’),
-          title: const Text(‘Partage avec mon école / employeur’),
-          subtitle: const Text(‘Jamais sans ton choix explicite.’),
+          key: const Key('consent_b2b_share'),
+          title: const Text('Partage avec mon école / employeur'),
+          subtitle: const Text('Jamais sans ton choix explicite.'),
           value: widget.consent.b2bShare,
           onChanged: _togglePending
               ? null
-              : (v) => _toggle(context, ‘b2b_share’, v),
+              : (v) => _toggle(context, 'b2b_share', v),
         ),
         SwitchListTile(
-          key: const Key(‘consent_model_training’),
-          title: const Text(‘Amélioration des modèles’),
-          subtitle: const Text(‘Utiliser mes données pour entraîner les modèles.’),
+          key: const Key('consent_model_training'),
+          title: const Text('Amélioration des modèles'),
+          subtitle: const Text('Utiliser mes données pour entraîner les modèles.'),
           value: widget.consent.modelTraining,
           onChanged: _togglePending
               ? null
-              : (v) => _toggle(context, ‘model_training’, v),
+              : (v) => _toggle(context, 'model_training', v),
         ),
         const Divider(height: 32),
         OutlinedButton.icon(
-          key: const Key(‘export_voice_data’),
+          key: const Key('export_voice_data'),
           icon: const Icon(Icons.download_outlined),
-          label: const Text(‘Exporter mes données’),
+          label: const Text('Exporter mes données'),
           onPressed: _exportPending ? null : () => _export(context),
         ),
         const SizedBox(height: 8),
         TextButton.icon(
-          key: const Key(‘erase_voice_data’),
+          key: const Key('erase_voice_data'),
           icon: const Icon(Icons.delete_outline),
-          label: const Text(‘Effacer mes données voix’),
+          label: const Text('Effacer mes données voix'),
           style: TextButton.styleFrom(foregroundColor: Colors.red),
           onPressed: _erasePending ? null : () => _erase(context),
         ),
