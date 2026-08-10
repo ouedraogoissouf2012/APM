@@ -15,6 +15,15 @@ from app.features.conversation.providers.fakes import FakeLlm
 from app.features.conversation.providers.fallback import FallbackLlmProvider
 from app.features.conversation.providers.interfaces import LlmProvider
 
+# The fallback chain's PRIMARY (Groq) must fail FAST and WITHOUT an internal SDK
+# retry (#230): a flaky/slow primary is better served by handing off to the
+# secondary immediately than by burning the chain's shared deadline
+# (fallback.FallbackLlmProvider) on a doomed retry of itself. Deliberately
+# shorter/stricter than the shared deepseek_timeout_seconds/max_retries settings
+# used for the secondary and for standalone (non-fallback) engine usage.
+_FALLBACK_PRIMARY_TIMEOUT_SECONDS = 6.0
+_FALLBACK_PRIMARY_MAX_RETRIES = 0
+
 
 def build_llm_provider(
     engine: str,
@@ -91,6 +100,23 @@ def _shared_engine_provider(engine: str, settings: object, max_tokens: int) -> L
     )
 
 
+def _fallback_primary_provider(settings: object, max_tokens: int) -> LlmProvider:
+    """The fallback chain's PRIMARY (Groq): a short, no-retry client so a flaky
+    primary hands off to the secondary quickly (#230) rather than eating the
+    chain's shared deadline on itself. A distinct cache entry from any
+    standalone (non-fallback) Groq usage, which keeps the shared settings."""
+    api_key, base_url, model = llm_credentials_for(ENGINE_GROQ, settings)
+    return shared_llm_provider(
+        engine=ENGINE_GROQ,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout_seconds=_FALLBACK_PRIMARY_TIMEOUT_SECONDS,
+        max_retries=_FALLBACK_PRIMARY_MAX_RETRIES,
+        max_tokens=max_tokens,
+    )
+
+
 def build_feature_llm(engine: str, settings: object, max_tokens: int) -> LlmProvider:
     """The LLM for a feature (conversation, debrief, ...) given its engine.
 
@@ -99,7 +125,7 @@ def build_feature_llm(engine: str, settings: object, max_tokens: int) -> LlmProv
     if engine == ENGINE_GROQ_FALLBACK:
         return FallbackLlmProvider(
             [
-                _shared_engine_provider(ENGINE_GROQ, settings, max_tokens),
+                _fallback_primary_provider(settings, max_tokens),
                 _shared_engine_provider(ENGINE_DEEPSEEK, settings, max_tokens),
             ]
         )
