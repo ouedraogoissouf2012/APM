@@ -213,11 +213,29 @@ class ConversationTurnService:
                         await on_persisted(partial)
                 raise
             full_reply = " ".join(parts)
-            await self._persist(session_id, user, turns, text, full_reply)
-            # Finalise idempotency BEFORE the correction/done frames, so a disconnect
-            # on those frames can't desync the committed turn from the key (#261).
-            if on_persisted is not None:
-                await on_persisted(full_reply)
+            try:
+                await self._persist(session_id, user, turns, text, full_reply)
+            except Exception:
+                # The full reply was ALREADY delivered to the client — every
+                # ReplyChunk (and its audio) was yielded above. A persist failure
+                # NOW is not a turn error: re-raising would make the router emit an
+                # `error` frame AFTER the learner already has the complete reply,
+                # which is both misleading and still unsaved. Log the transcript
+                # desync and let the stream end normally with `done` (#238). Do NOT
+                # call on_persisted: nothing committed, so the idempotency key (#261)
+                # stays un-completed and self-heals via the stale-reclaim window (a
+                # retry re-runs after ~120s) rather than caching a phantom reply.
+                logging.getLogger(__name__).exception(
+                    "Turn reply fully delivered but transcript persist failed (session %s)",
+                    session_id,
+                )
+            else:
+                # Finalise idempotency ONLY when the turn actually persisted, so a
+                # retry replays a COMMITTED turn (never an unsaved one). Done BEFORE
+                # the correction/done frames so a disconnect on those can't desync the
+                # committed turn from its key (#261).
+                if on_persisted is not None:
+                    await on_persisted(full_reply)
             if correction_task is not None:
                 correction = await correction_task
                 if correction is not None:

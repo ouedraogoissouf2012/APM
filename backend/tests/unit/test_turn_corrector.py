@@ -113,3 +113,28 @@ async def test_non_json_output_yields_no_correction():
 async def test_llm_failure_yields_no_correction():
     result = await TurnCorrector(_ExplodingLlm()).correct("i is happy", "A2", "fr")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_mistyped_alternatives_does_not_crash_the_turn():
+    # #238: a syntactically valid but wrongly-TYPED field ("alternatives": 5) used
+    # to raise a TypeError (for a in 5) OUTSIDE the try — breaking the whole turn.
+    # It must now degrade gracefully: the correction still stands, sans alternatives.
+    result = await _correct(
+        '{"has_error": true, "original": "i is happy", "correction": "I am happy", '
+        '"rule": "r", "alternatives": 5}'
+    )
+    assert result is not None
+    assert result.correction == "I am happy"
+    assert result.alternatives == []  # the bad field is ignored, not fatal
+
+
+@pytest.mark.asyncio
+async def test_string_alternatives_are_not_split_into_characters():
+    # A string (not a list) must NOT be iterated into per-character "alternatives".
+    result = await _correct(
+        '{"has_error": true, "original": "i is happy", "correction": "I am happy", '
+        '"rule": "r", "alternatives": "I feel happy"}'
+    )
+    assert result is not None
+    assert result.alternatives == []

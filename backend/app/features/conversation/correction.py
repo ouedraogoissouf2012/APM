@@ -67,24 +67,37 @@ class TurnCorrector:
         except Exception:
             # Never break a turn because the correction call failed.
             return None
-        data = _loads(raw)
-        if data is None or not data.get("has_error"):
+        # Parsing is wrapped too (#238): a syntactically valid but wrongly-TYPED
+        # payload (e.g. `"alternatives": 5`) must degrade to no correction, never
+        # raise and break the turn — the module contract. The explicit list guard
+        # below handles the common case; the try/except is the backstop for any
+        # other type surprise from a free-form LLM.
+        try:
+            data = _loads(raw)
+            if data is None or not data.get("has_error"):
+                return None
+            original = _clip(str(data.get("original", "")))
+            correction = _clip(str(data.get("correction", "")))
+            # Only trust a correction anchored in what the learner actually said,
+            # and that actually changes something.
+            if not original or not correction or original not in text or original == correction:
+                return None
+            raw_alternatives = data.get("alternatives", [])
+            # A non-list (int, str, ...) must not be iterated — a string would even
+            # split into per-character "alternatives". Only a real list is trusted.
+            if not isinstance(raw_alternatives, list):
+                raw_alternatives = []
+            alternatives = [_clip(str(a)) for a in raw_alternatives if str(a).strip()][
+                :_MAX_ALTERNATIVES
+            ]
+            return TurnCorrection(
+                original=original,
+                correction=correction,
+                rule=_clip(str(data.get("rule", ""))),
+                alternatives=alternatives,
+            )
+        except Exception:
             return None
-        original = _clip(str(data.get("original", "")))
-        correction = _clip(str(data.get("correction", "")))
-        # Only trust a correction anchored in what the learner actually said,
-        # and that actually changes something.
-        if not original or not correction or original not in text or original == correction:
-            return None
-        alternatives = [_clip(str(a)) for a in data.get("alternatives", []) if str(a).strip()][
-            :_MAX_ALTERNATIVES
-        ]
-        return TurnCorrection(
-            original=original,
-            correction=correction,
-            rule=_clip(str(data.get("rule", ""))),
-            alternatives=alternatives,
-        )
 
 
 def _loads(text: str) -> dict[str, Any] | None:
