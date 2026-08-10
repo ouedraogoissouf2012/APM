@@ -1,10 +1,14 @@
-"""#227: /transcribe parses the audio upload fully in memory, never to a disk file.
+"""#227: /transcribe (and, since #230, /shadowing/attempt + /minimal-pairs/attempt)
+parse the audio upload fully in memory, never to a disk file.
 
 Starlette's default multipart parser rolls a part to a real temp FILE once it
 passes 1 MB, so a ~40 s turn (~1.3 MB) transiently hits disk — undercutting the
 "never stored on disk" promise of #128. These tests pin the fix by asserting the
 SpooledTemporaryFile never rolled (`_rolled is False`), contrasted with the
 default parser which does roll.
+
+The in-memory parser moved to audio_upload.py in #230 so the three upload
+endpoints share one implementation instead of stt_router.py's own copy.
 """
 
 from collections.abc import AsyncIterator
@@ -13,7 +17,7 @@ import pytest
 from starlette.datastructures import Headers
 from starlette.formparsers import MultiPartParser
 
-from app.features.conversation.stt_router import _InMemoryMultiPartParser
+from app.features.conversation.audio_upload import _InMemoryMultiPartParser
 
 _BOUNDARY = b"----test227"
 _BIG = 1_300_000  # ~1.3 MB — above Starlette's 1 MB spool threshold

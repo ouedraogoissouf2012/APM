@@ -117,6 +117,36 @@ async def test_attempt_flags_missed_words_without_blocking_on_coaching(client):
 
 
 @pytest.mark.asyncio
+async def test_attempt_rejects_oversized_upload(client, monkeypatch):
+    # #230: /shadowing/attempt previously read the whole upload with no size cap.
+    from app.features.shadowing import router as shadowing_router
+
+    monkeypatch.setattr(
+        shadowing_router, "get_settings", lambda: _SettingsWithCap(max_upload_bytes=10)
+    )
+    token = await _register(client, email="attempt-big@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_shadowing_service_with_stt] = _override_service_with("x")
+    try:
+        resp = await client.post(
+            "/shadowing/attempt",
+            headers=headers,
+            data={"target_text": "The ship is sinking"},
+            files={"audio": ("speech.webm", b"x" * 50, "audio/webm")},
+        )
+        assert resp.status_code == 413, resp.text
+    finally:
+        app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
+
+
+class _SettingsWithCap:
+    def __init__(self, max_upload_bytes: int) -> None:
+        self.max_upload_bytes = max_upload_bytes
+        self.trust_proxy_headers = False
+        self.max_request_body_bytes = 12 * 1024 * 1024
+
+
+@pytest.mark.asyncio
 async def test_coach_endpoint_returns_advice_for_missed_words(client):
     token = await _register(client, email="coach@b.com")
     headers = {"Authorization": f"Bearer {token}"}

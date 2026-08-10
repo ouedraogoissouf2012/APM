@@ -98,3 +98,33 @@ async def test_attempt_404_when_stt_disabled(client):
     headers = {"Authorization": f"Bearer {token}"}
     resp = await _attempt(client, headers, target="sheep", other="ship")
     assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_attempt_rejects_oversized_upload(client, monkeypatch):
+    # #230: /minimal-pairs/attempt previously read the whole upload with no cap.
+    from app.features.minimal_pairs import router as minimal_pairs_router
+
+    monkeypatch.setattr(
+        minimal_pairs_router, "get_settings", lambda: _SettingsWithCap(max_upload_bytes=10)
+    )
+    token = await _register(client, email="pair-big@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_minimal_pairs_service] = _override_with("sheep")
+    try:
+        resp = await client.post(
+            "/minimal-pairs/attempt",
+            headers=headers,
+            data={"target": "sheep", "other": "ship"},
+            files={"audio": ("speech.wav", b"x" * 50, "audio/wav")},
+        )
+        assert resp.status_code == 413, resp.text
+    finally:
+        app.dependency_overrides.pop(get_minimal_pairs_service, None)
+
+
+class _SettingsWithCap:
+    def __init__(self, max_upload_bytes: int) -> None:
+        self.max_upload_bytes = max_upload_bytes
+        self.trust_proxy_headers = False
+        self.max_request_body_bytes = 12 * 1024 * 1024
