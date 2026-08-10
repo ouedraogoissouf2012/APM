@@ -558,6 +558,36 @@ async def test_stream_prepared_does_not_finalise_when_nothing_is_produced():
 
 
 @pytest.mark.asyncio
+async def test_stream_turn_completes_when_the_final_persist_fails_after_full_delivery(caplog):
+    # #238: the WHOLE reply was already streamed to the client. If persisting the
+    # transcript then fails, that must NOT surface as an `error` event — the learner
+    # already has the complete reply. The stream ends normally (every chunk
+    # delivered, nothing raised) and the transcript desync is logged for ops.
+    class _FailingOnSaveTranscripts:
+        async def get_by_session(self, session_id):
+            return None
+
+        async def save(self, session_id, turns):
+            raise RuntimeError("db commit failed")
+
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FailingOnSaveTranscripts(),
+        _StreamingLlm(["Hi there.", "How are you?"]),
+    )
+
+    with caplog.at_level("ERROR"):
+        events = [c async for c in service.stream_turn(1, _user(), "hello")]
+
+    # Every reply chunk was delivered and NO exception propagated (no `error`).
+    assert [e.text for e in events if isinstance(e, ReplyChunk)] == [
+        "Hi there.",
+        "How are you?",
+    ]
+    assert "persist failed" in caplog.text  # the desync is logged, not shown as an error
+
+
+@pytest.mark.asyncio
 async def test_take_turn_rejects_session_not_owned():
     service = _service(_FakeSessions(owner_id=999), _FakeTranscripts(), _CannedLlm())
     with pytest.raises(NotFoundError):
