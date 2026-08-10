@@ -4,6 +4,7 @@ Registered once on the app. Keeps services/routes free of HTTP status concerns
 and guarantees a single, normalized error body: {"error": {"code", "message"}}.
 """
 
+import logging
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, status
@@ -22,6 +23,8 @@ from app.domain.exceptions import (
     QuotaExhaustedError,
     RateLimitedError,
 )
+
+_logger = logging.getLogger("apm.error")
 
 # Most specific first; a base DomainError fallback catches anything unmapped.
 _STATUS_BY_EXCEPTION: list[tuple[type[DomainError], int]] = [
@@ -50,6 +53,20 @@ def _make_handler(http_status: int) -> Callable[[Request, Exception], Awaitable[
     return handler
 
 
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Anything not a mapped DomainError is a bug, not an expected 4xx: log it with
+    the stack + the request's correlation id (via the log filter), and return the
+    SAME normalized envelope as every other error — never a bare Starlette
+    'Internal Server Error' that leaves nothing to trace (#235)."""
+    _logger.error("Unhandled exception: %s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"error": {"code": "InternalServerError", "message": "Internal server error"}},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     for exc_type, http_status in _STATUS_BY_EXCEPTION:
         app.add_exception_handler(exc_type, _make_handler(http_status))
+    # Catch-all for unmapped exceptions (bugs): logged + normalized 500.
+    app.add_exception_handler(Exception, _unhandled_exception_handler)

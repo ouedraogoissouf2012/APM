@@ -2,14 +2,18 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import register_exception_handlers
 from app.api.middleware import BodySizeLimitMiddleware, RequestContextMiddleware
 from app.config import get_settings
 from app.core.engines import ENGINE_FAKE
 from app.core.logging import configure_logging
+from app.database import get_db
 from app.features.analytics.router import router as analytics_router
 from app.features.auth.router import router as auth_router
 from app.features.billing.router import router as billing_router
@@ -135,8 +139,16 @@ for _router in _ROUTERS:
 
 
 @app.get("/health", tags=["meta"])
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health(db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    """Readiness check that actually pings the DB (#235): an instance whose database
+    is unreachable must report 503, or a load balancer keeps routing traffic to a
+    worker where every DB endpoint 500s."""
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception:
+        logging.getLogger("apm").warning("Health check failed: DB unreachable", exc_info=True)
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
+    return JSONResponse(content={"status": "ok"})
 
 
 @app.get("/config", tags=["meta"])
