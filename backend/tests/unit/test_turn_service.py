@@ -215,6 +215,51 @@ async def test_take_turn_includes_prior_history_in_llm_call():
 
 
 @pytest.mark.asyncio
+async def test_take_turn_windows_history_to_the_last_n_messages():
+    # #224: a long conversation must NOT replay its entire transcript to the LLM
+    # every turn (unbounded cost + latency). Only the last N messages go to the
+    # model; the full transcript is still persisted and the profile memory carries
+    # the older context.
+    prior = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
+        for i in range(10)  # m0..m9
+    ]
+    llm = _CannedLlm()
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(prior),
+        _FakeProfiles(),
+        llm,
+        history_max_messages=4,
+    )
+
+    result = await service.take_turn(1, _user(), "now")
+
+    # Only the last 4 prior messages + the new user turn reach the LLM...
+    assert [m.content for m in llm.seen_history] == ["m6", "m7", "m8", "m9", "now"]
+    # ...but the FULL transcript is still persisted (all 10 + this exchange).
+    assert len(result.turns) == 12
+    assert result.turns[0]["content"] == "m0"
+
+
+@pytest.mark.asyncio
+async def test_history_window_of_zero_means_unlimited():
+    prior = [{"role": "user", "content": f"m{i}"} for i in range(6)]
+    llm = _CannedLlm()
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(prior),
+        _FakeProfiles(),
+        llm,
+        history_max_messages=0,  # 0 = no window
+    )
+
+    await service.take_turn(1, _user(), "now")
+
+    assert [m.content for m in llm.seen_history] == ["m0", "m1", "m2", "m3", "m4", "m5", "now"]
+
+
+@pytest.mark.asyncio
 async def test_take_turn_personalizes_prompt_from_profile():
     llm = _CannedLlm()
     service = _service(

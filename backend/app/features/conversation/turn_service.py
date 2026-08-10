@@ -93,6 +93,7 @@ class ConversationTurnService:
         tts: TtsProvider | None = None,
         missions: MissionRepository | None = None,
         meter: Callable[[int, int], Awaitable[None]] | None = None,
+        history_max_messages: int = 20,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
@@ -101,6 +102,9 @@ class ConversationTurnService:
         self._corrector = corrector
         self._tts = tts
         self._missions = missions
+        # Sliding window of transcript messages replayed to the LLM per turn (#224);
+        # 0 = unlimited. The full transcript is still persisted and analysed.
+        self._history_max_messages = history_max_messages
         # Called once per turn to meter the quota per turn (#119). Injected (DIP)
         # so this service stays decoupled from the session/quota logic. Best-effort:
         # a metering failure must never break a turn.
@@ -246,7 +250,13 @@ class ConversationTurnService:
         turns: list[dict] = list(existing.turns) if existing is not None else []
 
         system_prompt, intensity = await self._prompt_and_intensity_for(session, user)
-        history = [Message(role=t["role"], content=t["content"]) for t in turns]
+        # Only the last N messages go to the LLM (#224): replaying the WHOLE transcript
+        # every turn makes cost + latency grow without bound in a long conversation.
+        # `turns` (the full transcript) is untouched — it is still persisted and the
+        # end-of-session debrief analyses all of it; the profile memory_summary in the
+        # system prompt carries the older context the window drops.
+        window = turns[-self._history_max_messages :] if self._history_max_messages > 0 else turns
+        history = [Message(role=t["role"], content=t["content"]) for t in window]
         history.append(Message(role=ROLE_USER, content=text))
         return turns, system_prompt, history, intensity
 
