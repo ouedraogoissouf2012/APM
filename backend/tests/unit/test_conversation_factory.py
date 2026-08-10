@@ -134,3 +134,78 @@ def test_factory_rejects_groq_without_api_key():
             base_url="https://api.groq.com/openai/v1",
             model="llama-3.3-70b-versatile",
         )
+
+
+class _FakeSettings:
+    groq_api_key = "gsk-test"
+    groq_base_url = "https://api.groq.com/openai/v1"
+    groq_llm_model = "llama-3.3-70b-versatile"
+    deepseek_api_key = "sk-test"
+    deepseek_base_url = "https://api.deepseek.com"
+    deepseek_model = "deepseek-v4-flash"
+    deepseek_timeout_seconds = 20.0
+    deepseek_max_retries = 1
+
+
+def test_groq_fallback_builds_a_two_provider_fallback_chain():
+    from app.features.conversation.factory import build_feature_llm
+    from app.features.conversation.providers.fallback import FallbackLlmProvider
+
+    provider = build_feature_llm("groq_fallback", _FakeSettings(), max_tokens=300)
+
+    assert isinstance(provider, FallbackLlmProvider)
+    assert len(provider._providers) == 2
+
+
+def test_groq_fallback_primary_is_short_and_no_retry_distinct_from_standalone_groq():
+    # #230: the fallback chain's PRIMARY (Groq) must fail fast (short timeout, no
+    # internal SDK retry) so the secondary gets a fair share of the chain's
+    # deadline — a distinct client/cache entry from standalone (non-fallback)
+    # Groq usage, which keeps the shared deepseek_timeout_seconds/max_retries.
+    from app.features.conversation.factory import (
+        _FALLBACK_PRIMARY_MAX_RETRIES,
+        _FALLBACK_PRIMARY_TIMEOUT_SECONDS,
+        build_feature_llm,
+        shared_llm_provider,
+    )
+
+    settings = _FakeSettings()
+    fallback_provider = build_feature_llm("groq_fallback", settings, max_tokens=300)
+    primary = fallback_provider._providers[0]
+    standalone_groq = build_feature_llm("groq", settings, max_tokens=300)
+
+    # Different timeout/retries -> a different lru_cache entry -> not the same client.
+    assert primary is not standalone_groq
+    expected_primary = shared_llm_provider(
+        engine="groq",
+        api_key=settings.groq_api_key,
+        base_url=settings.groq_base_url,
+        model=settings.groq_llm_model,
+        timeout_seconds=_FALLBACK_PRIMARY_TIMEOUT_SECONDS,
+        max_retries=_FALLBACK_PRIMARY_MAX_RETRIES,
+        max_tokens=300,
+    )
+    assert primary is expected_primary
+    assert _FALLBACK_PRIMARY_MAX_RETRIES == 0
+    assert settings.deepseek_timeout_seconds > _FALLBACK_PRIMARY_TIMEOUT_SECONDS
+
+
+def test_groq_fallback_secondary_keeps_the_shared_deepseek_settings():
+    # The secondary (DeepSeek) is the reliable safety net — it keeps the normal,
+    # shared timeout/retries rather than the primary's fast-fail tuning.
+    from app.features.conversation.factory import build_feature_llm, shared_llm_provider
+
+    settings = _FakeSettings()
+    fallback_provider = build_feature_llm("groq_fallback", settings, max_tokens=300)
+    secondary = fallback_provider._providers[1]
+
+    expected_secondary = shared_llm_provider(
+        engine="deepseek",
+        api_key=settings.deepseek_api_key,
+        base_url=settings.deepseek_base_url,
+        model=settings.deepseek_model,
+        timeout_seconds=settings.deepseek_timeout_seconds,
+        max_retries=settings.deepseek_max_retries,
+        max_tokens=300,
+    )
+    assert secondary is expected_secondary

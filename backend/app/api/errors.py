@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DataError
 
 from app.domain.exceptions import (
     AuthenticationError,
@@ -45,9 +46,15 @@ _STATUS_BY_EXCEPTION: list[tuple[type[DomainError], int]] = [
 def _make_handler(http_status: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
     async def handler(request: Request, exc: Exception) -> JSONResponse:
         message = getattr(exc, "message", "") or str(exc)
+        headers = {}
+        if http_status == status.HTTP_401_UNAUTHORIZED:
+            headers["WWW-Authenticate"] = "Bearer"  # RFC 6750
+        elif http_status == status.HTTP_429_TOO_MANY_REQUESTS:
+            headers["Retry-After"] = "60"  # Retry after 60 seconds
         return JSONResponse(
             status_code=http_status,
             content={"error": {"code": exc.__class__.__name__, "message": message}},
+            headers=headers,
         )
 
     return handler
@@ -78,8 +85,19 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
     )
 
 
+async def _data_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """SQLAlchemy DataError (e.g., constraint violation, value out of range).
+    Mapped to 422 since it indicates invalid input — likely a client sending data
+    that bypassed Pydantic validation or a pre-check."""
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"error": {"code": "DataError", "message": "Invalid input"}},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     for exc_type, http_status in _STATUS_BY_EXCEPTION:
         app.add_exception_handler(exc_type, _make_handler(http_status))
+    app.add_exception_handler(DataError, _data_error_handler)
     # Catch-all for unmapped exceptions (bugs): logged + normalized 500.
     app.add_exception_handler(Exception, _unhandled_exception_handler)

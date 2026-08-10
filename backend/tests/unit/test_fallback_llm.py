@@ -9,6 +9,8 @@ Streaming caveat encoded here: fall back ONLY if the primary fails BEFORE emitti
 its first chunk. Once tokens have streamed to the client, we cannot un-send them.
 """
 
+import asyncio
+
 import pytest
 
 from app.domain.exceptions import LlmProviderError
@@ -124,3 +126,93 @@ async def test_stream_does_not_fall_back_after_first_chunk_emitted():
             chunks.append(c)
     assert chunks == ["first"]  # what already streamed
     assert secondary.stream_calls == 0  # no restart after first chunk
+
+
+# --- Global deadline across the whole chain (#230) -----------------------------
+#
+# Each provider already has its OWN client-level timeout, but nothing previously
+# capped the TOTAL time the chain could spend trying every provider in sequence —
+# two ~20s timeouts could stack to ~40s+. These stubs simulate a provider that
+# HANGS (never resolves) rather than erroring, so only a deadline (not the
+# provider's own failure path) can end the attempt.
+
+
+class _HangingLlm:
+    """Never completes — simulates a provider whose request is stuck, not failed."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.complete_calls = 0
+        self.stream_calls = 0
+
+    async def complete(self, system_prompt: str, history: list[Message]) -> str:
+        self.complete_calls += 1
+        await asyncio.sleep(10)  # far longer than any test's deadline
+        return "never"  # pragma: no cover
+
+    async def stream_complete(self, system_prompt, history):
+        self.stream_calls += 1
+        await asyncio.sleep(10)
+        yield "never"  # pragma: no cover
+
+
+@pytest.mark.asyncio
+async def test_complete_gives_up_once_the_global_deadline_is_exceeded():
+    primary = _HangingLlm("groq")
+    secondary = _StubLlm("deepseek", reply="should not be reached")
+    # A short deadline so the test itself stays fast (the real default is 15s).
+    provider = FallbackLlmProvider([primary, secondary], deadline_seconds=0.05)
+
+    with pytest.raises(LlmProviderError):
+        await provider.complete("sys", _HISTORY)
+
+
+@pytest.mark.asyncio
+async def test_stream_gives_up_once_the_global_deadline_is_exceeded():
+    primary = _HangingLlm("groq")
+    secondary = _StubLlm("deepseek", reply="should not be reached")
+    provider = FallbackLlmProvider([primary, secondary], deadline_seconds=0.05)
+
+    chunks = []
+    with pytest.raises(LlmProviderError):
+        async for c in provider.stream_complete("sys", _HISTORY):
+            chunks.append(c)
+    assert chunks == []
+
+
+@pytest.mark.asyncio
+async def test_stream_deadline_no_longer_applies_once_a_chunk_has_been_emitted():
+    # A provider that starts streaming slowly (one word, then a long pause) must
+    # be allowed to keep going past the deadline — a turn that has started
+    # speaking must never be aborted mid-reply, deadline or not.
+    class _SlowAfterFirstChunk:
+        stream_calls = 0
+
+        async def stream_complete(self, system_prompt, history):
+            type(self).stream_calls += 1
+            yield "first"
+            await asyncio.sleep(0.1)  # longer than the deadline below
+            yield "second"
+
+        async def complete(self, system_prompt, history):  # pragma: no cover
+            return ""
+
+    primary = _SlowAfterFirstChunk()
+    secondary = _StubLlm("deepseek", reply="should not be reached")
+    provider = FallbackLlmProvider([primary, secondary], deadline_seconds=0.02)
+
+    chunks = [c async for c in provider.stream_complete("sys", _HISTORY)]
+
+    assert chunks == ["first", "second"]  # completed despite exceeding the deadline
+    assert secondary.stream_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_a_fast_primary_still_succeeds_within_the_default_deadline():
+    # Sanity check: the (generous) default deadline never gets in the way of a
+    # normal, fast-completing turn.
+    primary = _StubLlm("groq", reply="Hi from Groq")
+    secondary = _StubLlm("deepseek", reply="unused")
+    provider = FallbackLlmProvider([primary, secondary])  # default deadline
+
+    assert await provider.complete("sys", _HISTORY) == "Hi from Groq"
