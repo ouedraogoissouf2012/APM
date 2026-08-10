@@ -93,7 +93,25 @@ def _silent_wav() -> bytes:
     return buf.getvalue()
 
 
-app = FastAPI(title="APM Backend", lifespan=lifespan)
+def _docs_enabled(app_env: str) -> bool:
+    """Disable the interactive docs (Swagger/ReDoc) and the raw OpenAPI schema in
+    production (#231): they enumerate every route, including admin-only ones,
+    which is reconnaissance a production deployment should not hand out for free.
+    Kept on everywhere else (dev/test/staging) so they stay useful to build against."""
+    return app_env != "production"
+
+
+_docs_url = "/docs" if _docs_enabled(settings.app_env) else None
+_redoc_url = "/redoc" if _docs_enabled(settings.app_env) else None
+_openapi_url = "/openapi.json" if _docs_enabled(settings.app_env) else None
+
+app = FastAPI(
+    title="APM Backend",
+    lifespan=lifespan,
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
+    openapi_url=_openapi_url,
+)
 
 # Innermost: reject an oversized body with 413 before Starlette buffers it (#221),
 # while its response still flows out through the request-context logging + headers.

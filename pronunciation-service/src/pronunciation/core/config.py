@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     log_level: str = "INFO"
 
+    # Shared-secret auth for /score (#231). The service has no auth of its own and
+    # historically bound 0.0.0.0:8100, so anyone reaching the host could call the
+    # (CPU-expensive) scoring endpoint for free or DoS it. Empty (default) disables
+    # the check — local dev/tests stay frictionless; set it once the backend also
+    # sends it (see backend Settings.gop_service_secret) to lock the service down.
+    internal_secret: str = ""
+
     # The phoneme-recognition model (wav2vec2 CTC, espeak/IPA output, Apache 2.0).
     # Loaded once at startup (lifespan). Overridable to pin a version or swap it.
     model_id: str = "facebook/wav2vec2-xlsr-53-espeak-cv-ft"

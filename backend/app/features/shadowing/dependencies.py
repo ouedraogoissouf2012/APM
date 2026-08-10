@@ -63,6 +63,7 @@ def _pronunciation_provider() -> PronunciationProvider:
         engine=settings.pronunciation_engine,
         service_url=settings.gop_service_url,
         timeout_seconds=settings.gop_timeout_seconds,
+        secret=settings.gop_service_secret,
     )
 
 

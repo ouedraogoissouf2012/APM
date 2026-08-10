@@ -139,3 +139,44 @@ def test_production_allows_groq_fallback_with_both_keys():
         groq_api_key="gsk-test",
     )
     assert settings.voice_engine == "groq_fallback"
+
+
+# --- Staging is treated like production for safety checks (#231) ---
+# A staging deployment is reachable over the network like production, so the
+# validator that used to only guard `app_env == "production"` let a staging
+# instance run with the example JWT secret (public in this repo) = token forgery.
+
+
+def test_staging_rejects_weak_jwt_secret():
+    with pytest.raises(ValidationError, match="JWT_SECRET must be at least 32 bytes"):
+        _settings(app_env="staging", jwt_secret="too-short")
+
+
+def test_staging_rejects_example_jwt_secret():
+    with pytest.raises(ValidationError, match="JWT_SECRET must not use the example value"):
+        _settings(app_env="staging", jwt_secret=EXAMPLE_JWT_SECRET)
+
+
+def test_staging_rejects_wildcard_cors_with_credentials():
+    with pytest.raises(ValidationError, match=r"CORS_ALLOW_ORIGINS=\*"):
+        _settings(
+            app_env="staging",
+            jwt_secret="a-secure-staging-secret-32-bytes-long",
+            cors_allow_origins="https://staging.example.com,*",
+            cors_allow_credentials=True,
+        )
+
+
+def test_staging_allows_safe_config():
+    settings = _settings(
+        app_env="staging",
+        jwt_secret="a-secure-staging-secret-32-bytes-long",
+        cors_allow_origins="https://staging.example.com",
+    )
+    assert settings.app_env == "staging"
+
+
+def test_dev_still_allows_the_example_jwt_secret():
+    # Dev must stay frictionless: only staging/production enforce these checks.
+    settings = _settings(app_env="dev", jwt_secret=EXAMPLE_JWT_SECRET)
+    assert settings.jwt_secret == EXAMPLE_JWT_SECRET
