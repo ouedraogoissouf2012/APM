@@ -112,4 +112,5 @@ def get_conversation_turn_service(
         # Drives a mission session with the mission's stored persona prompt.
         missions=SqlAlchemyMissionRepository(db),
         meter=session_service.record_turn_activity,
+        history_max_messages=settings.conversation_history_max_messages,
     )

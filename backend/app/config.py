@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     deepseek_timeout_seconds: float = 20.0
     deepseek_max_retries: int = 1
     deepseek_conversation_max_tokens: int = 400
+    # Only the last N transcript messages are replayed to the LLM each turn (#224):
+    # the full transcript is still persisted and the profile memory_summary carries
+    # older context, but replaying ALL of it makes cost AND latency grow without
+    # bound in a long conversation. 0 = unlimited (no window).
+    conversation_history_max_messages: int = 20
     deepseek_debrief_max_tokens: int = 900
     deepseek_mission_max_tokens: int = 500  # a mission brief is short structured JSON
     deepseek_shadowing_max_tokens: int = 300  # a target phrase + short coaching
