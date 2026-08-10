@@ -6,6 +6,7 @@ from app.core.rate_limit import RateLimiter
 from app.core.security import hash_token
 from app.features.auth.dependencies import (
     get_auth_service,
+    get_current_admin,
     get_current_user,
     get_login_rate_limiter,
     get_refresh_rate_limiter,
@@ -13,10 +14,12 @@ from app.features.auth.dependencies import (
 )
 from app.features.auth.models import User
 from app.features.auth.schemas import (
+    ChangePasswordIn,
     LoginIn,
     LogoutIn,
     RefreshIn,
     RegisterIn,
+    SetActiveIn,
     TokenOut,
     UserOut,
 )
@@ -84,3 +87,22 @@ async def logout(
 @router.get("/me", response_model=UserOut)
 async def me(current_user: User = Depends(get_current_user)) -> UserOut:
     return UserOut.model_validate(current_user)
+
+
+@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: ChangePasswordIn,
+    current_user: User = Depends(get_current_user),
+    service: AuthService = Depends(get_auth_service),
+) -> None:
+    await service.change_password(current_user, payload.old_password, payload.new_password)
+
+
+@router.post("/admin/users/{user_id}/active", status_code=status.HTTP_204_NO_CONTENT)
+async def set_user_active(
+    user_id: int,
+    payload: SetActiveIn,
+    _admin: User = Depends(get_current_admin),
+    service: AuthService = Depends(get_auth_service),
+) -> None:
+    await service.set_active(user_id, payload.is_active)
