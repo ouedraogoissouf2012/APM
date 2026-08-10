@@ -12,6 +12,8 @@ class _FakeKv implements VoiceTakeKvStore {
   Future<Uint8List?> read(String key) async => _m[key];
   @override
   Future<void> write(String key, Uint8List bytes) async => _m[key] = bytes;
+  @override
+  Future<void> clear() async => _m.clear();
 }
 
 Uint8List _b(List<int> bytes) => Uint8List.fromList(bytes);
@@ -74,5 +76,26 @@ void main() {
     await store.saveTake('job_interview', _b([4]));
     expect((await store.takesFor('restaurant'))!.latest, _b([2]));
     expect((await store.takesFor('job_interview'))!.latest, _b([4]));
+  });
+
+  test('eraseAll wipes every take for every skill (#219)', () async {
+    final kv = _FakeKv();
+    final store = KvVoiceTakeStore(kv);
+    await store.saveTake('restaurant', _b([1]));
+    await store.saveTake('restaurant', _b([2]));
+    await store.saveTake('travel', _b([3]));
+    await store.saveTake('travel', _b([4]));
+
+    await store.eraseAll();
+
+    expect(await store.takesFor('restaurant'), isNull);
+    expect(await store.takesFor('travel'), isNull);
+    // A fresh store over the same (now-empty) KV sees nothing — the bytes are
+    // gone, not just hidden. And the store still works afterwards.
+    final fresh = KvVoiceTakeStore(kv);
+    expect(await fresh.takesFor('restaurant'), isNull);
+    await fresh.saveTake('restaurant', _b([9]));
+    await fresh.saveTake('restaurant', _b([8]));
+    expect((await fresh.takesFor('restaurant'))!.baseline, _b([9]));
   });
 }

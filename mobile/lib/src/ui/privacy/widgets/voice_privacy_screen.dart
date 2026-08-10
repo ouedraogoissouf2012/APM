@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/audio/providers.dart';
 import '../../../data/models/voice_consent.dart';
 import '../view_model/voice_privacy_view_model.dart';
 
@@ -89,8 +90,9 @@ class _Body extends ConsumerWidget {
       builder: (ctx) => AlertDialog(
         title: const Text('Effacer mes données voix ?'),
         content: const Text(
-          'Tes phrases dites, tes bilans, ton vocabulaire et tes révisions '
-          'seront supprimés. Ton compte est conservé. Irréversible.',
+          'Tes phrases dites, tes bilans, ton vocabulaire, tes révisions et tes '
+          'enregistrements vocaux sur cet appareil seront supprimés. Ton compte '
+          'est conservé. Irréversible.',
         ),
         actions: [
           TextButton(
@@ -106,6 +108,11 @@ class _Body extends ConsumerWidget {
     );
     if (confirmed != true) return;
     try {
+      // Erase BOTH sides: the on-device raw takes (they live ONLY here by design
+      // #128, #219) AND the server-derived data. Local first — it is the most
+      // private (raw audio). Success is claimed only if both succeed, so the
+      // "erased" message is never a lie.
+      await ref.read(voiceTakeStoreProvider).eraseAll();
       await ref.read(voicePrivacyRepositoryProvider).eraseData();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
