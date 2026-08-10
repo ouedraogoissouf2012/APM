@@ -151,6 +151,10 @@ class Settings(BaseSettings):
     pronunciation_engine: PronunciationEngineName = "fake"
     gop_service_url: str = "http://localhost:8100"
     gop_timeout_seconds: float = 15.0
+    # Shared secret sent as X-Internal-Secret to the pronunciation microservice
+    # (#231). Empty by default (dev/tests, service has no auth configured either);
+    # set the SAME value here and as the service's INTERNAL_SECRET to lock it down.
+    gop_service_secret: str = ""
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -158,7 +162,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
-        if self.app_env != "production":
+        # Staging is reachable over the network exactly like production (#231): a
+        # staging instance left with the example JWT secret (public in this repo)
+        # lets anyone forge access tokens. Guard both, not just "production".
+        if self.app_env not in ("staging", "production"):
             return self
 
         if len(self.jwt_secret.encode("utf-8")) < 32:

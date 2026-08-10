@@ -45,9 +45,13 @@ class HttpGopProvider:
     error is wrapped in the domain's LlmProviderError, so callers handle a single
     failure type regardless of the underlying engine."""
 
-    def __init__(self, client: httpx.AsyncClient, base_url: str) -> None:
+    def __init__(self, client: httpx.AsyncClient, base_url: str, secret: str = "") -> None:
         self._client = client
         self._base_url = base_url.rstrip("/")
+        # Shared-secret auth (#231): the microservice rejects /score without this
+        # header once it is configured with a matching secret. Empty -> header
+        # omitted, matching the service's own "unconfigured -> no-op" default.
+        self._headers = {"X-Internal-Secret": secret} if secret else {}
 
     async def score_phonemes(self, audio: bytes, target_text: str) -> list[PhonemeScore]:
         # No audio -> nothing to score. Skip the network entirely.
@@ -58,6 +62,7 @@ class HttpGopProvider:
                 f"{self._base_url}/score",
                 files={"audio": ("speech.wav", audio, "audio/wav")},
                 data={"target_text": target_text},
+                headers=self._headers,
             )
             response.raise_for_status()
             payload = response.json()
@@ -69,7 +74,7 @@ class HttpGopProvider:
 
 
 def build_pronunciation_provider(
-    engine: str, service_url: str, timeout_seconds: float
+    engine: str, service_url: str, timeout_seconds: float, secret: str = ""
 ) -> PronunciationProvider:
     """Select the pronunciation provider from config.
 
@@ -79,7 +84,7 @@ def build_pronunciation_provider(
         return FakePronunciationProvider()
     if engine == ENGINE_GOP:
         client = httpx.AsyncClient(timeout=timeout_seconds)
-        return HttpGopProvider(client=client, base_url=service_url)
+        return HttpGopProvider(client=client, base_url=service_url, secret=secret)
     raise LlmProviderError(f"Unsupported pronunciation engine: {engine!r}")
 
 

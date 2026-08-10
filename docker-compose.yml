@@ -30,11 +30,17 @@ services:
     profiles: ["ml"]
     restart: unless-stopped
     ports:
-      - "8100:8100"
+      # Bound to loopback only (#231): the service has no auth of its own beyond
+      # the shared secret below, so it must not be reachable from the network —
+      # only the backend, running on the same host, needs it.
+      - "127.0.0.1:8100:8100"
     environment:
       APP_ENV: dev
       LOG_LEVEL: info
       DEVICE: cpu
+      # Shared secret the backend must also send (its GOP_SERVICE_SECRET) as
+      # X-Internal-Secret (#231). Empty here by default; set both to lock it down.
+      INTERNAL_SECRET: ${PRONUNCIATION_INTERNAL_SECRET:-}
     # Cache HuggingFace weights across restarts so the model downloads only once.
     volumes:
       - apm_hf_cache:/root/.cache/huggingface

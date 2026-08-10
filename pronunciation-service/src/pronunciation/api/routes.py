@@ -3,7 +3,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from pronunciation.api.schemas import PhonemeScoreOut, ScoreOut
 from pronunciation.core.concurrency import InferenceGate
 from pronunciation.core.config import get_settings
-from pronunciation.dependencies import get_inference_gate, get_scoring_service
+from pronunciation.dependencies import (
+    get_inference_gate,
+    get_scoring_service,
+    require_internal_secret,
+)
 from pronunciation.ml.transcode import TranscodeError, to_pcm_16k_mono
 from pronunciation.services.scoring_service import ScoringService
 
@@ -15,7 +19,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.post("/score", response_model=ScoreOut)
+@router.post("/score", response_model=ScoreOut, dependencies=[Depends(require_internal_secret)])
 async def score(
     audio: UploadFile,
     target_text: str = Form(...),

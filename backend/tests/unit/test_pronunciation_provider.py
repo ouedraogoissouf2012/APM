@@ -106,6 +106,43 @@ async def test_http_provider_wraps_network_failure_in_domain_error():
 
 
 @pytest.mark.asyncio
+async def test_http_provider_sends_the_shared_secret_header_when_configured():
+    # #231: the microservice's require_internal_secret checks X-Internal-Secret.
+    recorder: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorder["header"] = request.headers.get("x-internal-secret")
+        return httpx.Response(200, json={"phonemes": []})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = HttpGopProvider(client=client, base_url="http://gop:8100", secret="s3cret-internal")
+
+    await provider.score_phonemes(audio=b"WAV", target_text="think")
+
+    assert recorder["header"] == "s3cret-internal"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_http_provider_omits_the_header_when_no_secret_configured():
+    # Unconfigured (default, dev/tests): no header sent, matching the service's
+    # own no-op default — nothing breaks before both sides are configured.
+    recorder: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorder["header"] = request.headers.get("x-internal-secret")
+        return httpx.Response(200, json={"phonemes": []})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = HttpGopProvider(client=client, base_url="http://gop:8100")
+
+    await provider.score_phonemes(audio=b"WAV", target_text="think")
+
+    assert recorder["header"] is None
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_http_provider_tolerates_malformed_phoneme_entries():
     # A phoneme missing its score is skipped, not a crash — defensive parsing.
     def handler(request: httpx.Request) -> httpx.Response:
