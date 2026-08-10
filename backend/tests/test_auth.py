@@ -52,6 +52,40 @@ async def test_login_fails_with_wrong_password(client):
 
 
 @pytest.mark.asyncio
+async def test_register_normalizes_email_case(client):
+    resp = await client.post(
+        "/auth/register",
+        json={"email": "Mixed.Case@Example.COM", "password": "s3cret!pass"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["user"]["email"] == "mixed.case@example.com"
+
+
+@pytest.mark.asyncio
+async def test_register_duplicate_email_is_case_insensitive(client):
+    first = await client.post(
+        "/auth/register", json={"email": "casedup@b.com", "password": "s3cret!pass"}
+    )
+    assert first.status_code == 201
+    second = await client.post(
+        "/auth/register", json={"email": "CaseDup@B.com", "password": "s3cret!pass"}
+    )
+    assert second.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_login_succeeds_regardless_of_email_case(client):
+    await client.post(
+        "/auth/register", json={"email": "logincase@b.com", "password": "s3cret!pass"}
+    )
+    resp = await client.post(
+        "/auth/login", json={"email": "LoginCase@B.COM", "password": "s3cret!pass"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["access_token"]
+
+
+@pytest.mark.asyncio
 async def test_me_returns_current_user(client):
     reg = await client.post("/auth/register", json={"email": "me@b.com", "password": "s3cret!pass"})
     token = reg.json()["access_token"]

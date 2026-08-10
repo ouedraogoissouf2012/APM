@@ -1,6 +1,17 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -17,7 +28,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     native_language: Mapped[str] = mapped_column(String(8), default="fr", nullable=False)
     cefr_level: Mapped[str] = mapped_column(String(2), default="A1", nullable=False)
@@ -42,6 +53,13 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    # Case-insensitive uniqueness (issue #220). Emails are normalized to
+    # lowercase at the auth write boundary; this functional UNIQUE index is the
+    # DB-level safety net that also blocks case-variant duplicates from any code
+    # path that might bypass normalization. The plain index on `email` above
+    # serves equality lookups on the (already lowercased) stored value.
+    __table_args__ = (Index("ix_users_email_lower", text("lower(email)"), unique=True),)
 
 
 class RefreshToken(Base):

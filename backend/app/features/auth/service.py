@@ -23,6 +23,7 @@ from app.domain.exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
 )
+from app.features.auth.emails import normalize_email
 from app.features.auth.models import User
 from app.features.auth.repository import RefreshTokenRepository, UserRepository
 
@@ -61,6 +62,9 @@ class AuthService:
         )
 
     async def register(self, email: str, password: str, native_language: str) -> AuthResult:
+        # Authoritative normalization: the service owns the "emails are stored
+        # canonical" invariant and must not trust the caller to have done it.
+        email = normalize_email(email)
         if await self._users.get_by_email(email) is not None:
             raise EmailAlreadyExistsError("Email already registered")
         user = User(
@@ -72,6 +76,7 @@ class AuthService:
         return await self._issue_tokens(user)
 
     async def login(self, email: str, password: str) -> AuthResult:
+        email = normalize_email(email)
         user = await self._users.get_by_email(email)
         if user is None or not verify_password(password, user.hashed_password):
             raise InvalidCredentialsError("Invalid credentials")

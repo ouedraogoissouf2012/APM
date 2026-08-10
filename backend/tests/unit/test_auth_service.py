@@ -60,6 +60,29 @@ async def test_login_unknown_email_raises():
 
 
 @pytest.mark.asyncio
+async def test_register_stores_email_lowercased():
+    service = _service()
+    result = await service.register("John.DOE@Gmail.COM", "s3cret!pass", "fr")
+    assert result.user.email == "john.doe@gmail.com"
+
+
+@pytest.mark.asyncio
+async def test_register_duplicate_email_is_case_insensitive():
+    service = _service()
+    await service.register("user@example.com", "s3cret!pass", "fr")
+    with pytest.raises(EmailAlreadyExistsError):
+        await service.register("USER@Example.com", "other!pass", "fr")
+
+
+@pytest.mark.asyncio
+async def test_login_is_case_insensitive():
+    service = _service()
+    reg = await service.register("caps@b.com", "s3cret!pass", "fr")
+    result = await service.login("CAPS@B.com", "s3cret!pass")
+    assert decode_access_token(result.access_token) == str(reg.user.id)
+
+
+@pytest.mark.asyncio
 async def test_refresh_rotates_and_returns_new_tokens():
     service = _service()
     reg = await service.register("r@b.com", "s3cret!pass", "fr")
