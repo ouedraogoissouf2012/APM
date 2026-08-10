@@ -24,6 +24,11 @@ class SessionRepository(Protocol):
 
     async def add(self, session: ConversationSession) -> ConversationSession: ...
 
+    async def refresh(self, session: ConversationSession) -> None:
+        """Re-read a loaded session from the DB (e.g. after taking a lock) so a
+        field a concurrent path committed — like last_activity_at — is not stale."""
+        ...
+
     async def commit(self) -> None: ...
 
 
@@ -59,6 +64,9 @@ class SqlAlchemySessionRepository:
         await self._session.flush()
         await self._session.refresh(session)
         return session
+
+    async def refresh(self, session: ConversationSession) -> None:
+        await self._session.refresh(session)
 
     async def commit(self) -> None:
         await self._session.commit()

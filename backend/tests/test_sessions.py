@@ -129,3 +129,73 @@ async def test_list_sessions_returns_only_current_users_sessions(client):
     assert body[0]["scenario_id"] == "restaurant"
     assert "started_at" in body[0]
     assert "cefr_estimate" in body[0]
+
+
+@pytest.mark.asyncio
+async def test_end_bills_the_last_turn_interval_only_once(_engine, _setup_db):
+    # #258: end() reads the session BEFORE locking the user; a concurrent last-turn
+    # metering (its own DB session) can advance last_activity_at — and bill up to it —
+    # in between. end() must re-read the session after the lock, else _close_session
+    # computes the residual from a stale last_activity_at and bills that turn's
+    # interval a SECOND time. Two real DB sessions reproduce the staleness.
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from app.core.security import hash_password
+    from app.features.auth.models import User
+    from app.features.auth.repository import SqlAlchemyUserRepository
+    from app.features.sessions.models import ConversationSession
+    from app.features.sessions.ownership import get_owned_session
+    from app.features.sessions.repository import SqlAlchemySessionRepository
+    from app.features.sessions.service import SessionService
+
+    maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    t0 = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
+
+    async with maker() as s:
+        user = User(
+            email="race-end@b.com", hashed_password=hash_password("x"), native_language="fr"
+        )
+        s.add(user)
+        await s.commit()
+        await s.refresh(user)
+        uid = user.id
+        session = ConversationSession(
+            user_id=uid,
+            mode="free",
+            room_name="apm-race-end",
+            started_at=t0,
+            last_activity_at=t0,
+            voice_engine="fake",
+        )
+        s.add(session)
+        await s.commit()
+        await s.refresh(session)
+        sid = session.id
+
+    def _svc(db: AsyncSession) -> SessionService:
+        return SessionService(
+            SqlAlchemySessionRepository(db), SqlAlchemyUserRepository(db), free_daily_minutes=1000
+        )
+
+    async with maker() as db_a, maker() as db_b:
+        svc_a = _svc(db_a)
+        # Seed db_a's identity map with the STALE last_activity_at (t0), exactly as
+        # end()'s own read does, BEFORE the concurrent turn commits. Keep a STRONG
+        # reference (`stale`): SQLAlchemy's identity map is weak-ref, so a discarded
+        # object is GC'd and end()'s get() would re-query fresh, hiding the staleness.
+        stale = await get_owned_session(svc_a._sessions, sid, uid)
+        assert stale.last_activity_at == t0  # sanity: cached at t0
+        # A concurrent last turn advances last_activity_at to t0+2min and bills 2 min.
+        await _svc(db_b).record_turn_activity(sid, uid, now=t0 + timedelta(minutes=2))
+        # end() at t0+3min: it re-reads the SAME cached (stale) object; with the fix's
+        # refresh it bills only the residual (1 min); without it, it bills t0->t0+3
+        # (3 min) on top of the turn — a double-count of the t0->t0+2 interval.
+        await svc_a.end(sid, uid, now=t0 + timedelta(minutes=3))
+        assert stale is not None  # keep `stale` referenced until after end()
+
+    async with maker() as s:
+        billed = (await s.get(User, uid)).minutes_used_today
+    # Total billed = 2 (turn) + 1 (residual) = 3. The stale-read bug gives 2 + 3 = 5.
+    assert billed == pytest.approx(3.0, abs=0.05)

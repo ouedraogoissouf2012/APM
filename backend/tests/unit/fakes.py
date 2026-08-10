@@ -88,6 +88,10 @@ class InMemorySessionRepository:
         self._by_id[session.id] = session
         return session
 
+    async def refresh(self, session: ConversationSession) -> None:
+        # Single shared store, no separate identity maps — objects are never stale.
+        return None
+
     async def commit(self) -> None:
         pass
 
