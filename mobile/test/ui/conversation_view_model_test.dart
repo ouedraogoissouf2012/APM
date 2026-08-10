@@ -282,7 +282,7 @@ ConversationRepository _repoReturning(int sessionId, {String? reply}) {
   ).thenAnswer((_) async => sessionId);
   if (reply != null) {
     // The VM consumes the streaming path; yield the reply as one sentence.
-    when(() => repo.streamTurn(any(), any()))
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')))
         .thenAnswer((_) => Stream.value(ReplySentence(reply)));
   }
   return repo;
@@ -511,7 +511,7 @@ void main() {
         scenarioId: any(named: 'scenarioId'),
       ),
     ).thenAnswer((_) async => 1);
-    when(() => repo.streamTurn(any(), any())).thenAnswer(
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey'))).thenAnswer(
       (_) => Stream.fromIterable(const [
         ReplySentence('Nice weekend?'),
         ReplySentence('What did you do?'),
@@ -542,7 +542,7 @@ void main() {
       ),
     ).thenAnswer((_) async => 1);
     when(() => repo.transcribe(any())).thenAnswer((_) async => 'hello how are you');
-    when(() => repo.streamTurn(any(), any())).thenAnswer(
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey'))).thenAnswer(
       (_) => Stream.value(const ReplySentence('I am well, thank you.')),
     );
     final recorder = _FakeRecorder();
@@ -584,7 +584,7 @@ void main() {
       ),
     ).thenAnswer((_) async => 1);
     when(() => repo.transcribe(any())).thenAnswer((_) async => 'hello');
-    when(() => repo.streamTurn(any(), any()))
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')))
         .thenAnswer((_) => Stream.value(const ReplySentence('hi')));
     final store = _SpyTakeStore();
     final c = _container(repo, _FakeSpeech(''), serverStt: true, takeStore: store);
@@ -609,7 +609,7 @@ void main() {
       ),
     ).thenAnswer((_) async => 1);
     when(() => repo.transcribe(any())).thenAnswer((_) async => 'hello');
-    when(() => repo.streamTurn(any(), any()))
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')))
         .thenAnswer((_) => Stream.value(const ReplySentence('hi')));
     final store = _SpyTakeStore();
     final c = _container(repo, _FakeSpeech(''), serverStt: true, takeStore: store);
@@ -631,7 +631,7 @@ void main() {
         scenarioId: any(named: 'scenarioId'),
       ),
     ).thenAnswer((_) async => 1);
-    when(() => repo.streamTurn(any(), any())).thenAnswer(
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey'))).thenAnswer(
       (_) => Stream.fromIterable(const [
         ReplySentence('Good.'),
         AudioClip('QUJD', 'audio/mpeg'), // "ABC" in base64
@@ -666,7 +666,7 @@ void main() {
     when(
       () => repo.startSession(mode: any(named: 'mode'), scenarioId: any(named: 'scenarioId')),
     ).thenAnswer((_) async => 1);
-    when(() => repo.streamTurn(any(), any())).thenAnswer(
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey'))).thenAnswer(
       (_) => Stream.fromIterable(const [
         ReplySentence('First.'),
         AudioClip('QQ==', 'audio/mpeg'),
@@ -704,7 +704,7 @@ void main() {
         scenarioId: any(named: 'scenarioId'),
       ),
     ).thenAnswer((_) async => 1);
-    when(() => repo.streamTurn(any(), any())).thenAnswer(
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey'))).thenAnswer(
       (_) => Stream.fromIterable(const [
         ReplySentence('Bye.'),
         AudioClip('QUJD', 'audio/mpeg'),
@@ -737,7 +737,7 @@ void main() {
         scenarioId: any(named: 'scenarioId'),
       ),
     ).thenAnswer((_) async => 1);
-    when(() => repo.streamTurn(any(), any())).thenAnswer(
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey'))).thenAnswer(
       (_) => Stream.fromIterable(const [
         ReplySentence('More?'),
         AudioClip('QQ==', 'audio/mpeg'),
@@ -772,7 +772,7 @@ void main() {
         scenarioId: any(named: 'scenarioId'),
       ),
     ).thenAnswer((_) async => 1);
-    when(() => repo.streamTurn(any(), any())).thenAnswer(
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey'))).thenAnswer(
       (_) => Stream.fromIterable(const [
         ReplySentence('Good.'),
         CorrectionEvent(
@@ -812,7 +812,7 @@ void main() {
     expect(state.turns.length, 1);
     expect(state.turns.single.role, 'assistant');
     expect(state.status, ConversationStatus.idle);
-    verifyNever(() => repo.streamTurn(any(), any()));
+    verifyNever(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')));
   });
 
   test('end closes the session and resets state', () async {
@@ -945,7 +945,7 @@ void main() {
           scenarioId: any(named: 'scenarioId'),
         ),
       ).thenAnswer((_) async => 1);
-      when(() => repo.streamTurn(any(), any()))
+      when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')))
           .thenAnswer((_) => Stream.error(Exception('network down')));
       final c = _container(repo, _FakeSpeech('hello'));
       final vm = c.read(conversationViewModelProvider.notifier);
@@ -1035,7 +1035,7 @@ void main() {
           turnsAfterStop);
       expect(c.read(conversationViewModelProvider).status,
           ConversationStatus.idle);
-      verifyNever(() => repo.streamTurn(any(), any()));
+      verifyNever(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')));
     });
   });
 }

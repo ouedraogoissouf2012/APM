@@ -8,6 +8,7 @@ import pytest
 from app.domain.exceptions import ConflictError
 from app.features.idempotency.service import (
     STALE_CLAIM_SECONDS,
+    ClaimStatus,
     IdempotencyService,
     _turn_lock_key,
 )
@@ -225,3 +226,60 @@ async def test_a_stale_turn_lock_is_reclaimed_so_a_crash_cannot_wedge_a_session(
     stale_age = timedelta(seconds=STALE_CLAIM_SECONDS + 60)
     repo.seed_pending(1, _turn_lock_key(5), created_at=datetime.now(UTC) - stale_age)
     assert await service.acquire_turn_lock(1, 5) is True  # reclaimed, not stuck
+
+
+# --- Streaming-aware claim API (begin/complete/release), #261 -------------------
+
+
+@pytest.mark.asyncio
+async def test_begin_claims_a_fresh_key():
+    service, _ = _service()
+    outcome = await service.begin(1, "k")
+    assert outcome.status is ClaimStatus.CLAIMED
+    assert outcome.response is None
+
+
+@pytest.mark.asyncio
+async def test_begin_reports_completed_and_replays_the_cached_reply():
+    service, _ = _service()
+    await service.begin(1, "k")
+    await service.complete(1, "k", "cached reply")
+
+    outcome = await service.begin(1, "k")  # a later replay of the same key
+    assert outcome.status is ClaimStatus.COMPLETED
+    assert outcome.response == "cached reply"
+
+
+@pytest.mark.asyncio
+async def test_begin_reports_in_flight_for_a_live_concurrent_claim():
+    # A second streaming caller that finds a LIVE claim must be told to retry (409),
+    # not re-run the turn — the winner is still persisting/charging it (#261).
+    service, repo = _service()
+    repo.seed_pending(1, "k", created_at=datetime.now(UTC))  # a fresh, live claim
+
+    outcome = await service.begin(1, "k")
+    assert outcome.status is ClaimStatus.IN_FLIGHT
+    assert outcome.response is None
+
+
+@pytest.mark.asyncio
+async def test_release_lets_a_later_begin_reclaim_the_key():
+    # A stream that failed before producing anything releases its claim, so a retry
+    # can cleanly re-run (no poison key that 409s forever).
+    service, _ = _service()
+    await service.begin(1, "k")  # claimed
+    await service.release(1, "k")
+
+    outcome = await service.begin(1, "k")  # reclaimed as fresh
+    assert outcome.status is ClaimStatus.CLAIMED
+
+
+@pytest.mark.asyncio
+async def test_begin_reclaims_a_stale_pending_claim():
+    # A claim abandoned by a crashed stream (older than the stale window) is
+    # reclaimable — begin returns CLAIMED, not a permanent IN_FLIGHT.
+    service, repo = _service()
+    repo.seed_pending(1, "k", created_at=datetime.now(UTC) - timedelta(minutes=10))
+
+    outcome = await service.begin(1, "k")
+    assert outcome.status is ClaimStatus.CLAIMED

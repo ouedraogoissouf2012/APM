@@ -112,10 +112,19 @@ class ConversationRepository {
   /// sentence (so the caller can speak each one as it arrives instead of waiting
   /// for the whole reply), then at most one [CorrectionEvent] for what the
   /// learner said. Throws if the server emits an `error` event.
-  Stream<TurnEvent> streamTurn(int sessionId, String text) async* {
+  ///
+  /// [idempotencyKey] makes a retry of the same turn safe (#261): the server
+  /// replays the cached reply without re-processing it or re-charging the quota,
+  /// so a network retry can't duplicate the transcript or double-bill.
+  Stream<TurnEvent> streamTurn(
+    int sessionId,
+    String text, {
+    String? idempotencyKey,
+  }) async* {
     final lines = _api.postLineStream(
       '/sessions/$sessionId/turn/stream',
       body: {'text': text},
+      headers: idempotencyKey == null ? null : {'Idempotency-Key': idempotencyKey},
     );
     await for (final event in parseSse(lines)) {
       switch (event.event) {
