@@ -170,17 +170,27 @@ class SessionService:
                 turns = list(transcript.turns)
         return ActiveSession(session=session, turns=turns)
 
-    async def end(self, session_id: int, user_id: int) -> ConversationSession:
+    async def end(
+        self, session_id: int, user_id: int, *, now: datetime | None = None
+    ) -> ConversationSession:
         session = await get_owned_session(self._sessions, session_id, user_id)
         if session.ended_at is not None:
             return session  # idempotent: ending an already-ended session is a no-op
 
+        now = now or datetime.now(UTC)
         # Lock the user row like start()/record_turn_activity (#228): _close_session
         # bills the quota — a read-modify-write on minutes_used_today — so a plain get
         # would lost-update against a concurrent last-turn metering. FOR UPDATE
         # serialises end() with those paths (same shared DB session -> commit releases).
         user = await self._users.lock(user_id)
-        await self._close_session(session, user, datetime.now(UTC))
+        # Re-read the session AFTER the lock (#258): a last-turn metering may have
+        # advanced last_activity_at (and billed up to it) between the read above and
+        # the lock. Without this refresh, _close_session computes the residual from a
+        # stale last_activity_at and bills that turn's interval a second time.
+        await self._sessions.refresh(session)
+        if session.ended_at is not None:
+            return session  # ended concurrently between our first read and the lock
+        await self._close_session(session, user, now)
         await self._sessions.commit()
         return session
 
