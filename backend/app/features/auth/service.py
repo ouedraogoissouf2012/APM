@@ -34,6 +34,18 @@ class AuthResult:
     refresh_token: str
 
 
+def normalize_email(email: str) -> str:
+    """Canonical form for BOTH storage and lookup: trimmed + lowercased (#220).
+
+    Emails are case-insensitive in practice, but `EmailStr` only lowercases the
+    domain and neither register nor login normalised — so 'Jean@x.com' and
+    'jean@x.com' were two accounts, and a mobile keyboard's auto-capitalisation
+    could 401 a learner who typed the right password. Normalising here makes it a
+    single account; a functional unique index on lower(email) guards it in the DB.
+    """
+    return email.strip().lower()
+
+
 class AuthService:
     def __init__(
         self,
@@ -61,6 +73,7 @@ class AuthService:
         )
 
     async def register(self, email: str, password: str, native_language: str) -> AuthResult:
+        email = normalize_email(email)
         if await self._users.get_by_email(email) is not None:
             raise EmailAlreadyExistsError("Email already registered")
         user = User(
@@ -72,6 +85,7 @@ class AuthService:
         return await self._issue_tokens(user)
 
     async def login(self, email: str, password: str) -> AuthResult:
+        email = normalize_email(email)
         user = await self._users.get_by_email(email)
         if user is None or not verify_password(password, user.hashed_password):
             raise InvalidCredentialsError("Invalid credentials")

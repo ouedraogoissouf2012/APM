@@ -37,6 +37,33 @@ async def test_register_duplicate_email_raises():
 
 
 @pytest.mark.asyncio
+async def test_email_is_stored_lowercased():
+    # #220: EmailStr only lowercases the domain; register must canonicalise the
+    # whole address so lookups and the unique index are case-insensitive.
+    service = _service()
+    result = await service.register("Jean.Dupont@GMail.com", "s3cret!pass", "fr")
+    assert result.user.email == "jean.dupont@gmail.com"
+
+
+@pytest.mark.asyncio
+async def test_login_is_case_insensitive():
+    # A mobile keyboard auto-capitalises the email at register; logging in with a
+    # different case must still find the account (#220).
+    service = _service()
+    await service.register("Case@Example.com", "s3cret!pass", "fr")
+    result = await service.login("case@EXAMPLE.com", "s3cret!pass")
+    assert result.user.email == "case@example.com"
+
+
+@pytest.mark.asyncio
+async def test_register_duplicate_differing_only_by_case_raises():
+    service = _service()
+    await service.register("Dup@x.com", "s3cret!pass", "fr")
+    with pytest.raises(EmailAlreadyExistsError):
+        await service.register("dup@x.com", "other!", "fr")
+
+
+@pytest.mark.asyncio
 async def test_login_succeeds_with_correct_password():
     service = _service()
     await service.register("log@b.com", "s3cret!pass", "fr")
