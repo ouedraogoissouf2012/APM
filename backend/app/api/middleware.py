@@ -15,7 +15,66 @@ import uuid
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.domain.exceptions import PayloadTooLargeError
+
 _logger = logging.getLogger("apm.request")
+
+
+class BodySizeLimitMiddleware:
+    """Rejects a request whose body exceeds [max_bytes] with 413 BEFORE it is
+    buffered into memory (#221).
+
+    Starlette reads the ENTIRE request body into memory before Pydantic validation,
+    so without this an unauthenticated POST with a multi-GB body would OOM the
+    worker (a field's `max_length` caps the parsed string, never the bytes read).
+    Two guards: a fast reject on a declared oversized `Content-Length`, and — for
+    chunked or lying `Content-Length` — a running byte count that raises
+    [PayloadTooLargeError] once the ceiling is passed (mapped to 413 centrally),
+    which also stops the app from reading any further, bounding memory.
+    """
+
+    def __init__(self, app: ASGIApp, *, max_bytes: int) -> None:
+        self._app = app
+        self._max = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        declared = Headers(scope=scope).get("content-length")
+        if declared is not None and declared.isdigit() and int(declared) > self._max:
+            await _send_413(send)
+            return
+
+        seen = 0
+
+        async def counting_receive() -> Message:
+            nonlocal seen
+            message = await receive()
+            if message.get("type") == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > self._max:
+                    raise PayloadTooLargeError("Request body too large")
+            return message
+
+        await self._app(scope, counting_receive, send)
+
+
+async def _send_413(send: Send) -> None:
+    body = b'{"error":{"code":"PayloadTooLargeError","message":"Request body too large"}}'
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
 
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",

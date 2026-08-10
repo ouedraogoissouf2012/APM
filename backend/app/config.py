@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     # Reject an audio upload larger than this before reading it into memory (#120),
     # so a huge/streamed body cannot exhaust the server. 10 MB ~ minutes of speech.
     max_upload_bytes: int = 10 * 1024 * 1024
+    # Global request-body ceiling (#221): an ASGI middleware rejects any body larger
+    # than this with 413 BEFORE Starlette buffers it, so an unauthenticated multi-GB
+    # POST cannot OOM the worker. Kept above max_upload_bytes so a legitimate ~10 MB
+    # audio multipart (with its overhead) still passes.
+    max_request_body_bytes: int = 12 * 1024 * 1024
     # Redis URL for a cross-instance rate limiter (#120). Empty -> in-memory limiter
     # (single process). Set to redis://host:port/db in a multi-instance deployment.
     redis_url: str = ""
