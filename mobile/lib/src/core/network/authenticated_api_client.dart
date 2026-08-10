@@ -54,14 +54,18 @@ class AuthenticatedApiClient {
   /// The refresh goes through [_refreshAccessToken], so it shares the same
   /// single-flight lock as the JSON verbs — a stream 401 racing a JSON 401
   /// still rotates the refresh token only once.
-  Stream<String> postLineStream(String path, {Map<String, dynamic>? body}) async* {
+  Stream<String> postLineStream(
+    String path, {
+    Map<String, dynamic>? body,
+    Map<String, String>? headers,
+  }) async* {
     final access = await _storage.readAccessToken();
     try {
-      yield* _api.postLineStream(path, body: body, bearer: access);
+      yield* _api.postLineStream(path, body: body, bearer: access, headers: headers);
     } on ApiException catch (e) {
       if (e.statusCode != 401) rethrow;
       final refreshed = await _refreshAccessToken();
-      yield* _api.postLineStream(path, body: body, bearer: refreshed);
+      yield* _api.postLineStream(path, body: body, bearer: refreshed, headers: headers);
     }
   }
 

@@ -24,7 +24,7 @@ from app.features.conversation.turn_service import (
     ReplyChunk,
 )
 from app.features.idempotency.dependencies import get_idempotency_service
-from app.features.idempotency.service import IdempotencyService
+from app.features.idempotency.service import ClaimStatus, IdempotencyService
 
 router = APIRouter(prefix="/sessions/{session_id}", tags=["conversation"])
 
@@ -59,6 +59,18 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+async def _replay_completed(reply: str) -> AsyncIterator[str]:
+    """Re-emit an already-processed turn's reply as a stream WITHOUT re-running the
+    LLM, re-persisting the transcript, or re-charging the quota (#261). The reply is
+    replayed as a single chunk — the per-sentence split, audio and correction were
+    delivered on the first, successful pass and are not cached."""
+    yield _sse("chunk", {"text": reply})
+    yield _sse("done", {})
+
+
 @router.post("/turn/stream")
 async def stream_turn(
     session_id: int,
@@ -68,23 +80,47 @@ async def stream_turn(
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
     service: ConversationTurnService = Depends(get_conversation_turn_service),
     idempotency: IdempotencyService = Depends(get_idempotency_service),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> StreamingResponse:
     """Stream the reply as Server-Sent Events: one `chunk` event per sentence
     so the client speaks it immediately, then at most one `correction` event
     (the learner's mistake + fix + rule + alternatives), a final `done`, or an
     `error`. Ownership and session state are validated eagerly (proper 404/409)
-    before the stream is committed."""
+    before the stream is committed.
+
+    Two layers stop a double-tour from corrupting the transcript or double-charging
+    the quota: a per-session turn lock serialises CONCURRENT turns (#256), and an
+    optional `Idempotency-Key` header dedupes a SEQUENTIAL retry (#261) — the same
+    key replays its cached reply without re-processing, a still-in-flight key 409s."""
     client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
 
-    # One in-flight turn per session (#229). Unlike /turn this endpoint has no
-    # Idempotency-Key, so two concurrent turns (double-tap, or a retry fired while
-    # the first is still streaming) would read the same base transcript and the
-    # second's persist would OVERWRITE the first + double-charge the quota. Acquire
-    # BEFORE prepare_turn reads the base so the whole read→persist section is
-    # serialised; a concurrent turn is refused with 409. Released when the stream
-    # ends (or auto-reclaimed after ~120s if the request crashes mid-stream).
+    # Idempotency-Key layer (#261): dedupe a REPLAYED turn (network retry / offline
+    # replay). A completed key replays its cached reply with no processing and no
+    # lock; a still-in-flight key 409s. The per-session lock below can't do this —
+    # it only stops concurrency, it can't tell a deliberate repeat from a retry.
+    newly_claimed = False
+    if idempotency_key:
+        outcome = await idempotency.begin(current_user.id, idempotency_key)
+        if outcome.status is ClaimStatus.IN_FLIGHT:
+            raise ConflictError("This request is already being processed; retry shortly")
+        if outcome.status is ClaimStatus.COMPLETED:
+            return StreamingResponse(
+                _replay_completed(outcome.response or ""),
+                media_type="text/event-stream",
+                headers=_SSE_HEADERS,
+            )
+        newly_claimed = True  # we own the key — release it if anything below fails
+
+    # One in-flight turn per session (#256): two CONCURRENT turns (double-tap, or a
+    # retry fired while the first is still streaming) would read the same base
+    # transcript and the second's persist would OVERWRITE the first + double-charge.
+    # Acquire BEFORE prepare_turn reads the base so the whole read→persist section is
+    # serialised; a concurrent turn is refused with 409. Released when the stream ends
+    # (or auto-reclaimed after ~120s if the request crashes mid-stream).
     if not await idempotency.acquire_turn_lock(current_user.id, session_id):
+        if newly_claimed and idempotency_key is not None:
+            await idempotency.release(current_user.id, idempotency_key)
         raise ConflictError("A turn is already in progress for this session")
     prepared = None
     try:
@@ -92,12 +128,36 @@ async def stream_turn(
     finally:
         if prepared is None:
             # prepare failed (not owned / ended / cancelled) before any streaming —
-            # free the lock so the session isn't wedged until the stale window.
+            # free the lock so the session isn't wedged until the stale window, and
+            # release a fresh key so a 404/409 doesn't poison it into a phantom 409.
             await idempotency.release_turn_lock(current_user.id, session_id)
+            if newly_claimed and idempotency_key is not None:
+                await idempotency.release(current_user.id, idempotency_key)
+
+    # `completed` flips to True the instant the turn is persisted + metered AND its
+    # key is cached — inside on_persisted, which stream_prepared awaits right after
+    # the persist, BEFORE any correction/done frame. So a client disconnect on a later
+    # frame can no longer leave the side effect committed yet the key un-completed
+    # (which a retry would re-persist and double-charge). It also gates the release
+    # below: on failure we only free a claim whose work never took effect (#261).
+    completed = False
+
+    async def on_persisted(reply: str) -> None:
+        nonlocal completed
+        completed = True  # side effects are committed — never release this key now
+        if idempotency_key:
+            try:
+                await idempotency.complete(current_user.id, idempotency_key, reply)
+            except Exception:
+                # Best-effort, like the meter: a failed cache leaves the key to the
+                # stale-reclaim path rather than turning a good turn into an error.
+                logging.getLogger(__name__).warning(
+                    "Idempotency completion failed for a streamed turn", exc_info=True
+                )
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            async for event in service.stream_prepared(prepared):
+            async for event in service.stream_prepared(prepared, on_persisted):
                 if isinstance(event, ReplyChunk):
                     yield _sse("chunk", {"text": event.text})
                 elif isinstance(event, AudioChunk):
@@ -106,12 +166,16 @@ async def stream_turn(
                     yield _sse("correction", asdict(event.correction))
             yield _sse("done", {})
         except LlmProviderError:
+            if idempotency_key and not completed:
+                await idempotency.release(current_user.id, idempotency_key)
             yield _sse("error", {"message": "LLM provider failed"})
         except Exception:
             # Any other failure (TTS, DB, unexpected) must still close the stream
             # with a typed error event — never a silently broken frame that leaves
             # the client hanging (#123). Logged for diagnosis.
             logging.getLogger(__name__).exception("Unexpected error during turn stream")
+            if idempotency_key and not completed:
+                await idempotency.release(current_user.id, idempotency_key)
             yield _sse("error", {"message": "Turn failed"})
         finally:
             # Runs on normal completion, on error, AND on client disconnect
@@ -121,5 +185,5 @@ async def stream_turn(
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers=_SSE_HEADERS,
     )

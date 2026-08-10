@@ -48,7 +48,15 @@ class ReplyPlayback {
     final buffer = StringBuffer();
     var hasText = false;
     try {
-      final events = _repo.streamTurn(sessionId, heard);
+      // A per-turn idempotency key (#261): if this turn is retried at the network
+      // layer, the server replays the cached reply instead of re-persisting the
+      // transcript or re-charging the quota. Unique per attempt — the same pattern
+      // the offline queue uses for the non-streaming turn.
+      final events = _repo.streamTurn(
+        sessionId,
+        heard,
+        idempotencyKey: '$sessionId-${DateTime.now().microsecondsSinceEpoch}',
+      );
       await for (final event in events) {
         if (!isLive()) return false;
         switch (event) {

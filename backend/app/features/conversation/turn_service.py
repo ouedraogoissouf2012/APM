@@ -144,7 +144,11 @@ class ConversationTurnService:
             intensity=intensity,
         )
 
-    async def stream_prepared(self, prepared: PreparedTurn) -> AsyncIterator[TurnStreamEvent]:
+    async def stream_prepared(
+        self,
+        prepared: PreparedTurn,
+        on_persisted: Callable[[str], Awaitable[None]] | None = None,
+    ) -> AsyncIterator[TurnStreamEvent]:
         """Stream the reply for an already-validated turn sentence by sentence AND
         speak each sentence as it is produced: the audio for sentence N is
         synthesized while the LLM is still writing sentence N+1, so the voice starts
@@ -152,7 +156,14 @@ class ConversationTurnService:
         synthesis (~5 s). The client plays the clips sequentially (await playClip),
         so per-sentence clips never cut each other off. A grammar correction for the
         learner's utterance is computed IN PARALLEL and emitted last, so the gold
-        chip never breaks the flow."""
+        chip never breaks the flow.
+
+        `on_persisted(reply)` is awaited RIGHT AFTER the turn is persisted + metered
+        (both the full-reply and the partial-on-error paths), BEFORE any further SSE
+        frame (correction/done) is yielded. The streaming route uses it to mark the
+        idempotency key completed atomically with the side effect (#261): a client
+        disconnect on a later frame then can't leave the turn persisted+charged yet
+        the key un-completed (which a retry would re-persist and double-charge)."""
         session_id, user, text = prepared.session_id, prepared.user, prepared.text
         turns, system_prompt, history = prepared.turns, prepared.system_prompt, prepared.history
         intensity = prepared.intensity
@@ -194,10 +205,19 @@ class ConversationTurnService:
                 # and is intentionally NOT persisted here: a DB write during request
                 # teardown is unsafe, and the normal path already saved on success.
                 if parts:
-                    await self._persist(session_id, user, turns, text, " ".join(parts))
+                    partial = " ".join(parts)
+                    await self._persist(session_id, user, turns, text, partial)
+                    # The partial WAS persisted + metered — finalise the idempotency
+                    # key on it so a retry replays the partial instead of re-charging.
+                    if on_persisted is not None:
+                        await on_persisted(partial)
                 raise
             full_reply = " ".join(parts)
             await self._persist(session_id, user, turns, text, full_reply)
+            # Finalise idempotency BEFORE the correction/done frames, so a disconnect
+            # on those frames can't desync the committed turn from the key (#261).
+            if on_persisted is not None:
+                await on_persisted(full_reply)
             if correction_task is not None:
                 correction = await correction_task
                 if correction is not None:

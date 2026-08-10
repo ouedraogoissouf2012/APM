@@ -489,6 +489,75 @@ async def test_stream_turn_persists_nothing_when_it_fails_before_any_output():
 
 
 @pytest.mark.asyncio
+async def test_stream_prepared_finalises_before_the_correction_frame():
+    # #261: on_persisted (which caches the idempotency key) MUST run right after the
+    # turn is persisted and BEFORE the correction frame is yielded — otherwise a
+    # client disconnect on that frame leaves the turn charged but the key
+    # un-completed, and a retry double-charges.
+    correction = TurnCorrection(
+        original="i is happy", correction="I am happy", rule="Use 'am' with 'I'."
+    )
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _StreamingLlm(["Nice."]),
+        corrector=_CannedCorrector(correction),
+    )
+    order: list[str] = []
+
+    async def on_persisted(reply: str) -> None:
+        order.append(f"persisted:{reply}")
+
+    prepared = await service.prepare_turn(1, _user(), "i is happy")
+    async for event in service.stream_prepared(prepared, on_persisted):
+        if isinstance(event, CorrectionReady):
+            order.append("correction")
+
+    assert order == ["persisted:Nice.", "correction"]  # finalise BEFORE the correction
+
+
+@pytest.mark.asyncio
+async def test_stream_prepared_finalises_the_partial_on_a_mid_stream_failure():
+    # A partial reply is persisted + metered before the failure, so on_persisted must
+    # fire on it too — the streaming route then caches the key on the partial instead
+    # of releasing it, so a retry replays the partial rather than double-charging (#261).
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _PartialThenFailingLlm(["Hi there.", "How are"]),
+    )
+    persisted: list[str] = []
+
+    async def on_persisted(reply: str) -> None:
+        persisted.append(reply)
+
+    prepared = await service.prepare_turn(1, _user(), "hello")
+    with pytest.raises(LlmProviderError):
+        async for _event in service.stream_prepared(prepared, on_persisted):
+            pass
+
+    assert persisted == ["Hi there. How are"]  # finalised on the persisted partial
+
+
+@pytest.mark.asyncio
+async def test_stream_prepared_does_not_finalise_when_nothing_is_produced():
+    # Nothing was persisted, so on_persisted must NOT fire — the streaming route then
+    # RELEASES the claim so a retry can cleanly re-run (#261).
+    service = _service(_FakeSessions(owner_id=7), _FakeTranscripts(), _PartialThenFailingLlm([]))
+    persisted: list[str] = []
+
+    async def on_persisted(reply: str) -> None:
+        persisted.append(reply)
+
+    prepared = await service.prepare_turn(1, _user(), "hello")
+    with pytest.raises(LlmProviderError):
+        async for _event in service.stream_prepared(prepared, on_persisted):
+            pass
+
+    assert persisted == []  # nothing persisted -> nothing finalised -> route releases
+
+
+@pytest.mark.asyncio
 async def test_take_turn_rejects_session_not_owned():
     service = _service(_FakeSessions(owner_id=999), _FakeTranscripts(), _CannedLlm())
     with pytest.raises(NotFoundError):
