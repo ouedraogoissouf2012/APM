@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../../../data/models/echo.dart';
 import '../../../data/models/pronunciation_scoring.dart';
 import '../../../design_system/atoms/app_button.dart';
@@ -25,7 +26,14 @@ class EchoScreen extends ConsumerStatefulWidget {
   ConsumerState<EchoScreen> createState() => _EchoScreenState();
 }
 
-class _EchoScreenState extends ConsumerState<EchoScreen> {
+class _EchoScreenState extends ConsumerState<EchoScreen>
+    with PracticeScreenLifecycle {
+  /// Discard an in-progress recording and free the mic when this screen is
+  /// backgrounded or left (#222).
+  @override
+  Future<void> stopPractice() =>
+      ref.read(echoViewModelProvider.notifier).cancel();
+
   @override
   void initState() {
     super.initState();

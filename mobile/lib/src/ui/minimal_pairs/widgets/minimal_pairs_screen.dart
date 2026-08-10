@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../../../design_system/atoms/app_button.dart';
 import '../../../design_system/atoms/overline_text.dart';
 import '../../../design_system/organisms/voice_orb.dart';
@@ -20,7 +21,14 @@ class MinimalPairsScreen extends ConsumerStatefulWidget {
   ConsumerState<MinimalPairsScreen> createState() => _MinimalPairsScreenState();
 }
 
-class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen> {
+class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen>
+    with PracticeScreenLifecycle {
+  /// Discard an in-progress recording and free the mic when this screen is
+  /// backgrounded or left (#222).
+  @override
+  Future<void> stopPractice() =>
+      ref.read(minimalPairsViewModelProvider.notifier).cancel();
+
   @override
   void initState() {
     super.initState();

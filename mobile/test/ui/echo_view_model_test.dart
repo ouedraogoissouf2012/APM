@@ -27,6 +27,7 @@ class _FakeAudio implements AudioPlaybackService {
 
 class _FakeRecorder implements AudioRecordingService {
   bool started = false;
+  bool cancelled = false;
   @override
   Future<bool> start() async {
     started = true;
@@ -36,7 +37,9 @@ class _FakeRecorder implements AudioRecordingService {
   @override
   Future<Uint8List?> stop() async => Uint8List.fromList(const [9, 9, 9]);
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel() async {
+    cancelled = true;
+  }
 }
 
 EchoViewModel _vm(ProviderContainer c) => c.read(echoViewModelProvider.notifier);
@@ -139,6 +142,23 @@ void main() {
 
     expect(_state(c).round, 2);
     expect(_state(c).phase, EchoPhase.idle);
+  });
+
+  test('cancel discards an in-progress recording and frees the mic (#222)', () async {
+    final repo = _MockEchoRepository();
+    when(repo.nextPhrase).thenAnswer((_) async => phrase);
+    when(() => repo.synthesize(any()))
+        .thenAnswer((_) async => const AudioClip('MODELB64', 'audio/mpeg'));
+    final recorder = _FakeRecorder();
+    final c = _container(repo: repo, recorder: recorder);
+    await _vm(c).loadPhrase();
+    await _vm(c).record();
+    expect(_state(c).phase, EchoPhase.recording);
+
+    await _vm(c).cancel();
+
+    expect(recorder.cancelled, isTrue); // the mic recording was cancelled
+    expect(_state(c).phase, EchoPhase.idle); // back to a resumable idle state
   });
 
   test('a repository error surfaces as state.error, not a thrown exception', () async {

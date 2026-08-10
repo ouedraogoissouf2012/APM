@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/providers.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../../../data/models/scenarios.dart';
 import '../../../data/models/session_modes.dart';
 import '../../../data/models/turn_correction.dart';
@@ -32,7 +33,14 @@ class ConversationScreen extends ConsumerStatefulWidget {
   ConsumerState<ConversationScreen> createState() => _ConversationScreenState();
 }
 
-class _ConversationScreenState extends ConsumerState<ConversationScreen> {
+class _ConversationScreenState extends ConsumerState<ConversationScreen>
+    with PracticeScreenLifecycle {
+  /// Cut the mic + hands-free loop when this screen is backgrounded or left,
+  /// without ending the session (#222). The "Terminer" button uses [end]/[_endSession].
+  @override
+  Future<void> stopPractice() =>
+      ref.read(conversationViewModelProvider.notifier).cancel();
+
   @override
   void initState() {
     super.initState();
