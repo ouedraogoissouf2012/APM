@@ -8,6 +8,7 @@ problem can never break a conversation turn.
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,6 +18,7 @@ from app.features.profile.correction_style import style_for_intensity
 
 _MAX_ALTERNATIVES = 2
 _MAX_FIELD_CHARS = 400
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -65,7 +67,9 @@ class TurnCorrector:
         try:
             raw = await self._llm.complete(prompt, [Message(role=ROLE_USER, content=text)])
         except Exception:
-            # Never break a turn because the correction call failed.
+            # Never break a turn because the correction call failed (#236: but log
+            # it — the learner silently loses the correction chip with no trace).
+            _logger.warning("Correction LLM call failed", exc_info=True)
             return None
         # Parsing is wrapped too (#238): a syntactically valid but wrongly-TYPED
         # payload (e.g. `"alternatives": 5`) must degrade to no correction, never
@@ -97,6 +101,9 @@ class TurnCorrector:
                 alternatives=alternatives,
             )
         except Exception:
+            # A syntactically valid but wrongly-typed payload (#238) — logged so a
+            # pattern of malformed LLM output is visible, not just silently dropped.
+            _logger.warning("Correction response could not be parsed", exc_info=True)
             return None
 
 
