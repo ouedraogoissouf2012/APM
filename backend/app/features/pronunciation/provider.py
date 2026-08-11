@@ -15,6 +15,7 @@ from typing import Any, Protocol
 import httpx
 
 from app.core.engines import ENGINE_FAKE, ENGINE_GOP
+from app.core.http_lifecycle import register_closeable
 from app.domain.exceptions import LlmProviderError
 from app.features.pronunciation.domain import PhonemeScore
 
@@ -72,6 +73,11 @@ class HttpGopProvider:
             raise LlmProviderError("Pronunciation scoring failed") from exc
         return _parse_phonemes(payload)
 
+    async def aclose(self) -> None:
+        """Close the injected httpx client's connection pool. Called once at
+        process shutdown (app.core.http_lifecycle), never per request."""
+        await self._client.aclose()
+
 
 def build_pronunciation_provider(
     engine: str, service_url: str, timeout_seconds: float, secret: str = ""
@@ -84,7 +90,9 @@ def build_pronunciation_provider(
         return FakePronunciationProvider()
     if engine == ENGINE_GOP:
         client = httpx.AsyncClient(timeout=timeout_seconds)
-        return HttpGopProvider(client=client, base_url=service_url, secret=secret)
+        return register_closeable(
+            HttpGopProvider(client=client, base_url=service_url, secret=secret)
+        )
     raise LlmProviderError(f"Unsupported pronunciation engine: {engine!r}")
 
 

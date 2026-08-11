@@ -136,6 +136,12 @@ class OpenAiCompatibleLlmProvider:
         if tail:
             yield tail
 
+    async def aclose(self) -> None:
+        """Close the injected OpenAI-compatible client's connection pool at
+        process shutdown (app.core.http_lifecycle). `AsyncOpenAI` exposes an
+        async `close()` (not httpx's `aclose()`)."""
+        await self._client.close()
+
 
 # Backwards-compatible alias: the provider is vendor-neutral now, but existing
 # imports/tests still reference the old name.

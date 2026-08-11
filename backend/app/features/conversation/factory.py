@@ -6,6 +6,7 @@ from app.core.engines import (
     ENGINE_GROQ,
     ENGINE_GROQ_FALLBACK,
 )
+from app.core.http_lifecycle import register_closeable
 from app.domain.exceptions import LlmProviderError
 from app.features.conversation.providers.deepseek import (
     OpenAiCompatibleLlmProvider,
@@ -57,8 +58,10 @@ def build_llm_provider(
         # DeepSeek flash reasons before answering by default (~14 s to first token);
         # disable it for a live chat -> ~1.5 s. Groq has no such param.
         extra_body = {"thinking": {"type": "disabled"}} if engine == ENGINE_DEEPSEEK else None
-        return OpenAiCompatibleLlmProvider(
-            client=client, model=model, max_tokens=max_tokens, extra_body=extra_body
+        return register_closeable(
+            OpenAiCompatibleLlmProvider(
+                client=client, model=model, max_tokens=max_tokens, extra_body=extra_body
+            )
         )
     raise LlmProviderError(f"Unsupported LLM engine: {engine!r}")
 

@@ -9,6 +9,7 @@ result is far more accurate on a non-native accent than the browser recognizer.
 from functools import lru_cache
 from typing import Any
 
+from app.core.http_lifecycle import register_closeable
 from app.domain.exceptions import LlmProviderError
 from app.features.conversation.providers.interfaces import (
     TranscriptWord,
@@ -96,6 +97,12 @@ class GroqSttProvider:
         ]
         return VerboseTranscript(text=text, words=words)
 
+    async def aclose(self) -> None:
+        """Close the underlying OpenAI client's connection pool at process
+        shutdown (app.core.http_lifecycle). `AsyncOpenAI` exposes an async
+        `close()` (not httpx's `aclose()`)."""
+        await self._client.close()
+
 
 def _as_dict(word: Any) -> dict[str, Any]:
     if isinstance(word, dict):
@@ -117,7 +124,9 @@ def build_stt_provider(
     if engine == "groq":
         if not api_key.strip():
             raise LlmProviderError("GROQ_API_KEY is required when STT_ENGINE=groq")
-        return GroqSttProvider(api_key=api_key, base_url=base_url, model=model, prompt=prompt)
+        return register_closeable(
+            GroqSttProvider(api_key=api_key, base_url=base_url, model=model, prompt=prompt)
+        )
     return None
 
 
