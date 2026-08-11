@@ -57,10 +57,20 @@ class RecordPcmRecorder implements PcmRecorder {
 /// stop. We then wrap the accumulated PCM in a WAV header we control (mono 16 kHz,
 /// exactly what Whisper wants), which is also smaller and faster to upload.
 class DeviceAudioRecordingService implements AudioRecordingService {
-  DeviceAudioRecordingService({PcmRecorder? recorder})
-      : _recorder = recorder ?? RecordPcmRecorder();
+  DeviceAudioRecordingService({
+    PcmRecorder? recorder,
+    Duration maxDuration = _defaultMaxDuration,
+    int maxBytes = _defaultMaxBytes,
+    Timer Function(Duration duration, void Function() callback)? createTimer,
+  })  : _recorder = recorder ?? RecordPcmRecorder(),
+        _maxDuration = maxDuration,
+        _maxBytes = maxBytes,
+        _createTimer = createTimer ?? Timer.new;
 
   final PcmRecorder _recorder;
+  final Duration _maxDuration;
+  final int _maxBytes;
+  final Timer Function(Duration duration, void Function() callback) _createTimer;
 
   // Whisper is trained on 16 kHz mono; asking for it here avoids a needless
   // stereo/44.1 kHz capture (4x the bytes) and any resampling on the backend.
@@ -69,12 +79,29 @@ class DeviceAudioRecordingService implements AudioRecordingService {
   // Upper bound on how long stop() waits for the stream to finish flushing before
   // giving up — so a stream that never closes cannot hang the UI.
   static const Duration _drainTimeout = Duration(seconds: 2);
+  // Bounds on a single take (#226): RecordConfig has no native duration/size
+  // limit, so an utterance that never gets stopped (a stuck UI, a background
+  // app left recording) would otherwise grow RAM and on-device storage
+  // without limit. A conversational turn never legitimately needs anywhere
+  // near either bound.
+  static const Duration _defaultMaxDuration = Duration(seconds: 60);
+  // 16 kHz * 16-bit mono = 32,000 bytes/s: a 60 s take is ~1.9 MB. This is a
+  // backstop independent of the duration timer (e.g. if the app is suspended
+  // and timers are paused but the mic keeps buffering), so it is sized well
+  // above what the duration cap alone would ever accumulate.
+  static const int _defaultMaxBytes = 4 * 1024 * 1024;
 
   StreamSubscription<Uint8List>? _sub;
   BytesBuilder? _pcm;
+  int _bytesSoFar = 0;
   // Completes when the chunk stream closes (after the recorder stops), so stop()
   // can wait for the last in-flight buffers instead of dropping them.
   Completer<void>? _closed;
+  Timer? _boundTimer;
+  // True once EITHER bound has triggered an internal stop — guards against
+  // calling the underlying recorder's stop() twice (once from the bound,
+  // once from an explicit stop()) for a single take.
+  bool _autoStopping = false;
 
   @override
   Future<bool> start() async {
@@ -99,23 +126,44 @@ class DeviceAudioRecordingService implements AudioRecordingService {
     final closed = Completer<void>();
     _pcm = pcm;
     _closed = closed;
+    _bytesSoFar = 0;
+    _autoStopping = false;
     // Append every chunk as it arrives; complete `closed` when the stream ends so
-    // stop() can drain the tail.
+    // stop() can drain the tail. A chunk that pushes the take past the byte bound
+    // stops the underlying capture immediately (#226) — bytes already buffered
+    // are still returned by the next stop() call.
     _sub = stream.listen(
-      pcm.add,
+      (chunk) {
+        pcm.add(chunk);
+        _bytesSoFar += chunk.length;
+        if (_bytesSoFar >= _maxBytes) unawaited(_autoStop());
+      },
       onDone: () {
         if (!closed.isCompleted) closed.complete();
       },
       cancelOnError: false,
     );
+    _boundTimer = _createTimer(_maxDuration, () => unawaited(_autoStop()));
     return true;
+  }
+
+  /// Stops the underlying capture once, without discarding the buffered PCM —
+  /// a later explicit [stop] still returns everything captured up to this
+  /// point (#226). Safe to call more than once (e.g. both bounds firing).
+  Future<void> _autoStop() async {
+    if (_autoStopping || _sub == null) return;
+    _autoStopping = true;
+    await _recorder.stop();
   }
 
   @override
   Future<Uint8List?> stop() async {
     final sub = _sub;
     if (sub == null) return null;
-    await _recorder.stop();
+    if (!_autoStopping) {
+      _autoStopping = true;
+      await _recorder.stop();
+    }
     // Drain: the recorder.stop() closes the stream, but the final buffer(s) may
     // still be in flight. Wait for the stream's onDone before reading — otherwise
     // the last ~1 buffer at the plugin boundary is dropped and the sentence is cut
@@ -125,6 +173,7 @@ class DeviceAudioRecordingService implements AudioRecordingService {
       await closed.future.timeout(_drainTimeout, onTimeout: () {});
     }
     await sub.cancel();
+    _boundTimer?.cancel();
     final pcm = _pcm?.takeBytes();
     _reset();
     if (pcm == null || pcm.isEmpty) return null;
@@ -138,6 +187,7 @@ class DeviceAudioRecordingService implements AudioRecordingService {
   }
 
   Future<void> _teardown() async {
+    _boundTimer?.cancel();
     await _sub?.cancel();
     _reset();
   }
@@ -146,6 +196,9 @@ class DeviceAudioRecordingService implements AudioRecordingService {
     _sub = null;
     _pcm = null;
     _closed = null;
+    _boundTimer = null;
+    _bytesSoFar = 0;
+    _autoStopping = false;
   }
 }
 

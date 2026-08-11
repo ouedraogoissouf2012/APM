@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     # Redis URL for a cross-instance rate limiter (#120). Empty -> in-memory limiter
     # (single process). Set to redis://host:port/db in a multi-instance deployment.
     redis_url: str = ""
+    # Max entries in the in-memory rate limiter's bucket dict. Prevents DoS via
+    # high-cardinality keys (e.g., attacker-controlled emails/tokens). Only used
+    # when redis_url is empty (in-memory mode); Redis has its own eviction policies.
+    rate_limit_max_keys: int = 1000
 
     # Content-addressed TTS cache size (#123): reuse audio for repeated lines
     # (e.g. identical openings). 0 disables the cache.

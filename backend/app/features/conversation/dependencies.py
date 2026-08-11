@@ -25,12 +25,14 @@ from app.features.sessions.repository import SqlAlchemySessionRepository
 _settings = get_settings()
 
 # Process-wide limiter, backend chosen from config (Redis when REDIS_URL is set,
-# else in-memory). The RateLimiter interface and route callers stay unchanged.
+# else in-memory with max_keys cap to prevent DoS via high-cardinality keys #234).
+# The RateLimiter interface and route callers stay unchanged.
 _conversation_rate_limiter = build_rate_limiter(
     namespace="conversation",
     max_hits=_settings.conversation_rate_limit_max,
     window_seconds=_settings.conversation_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
+    max_keys=_settings.rate_limit_max_keys,
 )
 
 

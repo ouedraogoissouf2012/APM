@@ -72,6 +72,7 @@ class _SettingsWithCap:
     def __init__(self, max_upload_bytes: int) -> None:
         self.max_upload_bytes = max_upload_bytes
         self.trust_proxy_headers = False
+        self.max_request_body_bytes = 12 * 1024 * 1024
 
 
 @pytest.mark.asyncio

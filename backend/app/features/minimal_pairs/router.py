@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.client_ip import client_ip
 from app.config import get_settings
 from app.core.rate_limit import RateLimiter
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
+from app.features.conversation.audio_upload import parse_bounded_multipart
 from app.features.minimal_pairs.dependencies import (
     get_minimal_pairs_rate_limiter,
     get_minimal_pairs_service,
@@ -18,9 +19,6 @@ router = APIRouter(prefix="/minimal-pairs", tags=["minimal-pairs"])
 @router.post("/attempt", response_model=PairAttemptOut)
 async def score_attempt(
     request: Request,
-    audio: UploadFile,
-    target: str = Form(...),
-    other: str = Form(...),
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_minimal_pairs_rate_limiter),
     service: MinimalPairsService = Depends(get_minimal_pairs_service),
@@ -29,7 +27,18 @@ async def score_attempt(
     or the other (confused) word of the pair? The audio is used then discarded."""
     client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"minimal-pairs:{client_host}:user:{current_user.id}")
-    data = await audio.read()
+    settings = get_settings()
+    # Bounded, in-memory upload (#230): same gap as shadowing/attempt — a plain
+    # `UploadFile` parameter has no size cap and spools past 1 MB to disk.
+    data, fields = await parse_bounded_multipart(
+        request,
+        max_bytes=settings.max_upload_bytes,
+        spool_max_size=settings.max_request_body_bytes,
+    )
+    target = fields.get("target")
+    other = fields.get("other")
+    if not target or not other:
+        raise HTTPException(status_code=422, detail="Missing 'target' or 'other' field")
     result = await service.score_attempt(
         target=target,
         other=other,

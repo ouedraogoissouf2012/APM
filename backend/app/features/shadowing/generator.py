@@ -7,6 +7,7 @@ rather than 502-ing.
 """
 
 import json
+import logging
 from typing import Any
 
 from app.features.conversation.providers.interfaces import TextCompletionProvider
@@ -14,6 +15,7 @@ from app.features.shadowing.domain import PhoneticFocus, ShadowingPhrase
 
 _MAX_TEXT_CHARS = 200
 _MAX_TIP_CHARS = 200
+_logger = logging.getLogger(__name__)
 _VALID_FOCUS: frozenset[str] = frozenset(PhoneticFocus.__args__)  # type: ignore[attr-defined]
 
 # Safe fallbacks so the fake engine (or any parse failure) still gives a usable,
@@ -52,6 +54,9 @@ class PhraseGenerator:
         try:
             raw = await self._llm.complete(_build_prompt(cefr_level), [])
         except Exception:
+            # A canned fallback keeps shadowing usable (#236: but log it — a silent
+            # fallback to the same canned phrase every time is invisible otherwise).
+            _logger.warning("Shadowing phrase generation LLM call failed", exc_info=True)
             return fallback
 
         data = _loads(raw)
