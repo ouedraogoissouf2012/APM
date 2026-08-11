@@ -116,6 +116,37 @@ async def test_llm_failure_yields_no_correction():
 
 
 @pytest.mark.asyncio
+async def test_llm_failure_is_logged(caplog):
+    # #236: a swallowed correction failure must leave a server-side trace, not
+    # disappear silently — the learner loses the correction chip either way, but
+    # only a log lets an operator notice a pattern (e.g. an expired API key).
+    with caplog.at_level("WARNING"):
+        await TurnCorrector(_ExplodingLlm()).correct("i is happy", "A2", "fr")
+    assert any("correction" in r.message.lower() for r in caplog.records)
+    assert caplog.records[0].exc_info is not None
+
+
+@pytest.mark.asyncio
+async def test_malformed_correction_response_is_logged(caplog, monkeypatch):
+    # #238/#236: the try/except around field extraction is a backstop for any type
+    # surprise from a free-form LLM the explicit guards don't already catch — force
+    # that backstop to trigger and assert it logs, not just silently returns None.
+    import app.features.conversation.correction as correction_module
+
+    def _boom(text):
+        raise ValueError("simulated parse-stage failure")
+
+    monkeypatch.setattr(correction_module, "_loads", _boom)
+
+    with caplog.at_level("WARNING"):
+        result = await TurnCorrector(_JsonLlm('{"has_error": true}')).correct(
+            "i is happy", "A2", "fr"
+        )
+    assert result is None
+    assert any("pars" in r.message.lower() for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_mistyped_alternatives_does_not_crash_the_turn():
     # #238: a syntactically valid but wrongly-TYPED field ("alternatives": 5) used
     # to raise a TypeError (for a in 5) OUTSIDE the try — breaking the whole turn.

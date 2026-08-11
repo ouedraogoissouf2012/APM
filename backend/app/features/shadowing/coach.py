@@ -6,6 +6,7 @@ nothing to coach, so no LLM call is made at all.
 """
 
 import json
+import logging
 from typing import Any
 
 from app.features.conversation.messages import ROLE_USER, Message
@@ -13,6 +14,7 @@ from app.features.conversation.prompt import render_untrusted_block
 from app.features.conversation.providers.interfaces import TextCompletionProvider
 
 _MAX_COACHING_CHARS = 400
+_logger = logging.getLogger(__name__)
 
 
 def _build_prompt(native_language: str) -> str:
@@ -44,7 +46,10 @@ class ShadowingCoach:
                 [Message(role=ROLE_USER, content=context)],
             )
         except Exception:
-            return ""  # never break the attempt because coaching failed
+            # Never break the attempt because coaching failed (#236: but log it —
+            # the learner silently loses the coaching tip with no server trace).
+            _logger.warning("Shadowing coaching LLM call failed", exc_info=True)
+            return ""
 
         data = _loads(raw)
         if data is None:

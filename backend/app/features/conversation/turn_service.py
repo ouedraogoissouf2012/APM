@@ -262,6 +262,10 @@ class ConversationTurnService:
         try:
             return await self._tts.synthesize(sentence)
         except Exception:
+            # Empty audio keeps the turn flowing — the text reply already succeeded
+            # (#236: but log it — a silent TTS gap otherwise leaves no server trace
+            # of why the learner heard nothing for that sentence).
+            logging.getLogger(__name__).warning("TTS synthesis failed", exc_info=True)
             return b""
 
     async def _drain_audio(

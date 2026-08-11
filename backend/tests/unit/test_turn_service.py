@@ -352,6 +352,30 @@ async def test_stream_turn_emits_no_audio_when_no_tts():
     assert not any(isinstance(e, AudioChunk) for e in events)
 
 
+class _ExplodingTts:
+    async def synthesize(self, text: str) -> bytes:
+        raise RuntimeError("tts provider down")
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_survives_tts_failure_and_logs_it(caplog):
+    # #236: a TTS failure degrades to no audio for that sentence (the text reply
+    # already succeeded) rather than breaking the turn — but it must be logged, not
+    # silently swallowed, so an operator can notice a pattern (e.g. an expired key).
+    service = _service(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _StreamingLlm(["Hi there."]),
+        tts=_ExplodingTts(),
+    )
+    with caplog.at_level("WARNING"):
+        events = [c async for c in service.stream_turn(1, _user(), "hello")]
+
+    assert not any(isinstance(e, AudioChunk) for e in events)  # degraded, not raised
+    assert any("tts" in r.message.lower() for r in caplog.records)
+    assert caplog.records[0].exc_info is not None
+
+
 @pytest.mark.asyncio
 async def test_stream_turn_emits_a_correction_after_the_reply():
     correction = TurnCorrection(
