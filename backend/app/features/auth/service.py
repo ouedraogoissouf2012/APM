@@ -13,6 +13,7 @@ from app.core.security import (
     InvalidTokenError,
     create_access_token,
     decode_access_token,
+    dummy_password_hash,
     generate_refresh_token,
     hash_password,
     hash_token,
@@ -93,8 +94,15 @@ class AuthService:
     async def login(self, email: str, password: str) -> AuthResult:
         email = normalize_email(email)
         user = await self._users.get_by_email(email)
-        if user is None or not verify_password(password, user.hashed_password):
+        # Timing-attack resistance (#239): if user not found, verify against a STABLE
+        # precomputed dummy hash so a miss costs exactly ONE argon2 verify — the same as
+        # 'user found, password wrong' — with no extra hash that would itself leak
+        # email existence via timing.
+        hashed_password = user.hashed_password if user is not None else dummy_password_hash()
+        if user is None or not verify_password(password, hashed_password):
             raise InvalidCredentialsError("Invalid credentials")
+        # Best-effort periodic purge of expired/revoked tokens (#239).
+        await self._refresh.purge_expired(datetime.now(UTC), commit=False)
         return await self._issue_tokens(user)
 
     async def refresh(self, raw_refresh_token: str) -> AuthResult:

@@ -1,6 +1,8 @@
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
+from uuid import uuid4
 
 import jwt
 from pwdlib import PasswordHash
@@ -32,10 +34,27 @@ def verify_password(plain: str, hashed: str) -> bool:
     return _pwd.verify(plain, hashed)
 
 
+@lru_cache(maxsize=1)
+def dummy_password_hash() -> str:
+    """A STABLE dummy hash, computed ONCE, for login timing-attack resistance (#239).
+
+    On a non-existent email, login still runs verify_password against this hash, so a
+    miss costs exactly ONE argon2 verify — the same as a real user. It is precomputed
+    (cached), NOT re-hashed per call: re-hashing would add a second argon2 op to every
+    miss, making a non-existent email ~2x slower and re-opening the very timing oracle
+    this closes.
+    """
+    return hash_password(secrets.token_urlsafe(32))
+
+
 def create_access_token(subject: str) -> str:
     settings = get_settings()
     expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": subject, "exp": expire}
+    # A unique token id: makes each access token identifiable in logs and is the
+    # groundwork for a future denylist-based revocation. NOT yet enforced (no
+    # revocation check exists today) — traceability + groundwork, not live
+    # revocation (#239).
+    payload = {"sub": subject, "exp": expire, "jti": str(uuid4())}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

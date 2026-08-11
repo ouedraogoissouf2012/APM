@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -76,7 +78,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _log.info("LLM warm-up done")
         except Exception:
             _log.warning("LLM warm-up failed", exc_info=True)
-    yield
+
+    # Purge tables with unbounded growth (#239/#271) on an interval, in-process.
+    purge_task = asyncio.create_task(_purge_loop()) if settings.purge_interval_seconds > 0 else None
+    try:
+        yield
+    finally:
+        if purge_task is not None:
+            purge_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await purge_task
+
+
+async def _purge_loop() -> None:
+    """Run the unbounded-table purge on an interval for the process lifetime (#271):
+    expired refresh tokens, old idempotency keys, old analytics events. Each iteration
+    opens its own DB session and is fully best-effort — a failed sweep is logged and
+    the loop keeps going."""
+    from app.database import SessionLocal
+    from app.features.purge.task import purge_expired_entries
+
+    log = logging.getLogger("apm")
+    while True:
+        await asyncio.sleep(settings.purge_interval_seconds)
+        try:
+            async with SessionLocal() as session:
+                await purge_expired_entries(session)
+        except Exception:
+            log.warning("Periodic purge iteration failed", exc_info=True)
 
 
 def _silent_wav() -> bytes:

@@ -49,6 +49,19 @@ class InMemoryRefreshTokenRepository:
             if token.user_id == user_id and token.revoked_at is None:
                 token.revoked_at = revoked_at
 
+    async def purge_expired(self, now: datetime, *, commit: bool = True) -> int:
+        # Expired tokens only — revoked-but-unexpired are kept (#253), like the real impl.
+        def _expired(token: RefreshToken) -> bool:
+            exp = token.expires_at
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=UTC)
+            return exp < now
+
+        expired = [h for h, t in self._by_hash.items() if _expired(t)]
+        for h in expired:
+            del self._by_hash[h]
+        return len(expired)
+
     async def commit(self) -> None:
         pass
 
