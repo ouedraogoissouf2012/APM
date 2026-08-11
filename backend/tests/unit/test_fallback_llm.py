@@ -169,15 +169,27 @@ async def test_complete_gives_up_once_the_global_deadline_is_exceeded():
 
 @pytest.mark.asyncio
 async def test_stream_gives_up_once_the_global_deadline_is_exceeded():
-    primary = _HangingLlm("groq")
+    # Deterministic: an INJECTED clock drives the deadline instead of a sub-100 ms
+    # wall-clock sleep, which was flaky under load. The primary is tried and fails,
+    # then the clock reports the global deadline exceeded, so the chain gives up
+    # WITHOUT falling through to the secondary.
+    primary = _StubLlm("groq", error=LlmProviderError("boom"))
     secondary = _StubLlm("deepseek", reply="should not be reached")
-    provider = FallbackLlmProvider([primary, secondary], deadline_seconds=0.05)
+    ticks = iter([0.0, 0.0])  # anchor the deadline at 0; the primary is still in budget...
+    provider = FallbackLlmProvider(
+        [primary, secondary],
+        deadline_seconds=15.0,
+        now=lambda: next(ticks, 100.0),  # ...then the clock jumps past the deadline
+    )
 
     chunks = []
     with pytest.raises(LlmProviderError):
         async for c in provider.stream_complete("sys", _HISTORY):
             chunks.append(c)
+
     assert chunks == []
+    assert primary.stream_calls == 1  # the primary WAS attempted
+    assert secondary.stream_calls == 0  # ...but the deadline stopped the fallover
 
 
 @pytest.mark.asyncio
