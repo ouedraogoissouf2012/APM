@@ -12,7 +12,7 @@ async def _auth_header(client, email="s@b.com"):
 
 
 @pytest.mark.asyncio
-async def test_start_session_returns_token_and_room(client):
+async def test_start_session_returns_session_id(client):
     headers = await _auth_header(client)
     resp = await client.post(
         "/sessions/start", headers=headers, json={"mode": "scenario", "scenario_id": "restaurant"}
@@ -20,8 +20,6 @@ async def test_start_session_returns_token_and_room(client):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["session_id"]
-    assert body["room_name"].startswith("apm-")
-    assert body["livekit_token"].count(".") == 2
 
 
 @pytest.mark.asyncio
@@ -164,7 +162,6 @@ async def test_end_bills_the_last_turn_interval_only_once(_engine, _setup_db):
         session = ConversationSession(
             user_id=uid,
             mode="free",
-            room_name="apm-race-end",
             started_at=t0,
             last_activity_at=t0,
             voice_engine="fake",

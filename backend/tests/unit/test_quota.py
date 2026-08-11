@@ -3,7 +3,6 @@ from datetime import date, timedelta
 import pytest
 
 from app.core import quota
-from app.core.livekit import build_room_token
 from app.features.auth.models import User
 
 
@@ -43,9 +42,3 @@ def test_quota_allows_just_under_limit():
 def test_quota_blocks_exactly_at_limit():
     user = _make_user(quota_date=date.today(), minutes_used_today=10.0)
     assert quota.remaining_minutes(user, free_daily=10, today=date.today()) == 0.0
-
-
-def test_build_room_token_returns_jwt():
-    token = build_room_token(identity="user-1", room="session-1")
-    assert isinstance(token, str)
-    assert token.count(".") == 2  # header.payload.signature

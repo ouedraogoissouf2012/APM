@@ -54,13 +54,13 @@ async def _service_with_transcripts(
 
 
 @pytest.mark.asyncio
-async def test_start_returns_session_with_token_and_uuid_room():
+async def test_start_returns_the_persisted_session():
     service, user = await _service_with_user()
-    started = await service.start(user.id, "scenario", "restaurant")
-    assert started.session.id is not None
-    assert started.session.room_name.startswith(f"apm-{user.id}-")
-    assert len(started.session.room_name.split("-")[-1]) == 32  # uuid4 hex
-    assert started.livekit_token.count(".") == 2
+    session = await service.start(user.id, "scenario", "restaurant")
+    assert session.id is not None
+    assert session.user_id == user.id
+    assert session.mode == "scenario"
+    assert session.scenario_id == "restaurant"
 
 
 @pytest.mark.asyncio
@@ -82,7 +82,7 @@ async def test_start_records_the_configured_voice_engine():
 
     started = await service.start(user.id, "free", None)
 
-    assert started.session.voice_engine == "deepseek"
+    assert started.voice_engine == "deepseek"
 
 
 @pytest.mark.asyncio
@@ -116,13 +116,13 @@ async def test_start_reaps_a_stale_session_instead_of_locking_the_user_out():
     first = await service.start(user.id, "free", None)
     # Make the active session look abandoned 40 min ago.
     stale = datetime.now(UTC) - timedelta(minutes=40)
-    first.session.started_at = stale
-    first.session.last_activity_at = stale
+    first.started_at = stale
+    first.last_activity_at = stale
 
     second = await service.start(user.id, "free", None)
 
-    assert second.session.id != first.session.id  # not locked out
-    assert first.session.ended_at is not None  # the stale one was closed
+    assert second.id != first.id  # not locked out
+    assert first.ended_at is not None  # the stale one was closed
     assert user.minutes_used_today > 0  # its usage was billed on close
 
 
@@ -141,13 +141,13 @@ async def test_record_turn_activity_meters_quota_per_turn():
     # bounded. Each turn charges the gap since the last activity (capped).
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
-    started.session.last_activity_at = datetime.now(UTC) - timedelta(minutes=2)
+    started.last_activity_at = datetime.now(UTC) - timedelta(minutes=2)
 
-    await service.record_turn_activity(started.session.id, user.id)
+    await service.record_turn_activity(started.id, user.id)
 
     assert user.minutes_used_today == pytest.approx(2.0, abs=0.2)
     # last_activity_at was bumped so the next turn charges from now, not double.
-    assert (datetime.now(UTC) - _as_utc(started.session.last_activity_at)).total_seconds() < 5
+    assert (datetime.now(UTC) - _as_utc(started.last_activity_at)).total_seconds() < 5
 
 
 @pytest.mark.asyncio
@@ -159,7 +159,7 @@ async def test_record_turn_activity_marks_the_day_active_for_the_streak():
     started = await service.start(user.id, "free", None)
 
     await service.record_turn_activity(
-        started.session.id, user.id, now=datetime(2026, 8, 5, 9, 0, tzinfo=UTC)
+        started.id, user.id, now=datetime(2026, 8, 5, 9, 0, tzinfo=UTC)
     )
 
     assert user.current_streak == 1
@@ -174,7 +174,7 @@ async def test_active_day_uses_the_utc_calendar_date_not_server_local():
     started = await service.start(user.id, "free", None)
 
     await service.record_turn_activity(
-        started.session.id, user.id, now=datetime(2026, 8, 5, 23, 30, tzinfo=UTC)
+        started.id, user.id, now=datetime(2026, 8, 5, 23, 30, tzinfo=UTC)
     )
 
     assert user.last_active_date == date(2026, 8, 5)
@@ -186,10 +186,10 @@ async def test_two_consecutive_utc_days_extend_the_streak():
     started = await service.start(user.id, "free", None)
 
     await service.record_turn_activity(
-        started.session.id, user.id, now=datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+        started.id, user.id, now=datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
     )
     await service.record_turn_activity(
-        started.session.id, user.id, now=datetime(2026, 8, 6, 10, 0, tzinfo=UTC)
+        started.id, user.id, now=datetime(2026, 8, 6, 10, 0, tzinfo=UTC)
     )
 
     assert user.current_streak == 2
@@ -201,9 +201,9 @@ async def test_record_turn_activity_is_capped_per_turn():
     # A huge gap between turns (client paused) can't bill an unbounded amount.
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
-    started.session.last_activity_at = datetime.now(UTC) - timedelta(hours=5)
+    started.last_activity_at = datetime.now(UTC) - timedelta(hours=5)
 
-    await service.record_turn_activity(started.session.id, user.id)
+    await service.record_turn_activity(started.id, user.id)
 
     assert user.minutes_used_today <= 5.0  # capped, not 300 minutes
 
@@ -219,14 +219,14 @@ async def test_active_returns_the_in_progress_session_with_its_transcript():
     service, user, transcripts = await _service_with_transcripts()
     started = await service.start(user.id, "scenario", "restaurant")
     await transcripts.save(
-        started.session.id,
+        started.id,
         [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Hello!"}],
     )
 
     active = await service.active(user.id)
 
     assert active is not None
-    assert active.session.id == started.session.id
+    assert active.session.id == started.id
     assert active.session.scenario_id == "restaurant"
     assert [t["content"] for t in active.turns] == ["hi", "Hello!"]
 
@@ -239,7 +239,7 @@ async def test_active_returns_empty_turns_before_the_first_turn():
     active = await service.active(user.id)
 
     assert active is not None
-    assert active.session.id == started.session.id
+    assert active.session.id == started.id
     assert active.turns == []
 
 
@@ -247,7 +247,7 @@ async def test_active_returns_empty_turns_before_the_first_turn():
 async def test_active_ignores_ended_sessions():
     service, user, _ = await _service_with_transcripts()
     started = await service.start(user.id, "free", None)
-    await service.end(started.session.id, user.id)
+    await service.end(started.id, user.id)
 
     assert await service.active(user.id) is None
 
@@ -259,10 +259,10 @@ async def test_end_computes_server_side_duration_and_records_usage():
     # No turns happened, so last_activity == start. Move both 3 min into the past;
     # end bills the residual gap since the last activity (here the whole 3 min).
     past = datetime.now(UTC) - timedelta(minutes=3)
-    started.session.started_at = past
-    started.session.last_activity_at = past
+    started.started_at = past
+    started.last_activity_at = past
 
-    ended = await service.end(started.session.id, user.id)
+    ended = await service.end(started.id, user.id)
 
     assert ended.ended_at is not None
     assert ended.duration_minutes == pytest.approx(3.0, abs=0.2)
@@ -274,12 +274,12 @@ async def test_end_is_idempotent_and_does_not_double_count():
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
     past = datetime.now(UTC) - timedelta(minutes=2)
-    started.session.started_at = past
-    started.session.last_activity_at = past
+    started.started_at = past
+    started.last_activity_at = past
 
-    first = await service.end(started.session.id, user.id)
+    first = await service.end(started.id, user.id)
     used_after_first = user.minutes_used_today
-    second = await service.end(started.session.id, user.id)
+    second = await service.end(started.id, user.id)
 
     assert second.ended_at == first.ended_at
     assert user.minutes_used_today == used_after_first  # no double counting
@@ -292,11 +292,11 @@ async def test_end_bills_only_the_residual_after_per_turn_metering():
     # again (no double-charge).
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
-    started.session.started_at = datetime.now(UTC) - timedelta(minutes=10)
+    started.started_at = datetime.now(UTC) - timedelta(minutes=10)
     # A turn just happened (last_activity ~ 1 min ago); most was already metered.
-    started.session.last_activity_at = datetime.now(UTC) - timedelta(minutes=1)
+    started.last_activity_at = datetime.now(UTC) - timedelta(minutes=1)
 
-    await service.end(started.session.id, user.id)
+    await service.end(started.id, user.id)
 
     # Only the ~1 min residual is billed here, not the full 10.
     assert user.minutes_used_today == pytest.approx(1.0, abs=0.2)
@@ -314,19 +314,19 @@ async def test_end_other_users_session_raises():
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
     with pytest.raises(NotFoundError):
-        await service.end(started.session.id, user_id=user.id + 999)
+        await service.end(started.id, user_id=user.id + 999)
 
 
 @pytest.mark.asyncio
 async def test_history_returns_recent_sessions_for_user_only():
     service, user = await _service_with_user()
     older = await service.start(user.id, "free", None)
-    await service.end(older.session.id, user.id)
+    await service.end(older.id, user.id)
     newer = await service.start(user.id, "scenario", "restaurant")
 
     history = await service.history(user.id)
 
-    assert [item.id for item in history] == [newer.session.id, older.session.id]
+    assert [item.id for item in history] == [newer.id, older.id]
     assert history[0].scenario_id == "restaurant"
 
 
@@ -366,12 +366,12 @@ async def test_end_locks_the_user_row_for_the_quota_write():
     service = SessionService(InMemorySessionRepository(), users, free_daily_minutes=10)
     started = await service.start(user.id, "free", None)
     past = datetime.now(UTC) - timedelta(minutes=2)
-    started.session.started_at = past
-    started.session.last_activity_at = past
+    started.started_at = past
+    started.last_activity_at = past
 
     users.locked_ids.clear()  # ignore the lock start() already took
     users.got_ids.clear()
-    await service.end(started.session.id, user.id)
+    await service.end(started.id, user.id)
 
     assert user.id in users.locked_ids  # end() locked the user for the quota write
     assert user.id not in users.got_ids  # and did NOT read it with an unlocked get

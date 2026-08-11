@@ -88,11 +88,6 @@ class Settings(BaseSettings):
     correction_enabled: bool = True
     correction_min_words: int = 3
 
-    livekit_url: str = ""
-    livekit_api_key: str = ""
-    livekit_api_secret: str = ""
-    livekit_token_ttl_seconds: int = 120
-
     free_tier_daily_minutes: int = 10
     # A session idle longer than this is auto-closed on the user's next start (#119),
     # so an abandoned session (no /end) never locks the user out.

@@ -3,16 +3,13 @@
 - Server-side duration (started_at -> now), never trusted from the client.
 - Quota anti-race: the user row is locked (SELECT FOR UPDATE) for the whole start
   use case, and only ONE active session per user is allowed.
-- room_name uses a UUID (no per-second collision).
 """
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from uuid import uuid4
 
 from app.core import quota
 from app.core.engines import ENGINE_FAKE
-from app.core.livekit import LiveKitRoomTokenIssuer, RoomTokenIssuer
 from app.domain.exceptions import (
     ActiveSessionExistsError,
     NotFoundError,
@@ -29,12 +26,6 @@ from app.features.sessions.repository import SessionRepository
 from app.features.streaks.logic import StreakState, register_active_day
 
 DEFAULT_HISTORY_PAGE_SIZE = 20
-
-
-@dataclass
-class StartedSession:
-    session: ConversationSession
-    livekit_token: str
 
 
 @dataclass(frozen=True)
@@ -83,7 +74,6 @@ class SessionService:
         users: UserRepository,
         free_daily_minutes: int,
         transcripts: TranscriptRepository | None = None,
-        token_issuer: RoomTokenIssuer | None = None,
         voice_engine: str = ENGINE_FAKE,
         history_page_size: int = DEFAULT_HISTORY_PAGE_SIZE,
         missions: MissionRepository | None = None,
@@ -94,7 +84,6 @@ class SessionService:
         self._users = users
         self._free_daily = free_daily_minutes
         self._transcripts = transcripts
-        self._token_issuer = token_issuer or LiveKitRoomTokenIssuer()
         self._voice_engine = voice_engine
         self._history_page_size = history_page_size
         self._missions = missions
@@ -107,7 +96,7 @@ class SessionService:
         mode: str,
         scenario_id: str | None,
         mission_id: int | None = None,
-    ) -> StartedSession:
+    ) -> ConversationSession:
         # Lock the user row for the whole use case -> serializes concurrent starts.
         user = await self._users.lock(user_id)
         if user is None:
@@ -136,7 +125,6 @@ class SessionService:
             mode=mode,
             scenario_id=scenario_id,
             mission_id=mission_id,
-            room_name=f"apm-{user_id}-{uuid4().hex}",
             # Set explicitly (not only via server_default) so last_activity_at is
             # never None on the in-memory object between add() and refresh.
             started_at=datetime.now(UTC),
@@ -145,9 +133,7 @@ class SessionService:
         )
         await self._sessions.add(session)
         await self._sessions.commit()
-
-        token = self._token_issuer.issue(identity=f"user-{user_id}", room=session.room_name)
-        return StartedSession(session=session, livekit_token=token)
+        return session
 
     async def _owns_mission(self, mission_id: int, user_id: int) -> bool:
         if self._missions is None:
