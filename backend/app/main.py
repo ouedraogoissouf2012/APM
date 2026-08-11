@@ -88,6 +88,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             purge_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await purge_task
+        # Close the process-wide HTTP connection pools (the cached LLM / STT /
+        # pronunciation clients) so shutdown is clean and any lru_cache-eviction
+        # leak (#280) is bounded to the process lifetime rather than forever.
+        from app.core.http_lifecycle import close_all
+
+        await close_all()
 
 
 async def _purge_loop() -> None:
