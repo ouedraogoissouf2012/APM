@@ -92,8 +92,9 @@ class RefreshTokenRepository(Protocol):
         ...
 
     async def purge_expired(self, now: datetime, *, commit: bool = True) -> int:
-        """Delete expired and revoked tokens to prevent DB bloat (#239, #271).
+        """Delete EXPIRED refresh tokens to bound table growth (#239, #271).
 
+        Revoked-but-unexpired tokens are kept for reuse/theft detection (#253).
         Returns the count of deleted rows.
         """
         ...
@@ -158,17 +159,18 @@ class SqlAlchemyRefreshTokenRepository:
             await self._session.flush()
 
     async def purge_expired(self, now: datetime, *, commit: bool = True) -> int:
-        """Delete expired and revoked tokens to prevent DB bloat (#239, #271).
+        """Delete EXPIRED refresh tokens to bound table growth (#239, #271).
 
-        Best-effort: ignore errors and return count.
+        Only expired tokens are removed — a revoked-but-not-yet-expired token is KEPT
+        so the reuse/theft detection (#253) can still recognise it if it is replayed.
+        An expired token is rejected as expired regardless, so it is safe to purge.
+        Best-effort: ignore errors and return the count.
         """
         from sqlalchemy import delete
 
         try:
             result = await self._session.execute(
-                delete(RefreshToken).where(
-                    (RefreshToken.expires_at < now) | (RefreshToken.revoked_at.isnot(None))
-                )
+                delete(RefreshToken).where(RefreshToken.expires_at < now)
             )
             rowcount = getattr(result, "rowcount", 0) or 0
             if commit:

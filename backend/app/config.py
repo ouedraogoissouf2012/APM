@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # and revokes every session (#253). Kept short: benign retries land within
     # seconds, while a stolen-token replay is typically minutes/hours later.
     refresh_reuse_grace_seconds: int = 30
+    # How often the in-process background task purges tables with unbounded growth —
+    # expired refresh tokens, old idempotency keys, old analytics events (#239/#271).
+    # 0 disables the loop (e.g. when an external cron drives the purge instead).
+    purge_interval_seconds: int = 6 * 3600  # 6 hours
 
     login_rate_limit_max: int = 5  # attempts
     login_rate_limit_window_seconds: int = 60

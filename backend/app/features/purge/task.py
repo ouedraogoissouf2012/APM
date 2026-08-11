@@ -35,14 +35,11 @@ async def purge_expired_entries(db: AsyncSession) -> dict[str, int]:
     results = {"refresh_tokens": 0, "idempotency_keys": 0, "analytics_events": 0}
 
     try:
-        # Purge expired or revoked refresh tokens
+        # Purge EXPIRED refresh tokens only — a revoked-but-unexpired token is kept so
+        # reuse/theft detection (#253) can still recognise it if replayed.
         from sqlalchemy import delete
 
-        result = await db.execute(
-            delete(RefreshToken).where(
-                (RefreshToken.expires_at < now) | (RefreshToken.revoked_at.isnot(None))
-            )
-        )
+        result = await db.execute(delete(RefreshToken).where(RefreshToken.expires_at < now))
         results["refresh_tokens"] = getattr(result, "rowcount", 0) or 0
 
         # Purge old idempotency keys (request is done, safe to forget)
