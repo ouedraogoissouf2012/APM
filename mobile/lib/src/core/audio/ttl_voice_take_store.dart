@@ -10,18 +10,23 @@ import 'voice_take_store.dart';
 ///
 /// Implementation: [saveTake] prepends an 8-byte big-endian epoch-millis
 /// header to the bytes before forwarding to [_inner]; [takesFor] strips it and
-/// treats a take older than [ttl] as ABSENT (returns null for it), so a stale
-/// take can no longer be read or exposed even though its bytes still
-/// physically sit in [_inner] until the next write or an explicit
-/// [eraseAll]  — there is no background sweep on this platform. This works
-/// uniformly over ANY inner store (file, IndexedDB, in-memory) without each
-/// one needing its own timestamp persistence.
+/// treats a take older than [ttl] as ABSENT (returns null for it), AND
+/// physically deletes it from [_inner] via [VoiceTakeStore.deleteSkill] — so a
+/// stale take's bytes stop existing on the next read that notices them, not
+/// just on the next write or an explicit [eraseAll]. There is still no
+/// background sweep (a skill nobody re-reads keeps its stale bytes until the
+/// next [takesFor] call for it), but retention is no longer merely logical.
+/// This works uniformly over ANY inner store (file, IndexedDB, in-memory)
+/// without each one needing its own timestamp persistence.
 ///
 /// Consequence, by design: the BASELINE (the learner's first-ever take on a
 /// skill, written once) is subject to the same TTL as latest. Once it goes
-/// stale, the audible before/after for that skill resets — the next take
-/// becomes a fresh baseline. This is the intended effect of bounding raw
-/// audio retention, not a bug: an unbounded "before" would be exactly the
+/// stale, the audible before/after for that skill resets and its bytes are
+/// purged — the next take becomes a fresh baseline (the physical purge is
+/// what makes this true: [_inner]'s own "write baseline only if absent" rule
+/// would otherwise keep refusing to replace a baseline file/key that still
+/// physically exists, stale or not). This is the intended effect of bounding
+/// raw audio retention, not a bug: an unbounded "before" would be exactly the
 /// oldest, most sensitive data a retention limit exists to age out.
 class TtlVoiceTakeStore implements VoiceTakeStore {
   TtlVoiceTakeStore(this._inner, {this.ttl = _defaultTtl, DateTime Function()? now})
@@ -52,12 +57,21 @@ class TtlVoiceTakeStore implements VoiceTakeStore {
     final latest = _freshBytesOrNull(takes.latest);
     // Both are required for a before/after; a stale (or malformed/legacy,
     // pre-TTL) take is treated the same as absent.
-    if (baseline == null || latest == null) return null;
+    if (baseline == null || latest == null) {
+      // Physically purge (#226): a hidden-but-still-present take would
+      // otherwise sit in [_inner] indefinitely — bounding retention must free
+      // the bytes, not just stop exposing them through this read.
+      await _inner.deleteSkill(skill);
+      return null;
+    }
     return VoiceTakes(baseline: baseline, latest: latest);
   }
 
   @override
   Future<void> eraseAll() => _inner.eraseAll();
+
+  @override
+  Future<void> deleteSkill(String skill) => _inner.deleteSkill(skill);
 
   Uint8List _stamp(Uint8List bytes, DateTime at) {
     final out = Uint8List(_headerBytes + bytes.length);

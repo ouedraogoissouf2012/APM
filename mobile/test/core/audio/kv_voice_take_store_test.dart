@@ -13,6 +13,8 @@ class _FakeKv implements VoiceTakeKvStore {
   @override
   Future<void> write(String key, Uint8List bytes) async => _m[key] = bytes;
   @override
+  Future<void> delete(String key) async => _m.remove(key);
+  @override
   Future<void> clear() async => _m.clear();
 }
 
@@ -97,5 +99,27 @@ void main() {
     await fresh.saveTake('restaurant', _b([9]));
     await fresh.saveTake('restaurant', _b([8]));
     expect((await fresh.takesFor('restaurant'))!.baseline, _b([9]));
+  });
+
+  test('deleteSkill physically removes only that skill\'s entries (#226)',
+      () async {
+    final kv = _FakeKv();
+    final store = KvVoiceTakeStore(kv);
+    await store.saveTake('restaurant', _b([1]));
+    await store.saveTake('restaurant', _b([2]));
+    await store.saveTake('travel', _b([3]));
+    await store.saveTake('travel', _b([4]));
+
+    await store.deleteSkill('restaurant');
+
+    expect(kv._m.containsKey('restaurant.baseline'), isFalse);
+    expect(kv._m.containsKey('restaurant.latest'), isFalse);
+    // The other skill is untouched.
+    expect((await store.takesFor('travel'))!.latest, _b([4]));
+  });
+
+  test('deleteSkill on an absent skill is a no-op, not an error', () async {
+    final store = KvVoiceTakeStore(_FakeKv());
+    await store.deleteSkill('never-saved'); // must not throw
   });
 }

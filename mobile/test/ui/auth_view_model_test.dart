@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:apm/src/core/audio/providers.dart';
 import 'package:apm/src/core/audio/voice_take_store.dart';
+import 'package:apm/src/core/observability/crash_reporter.dart';
+import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/data/models/app_user.dart';
 import 'package:apm/src/data/repositories/auth_repository.dart';
 import 'package:apm/src/ui/auth/view_model/auth_view_model.dart';
@@ -10,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockAuthRepository extends Mock implements AuthRepository {}
+
+class _MockCrashReporter extends Mock implements CrashReporter {}
 
 /// Records whether/how many times eraseAll() ran, so a test can assert the
 /// logout->purge wiring (#226) without touching a real file/IndexedDB store.
@@ -29,6 +33,9 @@ class _SpyVoiceTakeStore implements VoiceTakeStore {
     final err = throwOnErase;
     if (err != null) throw err;
   }
+
+  @override
+  Future<void> deleteSkill(String skill) async {}
 }
 
 const _user = AppUser(
@@ -39,11 +46,16 @@ const _user = AppUser(
   tier: 'free',
 );
 
-ProviderContainer _containerWith(AuthRepository repo, {VoiceTakeStore? takeStore}) {
+ProviderContainer _containerWith(
+  AuthRepository repo, {
+  VoiceTakeStore? takeStore,
+  CrashReporter? crashReporter,
+}) {
   final c = ProviderContainer(
     overrides: [
       authRepositoryProvider.overrideWithValue(repo),
       if (takeStore != null) voiceTakeStoreProvider.overrideWithValue(takeStore),
+      if (crashReporter != null) crashReporterProvider.overrideWithValue(crashReporter),
     ],
   );
   addTearDown(c.dispose);
@@ -51,6 +63,8 @@ ProviderContainer _containerWith(AuthRepository repo, {VoiceTakeStore? takeStore
 }
 
 void main() {
+  setUpAll(() => registerFallbackValue(StackTrace.empty));
+
   test('build returns null when signed out', () async {
     final repo = _MockAuthRepository();
     when(repo.currentUser).thenAnswer((_) async => null);
@@ -120,5 +134,24 @@ void main() {
 
     expect(c.read(authViewModelProvider).value, isNull); // logout still completed
     expect(takeStore.eraseAllCalls, 1); // the purge was attempted
+  });
+
+  test('a voice take purge failure at logout is reported, not silently '
+      'swallowed (#236)', () async {
+    // A silent failure here would mean the previous learner's audio is still
+    // sitting on this shared device with no trace that the purge ever failed.
+    final repo = _MockAuthRepository();
+    when(repo.currentUser).thenAnswer((_) async => _user);
+    when(repo.logout).thenAnswer((_) async {});
+    final takeStore = _SpyVoiceTakeStore()..throwOnErase = StateError('disk error');
+    final reporter = _MockCrashReporter();
+    final c = _containerWith(repo, takeStore: takeStore, crashReporter: reporter);
+
+    await c.read(authViewModelProvider.future);
+    await c.read(authViewModelProvider.notifier).logout();
+
+    verify(
+      () => reporter.captureError(any(), any(), context: any(named: 'context')),
+    ).called(1);
   });
 }

@@ -31,6 +31,13 @@ abstract class VoiceTakeStore {
   /// (#128), so a server-only delete would leave the raw audio behind and make
   /// the UI's "erased" claim a lie.
   Future<void> eraseAll();
+
+  /// Physically removes whatever is stored for [skill] alone (#226): used by
+  /// [TtlVoiceTakeStore] to purge bytes whose retention has expired and by
+  /// [EncryptedVoiceTakeStore] to purge a take that no longer decrypts,
+  /// without waiting for a full [eraseAll]. A no-op if nothing is stored for
+  /// [skill].
+  Future<void> deleteSkill(String skill);
 }
 
 /// In-memory store — takes live for the app run. A persistent on-device
@@ -62,5 +69,11 @@ class InMemoryVoiceTakeStore implements VoiceTakeStore {
   Future<void> eraseAll() async {
     _baseline.clear();
     _latest.clear();
+  }
+
+  @override
+  Future<void> deleteSkill(String skill) async {
+    _baseline.remove(skill);
+    _latest.remove(skill);
   }
 }

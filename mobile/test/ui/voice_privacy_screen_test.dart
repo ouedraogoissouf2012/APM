@@ -23,6 +23,8 @@ class _SpyVoiceTakeStore implements VoiceTakeStore {
   Future<void> saveTake(String skill, Uint8List bytes) async {}
   @override
   Future<VoiceTakes?> takesFor(String skill) async => null;
+  @override
+  Future<void> deleteSkill(String skill) async {}
 }
 
 VoiceConsent _consent({bool transcription = true}) => VoiceConsent(

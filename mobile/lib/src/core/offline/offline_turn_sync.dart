@@ -1,5 +1,6 @@
 import '../../data/repositories/conversation_repository.dart';
 import '../network/api_exception.dart';
+import '../observability/crash_reporter.dart';
 import 'offline_turn_queue.dart';
 
 /// Replays queued turns when connectivity returns (#127). Each turn is sent with
@@ -7,10 +8,11 @@ import 'offline_turn_queue.dart';
 /// was lost) is not duplicated. Removed from the queue only on success; a network
 /// failure stops the run so the remaining turns are retried later, in order.
 class OfflineTurnSync {
-  OfflineTurnSync(this._queue, this._conversation);
+  OfflineTurnSync(this._queue, this._conversation, this._crashReporter);
 
   final OfflineTurnQueue _queue;
   final ConversationRepository _conversation;
+  final CrashReporter _crashReporter;
 
   /// Replays all pending turns in order. Returns the number sent. Stops early and
   /// KEEPS the rest queued on a transient failure (offline, a 5xx, or a 409
@@ -30,6 +32,15 @@ class OfflineTurnSync {
         sent++;
       } on ApiException catch (e) {
         if (_retryLater(e)) return sent; // keep queued, retry later, in order
+        // Definitive rejection (#236): the turn is about to disappear with no
+        // server-side trace of the learner's utterance either — capture it
+        // BEFORE removing, so it isn't lost without a trace on either side.
+        _crashReporter.captureError(
+          e,
+          StackTrace.current,
+          context: 'OfflineTurnSync.sync: dropping unrecoverable turn',
+          data: {'statusCode': e.statusCode, 'idempotencyKey': turn.idempotencyKey},
+        );
         await _queue.remove(turn.idempotencyKey); // definitive: drop and continue
       }
     }

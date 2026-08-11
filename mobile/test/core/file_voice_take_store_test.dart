@@ -51,4 +51,44 @@ void main() {
     expect((await s.takesFor('job/interview'))!.latest, [2]);
     expect(await s.takesFor('restaurant'), isNull); // only one take
   });
+
+  test('deleteSkill physically removes the baseline and latest files (#226)',
+      () async {
+    final s = store();
+    await s.saveTake('skill', _b([1]));
+    await s.saveTake('skill', _b([2, 2]));
+    expect(await File('${dir.path}/skill.baseline').exists(), isTrue);
+    expect(await File('${dir.path}/skill.latest').exists(), isTrue);
+
+    await s.deleteSkill('skill');
+
+    expect(await File('${dir.path}/skill.baseline').exists(), isFalse);
+    expect(await File('${dir.path}/skill.latest').exists(), isFalse);
+    expect(await s.takesFor('skill'), isNull);
+  });
+
+  test('deleteSkill on an absent skill (or before the directory even '
+      'exists) is a no-op, not an error', () async {
+    final s = store();
+    await s.deleteSkill('never-saved'); // must not throw
+    await s.saveTake('never-saved', _b([1]));
+    await s.saveTake('never-saved', _b([2]));
+    expect((await s.takesFor('never-saved'))!.latest, [2]); // still usable after
+  });
+
+  test('a physically purged skill can start a genuinely fresh baseline',
+      () async {
+    // Regression guard: FileVoiceTakeStore.saveTake only writes a NEW
+    // baseline "if !exists()" — without a real delete, a stale baseline file
+    // would keep being treated as the baseline forever.
+    final s = store();
+    await s.saveTake('skill', _b([1]));
+    await s.saveTake('skill', _b([2]));
+    await s.deleteSkill('skill');
+
+    await s.saveTake('skill', _b([9]));
+    await s.saveTake('skill', _b([10]));
+
+    expect((await s.takesFor('skill'))!.baseline, [9]); // NOT the old [1]
+  });
 }

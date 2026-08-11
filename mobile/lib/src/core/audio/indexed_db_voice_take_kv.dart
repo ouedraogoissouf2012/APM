@@ -59,6 +59,14 @@ class IndexedDbVoiceTakeKv implements VoiceTakeKvStore {
   }
 
   @override
+  Future<void> delete(String key) async {
+    final db = await _open();
+    final store =
+        db.transaction(_storeName.toJS, 'readwrite').objectStore(_storeName);
+    await _await(store.delete(key.toJS));
+  }
+
+  @override
   Future<void> clear() async {
     final db = await _open();
     final store =

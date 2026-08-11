@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'encrypted_voice_take_store.dart';
 import 'file_voice_take_store.dart';
 import 'ttl_voice_take_store.dart';
 import 'voice_take_store.dart';
@@ -10,10 +11,15 @@ import 'voice_take_store.dart';
 /// in the app documents directory, so the audible before/after survives restarts.
 /// The directory is opened lazily (on first read/write) so the provider stays sync.
 ///
-/// Wrapped in [TtlVoiceTakeStore] (#226): the raw audio is plaintext, so its
-/// retention is bounded rather than kept forever.
+/// Wrapped in [EncryptedVoiceTakeStore] (#226): the file would otherwise hold
+/// the raw audio in plaintext, readable on a stolen/shared device.
+/// [TtlVoiceTakeStore] sits outermost so its retention bound (and physical
+/// purge) applies uniformly whether or not the inner bytes happen to be
+/// encrypted.
 VoiceTakeStore createVoiceTakeStore() => TtlVoiceTakeStore(
-      FileVoiceTakeStore(
-        () async => Directory('${(await getApplicationDocumentsDirectory()).path}/voice_takes'),
+      EncryptedVoiceTakeStore(
+        FileVoiceTakeStore(
+          () async => Directory('${(await getApplicationDocumentsDirectory()).path}/voice_takes'),
+        ),
       ),
     );
