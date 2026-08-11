@@ -19,7 +19,7 @@ end-to-end and documents the mid-session behaviour explicitly, instead of testin
 a 402-mid-turn path that does not exist in the code.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import update
@@ -44,8 +44,11 @@ async def _set_usage(db_session, email: str, minutes: float, quota_date: date) -
 
 async def _exhaust_quota(db_session, email: str, *, quota_date: date | None = None) -> None:
     """Directly sets this user's usage to their full daily free allowance, on
-    `quota_date` (default TODAY UTC — the same clock `SessionService` compares
-    against), so the next `/sessions/start` is evaluated as quota-exhausted.
+    `quota_date` (default today in UTC via `datetime.now(UTC).date()` — the exact
+    clock `SessionService` compares against at service.py:115, NOT `date.today()`,
+    which is the server's LOCAL date and would silently mismatch UTC near midnight
+    in a non-UTC timezone; the code itself avoids `date.today()` for this reason,
+    see service.py:209), so the next `/sessions/start` is evaluated as quota-exhausted.
     Reads the CONFIGURED cap (not a literal like 10) because
     `FREE_TIER_DAILY_MINUTES` is overridable per environment (a developer's
     local `.env` has been seen overriding it) — a hardcoded value would
@@ -53,7 +56,7 @@ async def _exhaust_quota(db_session, email: str, *, quota_date: date | None = No
     from the code's default, making these tests pass for the wrong reason
     instead of failing loudly."""
     minutes = get_settings().free_tier_daily_minutes
-    await _set_usage(db_session, email, minutes, quota_date or date.today())
+    await _set_usage(db_session, email, minutes, quota_date or datetime.now(UTC).date())
 
 
 @pytest.mark.asyncio
