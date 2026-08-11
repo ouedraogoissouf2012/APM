@@ -17,7 +17,7 @@ the turn rather than restarting on the next provider (which would duplicate text
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 from app.domain.exceptions import LlmProviderError
 from app.features.conversation.messages import Message
@@ -40,12 +40,19 @@ class FallbackLlmProvider:
     """Wraps an ordered list of LLM providers and fails over between them."""
 
     def __init__(
-        self, providers: list[LlmProvider], deadline_seconds: float = _DEFAULT_DEADLINE_SECONDS
+        self,
+        providers: list[LlmProvider],
+        deadline_seconds: float = _DEFAULT_DEADLINE_SECONDS,
+        *,
+        now: Callable[[], float] = time.monotonic,
     ) -> None:
         if not providers:
             raise ValueError("FallbackLlmProvider needs at least one provider")
         self._providers = providers
         self._deadline_seconds = deadline_seconds
+        # Injectable monotonic clock: lets a test drive the streaming deadline
+        # deterministically instead of relying on sub-100 ms wall-clock timing.
+        self._now = now
 
     async def complete(self, system_prompt: str, history: list[Message]) -> str:
         async def _try_all() -> str:
@@ -73,10 +80,10 @@ class FallbackLlmProvider:
     async def stream_complete(
         self, system_prompt: str, history: list[Message]
     ) -> AsyncIterator[str]:
-        deadline = time.monotonic() + self._deadline_seconds
+        deadline = self._now() + self._deadline_seconds
         last_error: Exception | None = None
         for i, provider in enumerate(self._providers):
-            remaining = deadline - time.monotonic()
+            remaining = deadline - self._now()
             if remaining <= 0:
                 # The deadline is already spent (an earlier provider ate the whole
                 # budget) — don't even start another attempt.
