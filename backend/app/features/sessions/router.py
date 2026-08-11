@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, status
 
-from app.config import get_settings
 from app.domain.exceptions import NotFoundError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
@@ -33,15 +32,10 @@ async def start_session(
     current_user: User = Depends(get_current_user),
     service: SessionService = Depends(get_session_service),
 ) -> SessionStartOut:
-    started = await service.start(
+    session = await service.start(
         current_user.id, payload.mode, payload.scenario_id, payload.mission_id
     )
-    return SessionStartOut(
-        session_id=started.session.id,
-        room_name=started.session.room_name,
-        livekit_token=started.livekit_token,
-        livekit_url=get_settings().livekit_url,
-    )
+    return SessionStartOut(session_id=session.id)
 
 
 @router.get("/active", response_model=ActiveSessionOut)

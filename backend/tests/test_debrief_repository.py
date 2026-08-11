@@ -9,7 +9,7 @@ async def _make_session(db) -> int:
     user = User(email="d@b.com", hashed_password="x", native_language="fr")
     db.add(user)
     await db.flush()
-    convo = ConversationSession(user_id=user.id, mode="free", room_name="apm-room-d")
+    convo = ConversationSession(user_id=user.id, mode="free")
     db.add(convo)
     await db.commit()
     await db.refresh(convo)

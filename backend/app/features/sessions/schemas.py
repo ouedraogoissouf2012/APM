@@ -22,9 +22,6 @@ class SessionStartIn(BaseModel):
 
 class SessionStartOut(BaseModel):
     session_id: int
-    room_name: str
-    livekit_token: str
-    livekit_url: str
 
 
 class SessionOut(BaseModel):

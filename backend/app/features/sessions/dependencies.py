@@ -2,7 +2,6 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.livekit import LiveKitRoomTokenIssuer
 from app.database import get_db
 from app.features.auth.dependencies import get_user_repository
 from app.features.auth.repository import UserRepository
@@ -42,7 +41,6 @@ def build_session_service(
         users,
         settings.free_tier_daily_minutes,
         transcripts=transcripts,
-        token_issuer=LiveKitRoomTokenIssuer(),
         voice_engine=settings.voice_engine,
         history_page_size=settings.session_history_page_size,
         missions=missions,

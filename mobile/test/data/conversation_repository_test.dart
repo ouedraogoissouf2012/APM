@@ -19,12 +19,7 @@ void main() {
     when(
       () => api.postJson('/sessions/start', body: any(named: 'body')),
     ).thenAnswer(
-      (_) async => {
-        'session_id': 5,
-        'room_name': 'r',
-        'livekit_token': 't',
-        'livekit_url': 'u',
-      },
+      (_) async => {'session_id': 5},
     );
 
     expect(await repo.startSession(), 5);

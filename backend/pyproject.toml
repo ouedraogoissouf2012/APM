@@ -13,7 +13,6 @@ dependencies = [
     "pydantic-settings>=2.6",
     "pyjwt>=2.10",
     "pwdlib[argon2]>=0.2.1",
-    "livekit-api>=0.8",
     "python-multipart>=0.0.12",
     "email-validator>=2.2",
     "openai>=1.59",

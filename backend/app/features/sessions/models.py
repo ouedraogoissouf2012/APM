@@ -22,7 +22,6 @@ class ConversationSession(Base):
     mission_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    room_name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     # Which LLM engine served this session; set from settings at session start.
     voice_engine: Mapped[str] = mapped_column(String(16), default=ENGINE_FAKE, nullable=False)
 
