@@ -1,31 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
+import '../storage/key_value_store.dart';
 import 'pending_turn.dart';
 
-/// A tiny key-value seam so the queue's persistence is injectable and testable
-/// without the secure-storage platform channel.
-abstract class KeyValueStore {
-  Future<String?> read(String key);
-  Future<void> write(String key, String value);
-}
-
-/// Real store backed by the app's existing secure-storage dependency (web+native).
-class SecureKeyValueStore implements KeyValueStore {
-  SecureKeyValueStore([FlutterSecureStorage? storage])
-    : _storage = storage ?? const FlutterSecureStorage();
-
-  final FlutterSecureStorage _storage;
-
-  @override
-  Future<String?> read(String key) => _storage.read(key: key);
-
-  @override
-  Future<void> write(String key, String value) =>
-      _storage.write(key: key, value: value);
-}
+export '../storage/key_value_store.dart' show KeyValueStore, SecureKeyValueStore;
 
 /// A persisted FIFO queue of turns waiting to be sent (offline-first, #127).
 /// Survives app restarts so a turn spoken offline is never lost; replayed in

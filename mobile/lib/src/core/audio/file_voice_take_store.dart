@@ -59,6 +59,16 @@ class FileVoiceTakeStore implements VoiceTakeStore {
     if (await dir.exists()) await dir.delete(recursive: true);
   }
 
+  @override
+  Future<void> deleteSkill(String skill) async {
+    final dir = _dir ??= await _openDir();
+    if (!await dir.exists()) return;
+    final baseline = _baseline(dir, skill);
+    final latest = _latest(dir, skill);
+    if (await baseline.exists()) await baseline.delete();
+    if (await latest.exists()) await latest.delete();
+  }
+
   /// Skill -> a safe filename stem (skills are scenario ids, but be defensive).
   static String _safe(String skill) => skill.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
 

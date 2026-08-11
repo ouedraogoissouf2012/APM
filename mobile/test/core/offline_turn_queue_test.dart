@@ -13,6 +13,9 @@ class _InMemoryStore implements KeyValueStore {
 
   @override
   Future<void> write(String key, String value) async => data[key] = value;
+
+  @override
+  Future<void> delete(String key) async => data.remove(key);
 }
 
 /// A store that yields the event loop between read and write, so two concurrent
@@ -31,6 +34,12 @@ class _YieldingStore implements KeyValueStore {
   Future<void> write(String key, String value) async {
     await Future<void>.delayed(Duration.zero);
     data[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    await Future<void>.delayed(Duration.zero);
+    data.remove(key);
   }
 }
 

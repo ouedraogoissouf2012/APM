@@ -8,6 +8,8 @@ import 'package:apm/src/core/audio/providers.dart';
 import 'package:apm/src/core/audio/voice_take_store.dart';
 import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/network/providers.dart';
+import 'package:apm/src/core/observability/crash_reporter.dart';
+import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
 import 'package:apm/src/data/models/profile.dart';
 import 'package:apm/src/data/models/progress_snapshot.dart';
@@ -33,6 +35,8 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockConversationRepository extends Mock
     implements ConversationRepository {}
+
+class _MockCrashReporter extends Mock implements CrashReporter {}
 
 class _MockStreakRepository extends Mock implements StreakRepository {}
 
@@ -249,13 +253,20 @@ class _BlockingSpeech implements SpeechService {
 class _SpyTakeStore implements VoiceTakeStore {
   final List<({String skill, int len})> saved = [];
   final List<String> erasedCalls = [];
+  Object? throwOnSave;
   @override
-  Future<void> saveTake(String skill, Uint8List bytes) async =>
-      saved.add((skill: skill, len: bytes.length));
+  Future<void> saveTake(String skill, Uint8List bytes) async {
+    final err = throwOnSave;
+    if (err != null) throw err;
+    saved.add((skill: skill, len: bytes.length));
+  }
+
   @override
   Future<VoiceTakes?> takesFor(String skill) async => null;
   @override
   Future<void> eraseAll() async => erasedCalls.add('eraseAll');
+  @override
+  Future<void> deleteSkill(String skill) async {}
 }
 
 ProviderContainer _container(
@@ -266,6 +277,7 @@ ProviderContainer _container(
   AudioPlaybackService? audio,
   AudioRecordingService? recorder,
   VoiceTakeStore? takeStore,
+  CrashReporter? crashReporter,
 }) {
   final c = ProviderContainer(
     overrides: [
@@ -274,6 +286,7 @@ ProviderContainer _container(
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
       if (takeStore != null) voiceTakeStoreProvider.overrideWithValue(takeStore),
+      if (crashReporter != null) crashReporterProvider.overrideWithValue(crashReporter),
       // Avoid any real /config network fetch in tests.
       runtimeConfigProvider.overrideWith(
         (ref) async => RuntimeConfig(
@@ -316,6 +329,8 @@ ConversationRepository _repoReturning(int sessionId, {String? reply}) {
 }
 
 void main() {
+  setUpAll(() => registerFallbackValue(StackTrace.empty));
+
   test('start opens a session and stores its id', () async {
     final c = _container(_repoReturning(42), _FakeSpeech(''));
     await c.read(conversationViewModelProvider.notifier).start();
@@ -647,6 +662,46 @@ void main() {
     await vm.stopConversation();
 
     expect(store.saved, isEmpty);
+  });
+
+  test('a voice take capture failure is reported, not silently swallowed (#236)',
+      () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+        missionId: any(named: 'missionId'),
+      ),
+    ).thenAnswer((_) async => 1);
+    when(() => repo.transcribe(any())).thenAnswer((_) async => 'hello');
+    when(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')))
+        .thenAnswer((_) => Stream.value(const ReplySentence('hi')));
+    final store = _SpyTakeStore()..throwOnSave = StateError('encryption key unreadable');
+    final reporter = _MockCrashReporter();
+    final c = _container(
+      repo,
+      _FakeSpeech(''),
+      serverStt: true,
+      takeStore: store,
+      crashReporter: reporter,
+    );
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start(mode: 'scenario', scenarioId: 'job_interview');
+    await vm.listenAndRespond();
+    await vm.stopConversation(); // capture fails, but the turn must still proceed
+
+    verify(
+      () => reporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
+        data: {'skill': 'job_interview'},
+      ),
+    ).called(1);
+    // Best-effort (#199): a capture failure never breaks the conversation turn.
+    expect(c.read(conversationViewModelProvider).turns, isNotEmpty);
   });
 
   test('plays server audio and skips the on-device voice when serverTts is on',

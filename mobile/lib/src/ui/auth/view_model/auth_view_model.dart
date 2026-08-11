@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/audio/providers.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/network/providers.dart';
+import '../../../core/observability/providers.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../profile/view_model/profile_view_model.dart';
@@ -61,10 +62,18 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
     // Purge the raw voice takes (#226): they must not outlive THIS user's
     // session on a shared device — the next account logging in here must not
     // be able to hear a previous learner's spoken audio. Best-effort, like the
-    // capture path itself: a purge failure must never block logout.
+    // capture path itself: a purge failure must never block logout — but
+    // (#236) it must not vanish silently either, since a failed purge means
+    // the previous learner's audio is still sitting on this shared device.
     try {
       await ref.read(voiceTakeStoreProvider).eraseAll();
-    } catch (_) {}
+    } catch (e, stack) {
+      ref.read(crashReporterProvider).captureError(
+            e,
+            stack,
+            context: 'AuthViewModel.logout: voice take purge failed',
+          );
+    }
     state = const AsyncData(null);
   }
 }

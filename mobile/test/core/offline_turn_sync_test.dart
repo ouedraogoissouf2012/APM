@@ -1,4 +1,5 @@
 import 'package:apm/src/core/network/api_exception.dart';
+import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/offline/offline_turn_queue.dart';
 import 'package:apm/src/core/offline/offline_turn_sync.dart';
 import 'package:apm/src/core/offline/pending_turn.dart';
@@ -7,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockConversation extends Mock implements ConversationRepository {}
+
+class _MockCrashReporter extends Mock implements CrashReporter {}
 
 class _InMemoryQueue implements OfflineTurnQueue {
   final List<PendingTurn> _turns = [];
@@ -28,12 +31,16 @@ PendingTurn _turn(String key) =>
 void main() {
   late _MockConversation conv;
   late _InMemoryQueue queue;
+  late _MockCrashReporter crashReporter;
   late OfflineTurnSync sync;
+
+  setUpAll(() => registerFallbackValue(StackTrace.empty));
 
   setUp(() {
     conv = _MockConversation();
     queue = _InMemoryQueue();
-    sync = OfflineTurnSync(queue, conv);
+    crashReporter = _MockCrashReporter();
+    sync = OfflineTurnSync(queue, conv, crashReporter);
   });
 
   test('replays queued turns with their idempotency key and clears them', () async {
@@ -79,6 +86,44 @@ void main() {
 
     expect(sent, 1); // 'b' sent; 'a' dropped (it will never succeed)
     expect(await queue.pending(), isEmpty);
+  });
+
+  test('a dropped definitive-rejection turn is reported before removal, not '
+      'lost without a trace (#236)', () async {
+    await queue.enqueue(_turn('a'));
+    when(
+      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+    ).thenThrow(const ApiException(statusCode: 422, code: 'validation', message: 'bad'));
+
+    await sync.sync();
+
+    verify(
+      () => crashReporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
+        data: {'statusCode': 422, 'idempotencyKey': 'a'},
+      ),
+    ).called(1);
+  });
+
+  test('a transient failure that keeps the turn queued is NOT reported',
+      () async {
+    await queue.enqueue(_turn('a'));
+    when(
+      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+    ).thenThrow(const ApiException(statusCode: 503, code: 'server', message: 'down'));
+
+    await sync.sync();
+
+    verifyNever(
+      () => crashReporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
+        data: any(named: 'data'),
+      ),
+    );
   });
 
   test('a transient 5xx keeps the turn queued for a later retry', () async {

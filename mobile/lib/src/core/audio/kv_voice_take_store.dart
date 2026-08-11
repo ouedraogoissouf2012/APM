@@ -16,6 +16,9 @@ abstract class VoiceTakeKvStore {
   /// Stores [bytes] at [key], overwriting any previous value.
   Future<void> write(String key, Uint8List bytes);
 
+  /// Removes the entry at [key], if any — the single-skill purge (#226).
+  Future<void> delete(String key);
+
   /// Removes every entry — the on-device erase (#219).
   Future<void> clear();
 }
@@ -58,6 +61,13 @@ class KvVoiceTakeStore implements VoiceTakeStore {
 
   @override
   Future<void> eraseAll() => _kv.clear();
+
+  @override
+  Future<void> deleteSkill(String skill) async {
+    final key = _safe(skill);
+    await _kv.delete('$key.baseline');
+    await _kv.delete('$key.latest');
+  }
 
   /// Skill -> a safe key stem (skills are scenario ids/slugs, but be defensive).
   static String _safe(String skill) =>

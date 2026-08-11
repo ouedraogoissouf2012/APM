@@ -11,6 +11,7 @@ class _RawStore implements VoiceTakeStore {
   final Map<String, Uint8List> _baseline = {};
   final Map<String, Uint8List> _latest = {};
   int eraseAllCalls = 0;
+  final List<String> deleteSkillCalls = [];
 
   @override
   Future<void> saveTake(String skill, Uint8List bytes) async {
@@ -31,6 +32,13 @@ class _RawStore implements VoiceTakeStore {
     eraseAllCalls++;
     _baseline.clear();
     _latest.clear();
+  }
+
+  @override
+  Future<void> deleteSkill(String skill) async {
+    deleteSkillCalls.add(skill);
+    _baseline.remove(skill);
+    _latest.remove(skill);
   }
 
   /// Test-only seam: overwrite exactly what the raw store holds, bypassing
@@ -100,6 +108,43 @@ void main() {
       expect(takes, isNull);
     });
 
+    test('a stale take is PHYSICALLY purged from the inner store, not just '
+        'hidden (#226)', () async {
+      await store.saveTake('a', Uint8List.fromList([1]));
+      clock = clock.add(const Duration(days: 30) + const Duration(seconds: 1));
+      await store.saveTake('a', Uint8List.fromList([2]));
+
+      await store.takesFor('a'); // the read that notices the staleness
+
+      expect(raw.deleteSkillCalls, ['a']);
+      expect(raw._baseline.containsKey('a'), isFalse);
+      expect(raw._latest.containsKey('a'), isFalse);
+    });
+
+    test('a fresh take is NOT purged', () async {
+      await store.saveTake('a', Uint8List.fromList([1]));
+      await store.saveTake('a', Uint8List.fromList([2]));
+
+      await store.takesFor('a');
+
+      expect(raw.deleteSkillCalls, isEmpty);
+    });
+
+    test('after a stale take is purged, the next save starts a genuinely '
+        'fresh baseline', () async {
+      await store.saveTake('a', Uint8List.fromList([1]));
+      clock = clock.add(const Duration(days: 30) + const Duration(seconds: 1));
+      await store.saveTake('a', Uint8List.fromList([2]));
+      await store.takesFor('a'); // triggers the physical purge
+
+      await store.saveTake('a', Uint8List.fromList([9]));
+      await store.saveTake('a', Uint8List.fromList([10]));
+
+      final takes = await store.takesFor('a');
+      expect(takes, isNotNull);
+      expect(takes!.baseline, [9]); // NOT the stale [1]
+    });
+
     test('a too-short legacy payload is treated as absent, not a crash',
         () async {
       // Shorter than the 8-byte header this wrapper expects.
@@ -142,6 +187,11 @@ void main() {
     test('eraseAll forwards to the inner store', () async {
       await store.eraseAll();
       expect(raw.eraseAllCalls, 1);
+    });
+
+    test('deleteSkill forwards to the inner store', () async {
+      await store.deleteSkill('a');
+      expect(raw.deleteSkillCalls, ['a']);
     });
   });
 }

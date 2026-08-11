@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
+import '../../../core/observability/providers.dart';
 import 'conversation_host.dart';
 import 'conversation_providers.dart';
 import 'conversation_state.dart';
@@ -64,8 +65,18 @@ class PushToTalkController {
       _capturedForSession = sessionId;
       try {
         await _ref.read(voiceTakeStoreProvider).saveTake(skill, bytes);
-      } catch (_) {
-        // best-effort: never let a capture failure break the conversation turn
+      } catch (e, stack) {
+        // Best-effort: never let a capture failure break the conversation
+        // turn — but (#236) don't let it vanish silently either, since a
+        // recurring failure here (e.g. the secure-storage-backed encryption
+        // key becoming unreadable, #226) would otherwise quietly break the
+        // audible before/after for every skill without anyone noticing.
+        _ref.read(crashReporterProvider).captureError(
+              e,
+              stack,
+              context: 'PushToTalkController.stopAndRespond: voice take capture failed',
+              data: {'skill': skill},
+            );
       }
     }
     _host.state = _host.state.copyWith(
