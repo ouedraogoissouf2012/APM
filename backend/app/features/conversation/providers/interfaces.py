@@ -50,3 +50,20 @@ class LlmProvider(TextCompletionProvider, Protocol):
 
 class TtsProvider(Protocol):
     async def synthesize(self, text: str) -> bytes: ...
+
+
+class TtsCache(Protocol):
+    """Content-addressed cache for synthesized audio.
+
+    Abstracts the caching backend (in-memory for dev/tests, Redis for multi-worker
+    production). Key is the synthesis text; value is audio bytes. Entries may be
+    evicted by the cache itself (TTL/LRU) — callers should not assume persistence.
+    """
+
+    async def get(self, text: str) -> bytes | None:
+        """Fetch cached audio for text, or None if not in cache."""
+        ...
+
+    async def set(self, text: str, audio: bytes) -> None:
+        """Store audio for text, subject to cache eviction policy."""
+        ...
