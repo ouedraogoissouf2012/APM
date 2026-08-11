@@ -3,10 +3,14 @@
 VOICE_ENGINE defaults to "fake", so the LLM is FakeLlm -> reply "You said: <text>".
 """
 
+from datetime import UTC, datetime, timedelta
+
+import jwt
 import pytest
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.rate_limit import InMemoryRateLimiter
 from app.database import get_db
 from app.features.conversation.correction import TurnCorrection
@@ -253,6 +257,40 @@ async def test_turn_stream_rejected_after_session_ended(client):
 async def test_turn_stream_requires_auth(client):
     resp = await client.post("/sessions/1/turn/stream", json={"text": "hi"})
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_rejects_an_expired_access_token(client):
+    # #281 (audit #242 coverage gap): current_user is resolved via FastAPI's
+    # Depends(get_current_user) BEFORE the route body runs — there is no
+    # re-check partway through streaming, so an expired token can only ever be
+    # rejected up front, never mid-stream. This pins that: an already-expired
+    # token gets a clean 401 (not a 500), which is what lets the mobile client's
+    # postLineStream refresh-and-retry (already covered client-side) kick in —
+    # it only works because the 401 arrives before any SSE byte is written.
+    headers = await _auth_header(client, email="conv-expired@b.com")
+    me = await client.get("/auth/me", headers=headers)
+    user_id = me.json()["id"]
+
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    settings = get_settings()
+    expired_payload = {
+        "sub": str(user_id),
+        "exp": datetime.now(UTC) - timedelta(minutes=1),
+        "jti": "expired-test-token",
+    }
+    expired_token = jwt.encode(
+        expired_payload, settings.jwt_secret, algorithm=settings.jwt_algorithm
+    )
+
+    resp = await client.post(
+        f"/sessions/{session_id}/turn/stream",
+        headers={"Authorization": f"Bearer {expired_token}"},
+        json={"text": "hi"},
+    )
+    assert resp.status_code == 401, resp.text
 
 
 @pytest.mark.asyncio
