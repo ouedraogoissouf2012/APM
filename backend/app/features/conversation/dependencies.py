@@ -15,6 +15,7 @@ from app.features.conversation.providers.caching_tts import CachingTtsProvider
 from app.features.conversation.providers.interfaces import SttProvider, TtsProvider
 from app.features.conversation.providers.stt import shared_stt_provider
 from app.features.conversation.providers.tts import EdgeTtsProvider
+from app.features.conversation.providers.tts_cache_factory import build_tts_cache
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
 from app.features.missions.repository import SqlAlchemyMissionRepository
@@ -58,15 +59,24 @@ def get_stt_provider() -> SttProvider:
 
 @lru_cache(maxsize=1)
 def _shared_tts_provider() -> TtsProvider:
-    """One process-wide TTS provider, wrapped in a content-addressed cache (#123)
-    so repeated lines (identical openings, replays) are not re-synthesized. Shared
-    across requests/users — that's what makes the cache pay off. Caching disabled
-    when tts_cache_max_entries == 0."""
+    """One process-wide TTS provider, wrapped in a content-addressed cache (#123, #234).
+
+    Repeated lines (identical openings, replays) are not re-synthesized. Shared across
+    requests/users — that's what makes the cache pay off. Caching disabled when
+    tts_cache_max_entries == 0.
+
+    In production (multi-worker), REDIS_URL enables a shared Redis cache; dev/tests
+    use in-memory LRU.
+    """
     settings = get_settings()
     base = EdgeTtsProvider()
     if settings.tts_cache_max_entries <= 0:
         return base
-    return CachingTtsProvider(base, max_entries=settings.tts_cache_max_entries)
+    cache = build_tts_cache(
+        max_entries=settings.tts_cache_max_entries,
+        redis_url=settings.redis_url,
+    )
+    return CachingTtsProvider(base, cache)
 
 
 def get_tts_provider() -> TtsProvider:
