@@ -23,12 +23,19 @@ _settings = get_settings()
 # Process-wide limiters, backend chosen from config (Redis when REDIS_URL is set,
 # else in-memory with max_keys cap to prevent DoS via high-cardinality keys #234).
 # The RateLimiter interface and route callers stay unchanged.
+#
+# fail_open=False (#234): these three guard credential-stuffing / account
+# enumeration. If Redis becomes unreachable, the default fail-OPEN behavior
+# (used by every other rate limiter in the app) would hand out unlimited
+# login/register/refresh attempts for the outage's duration — an unverifiable
+# limiter must not silently stop protecting the one surface where that matters.
 _register_rate_limiter = build_rate_limiter(
     namespace="register",
     max_hits=_settings.register_rate_limit_max,
     window_seconds=_settings.register_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
     max_keys=_settings.rate_limit_max_keys,
+    fail_open=False,
 )
 _login_rate_limiter = build_rate_limiter(
     namespace="login",
@@ -36,6 +43,7 @@ _login_rate_limiter = build_rate_limiter(
     window_seconds=_settings.login_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
     max_keys=_settings.rate_limit_max_keys,
+    fail_open=False,
 )
 _refresh_rate_limiter = build_rate_limiter(
     namespace="refresh",
@@ -43,6 +51,7 @@ _refresh_rate_limiter = build_rate_limiter(
     window_seconds=_settings.refresh_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
     max_keys=_settings.rate_limit_max_keys,
+    fail_open=False,
 )
 
 

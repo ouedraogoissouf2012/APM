@@ -1,4 +1,9 @@
+import logging
+import os
+import time
+
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from app.core.rate_limit import InMemoryRateLimiter, RedisRateLimiter
 from app.domain.exceptions import RateLimitedError
@@ -22,25 +27,9 @@ async def test_keys_are_independent():
         await limiter.check("a")
 
 
-class _FakeRedis:
-    def __init__(self) -> None:
-        self.counts: dict[str, int] = {}
-        self.expired: dict[str, int] = {}
-
-    async def incr(self, key: str) -> int:
-        self.counts[key] = self.counts.get(key, 0) + 1
-        return self.counts[key]
-
-    async def expire(self, key: str, seconds: int) -> object:
-        self.expired[key] = seconds
-        return True
-
-
 @pytest.mark.asyncio
 async def test_evicts_empty_buckets_on_window_expiry():
     """Buckets with no hits are removed from the dict (cleanup stale entries #234)."""
-    import time
-
     limiter = InMemoryRateLimiter(max_hits=1, window_seconds=1)
     await limiter.check("a")
     assert len(limiter._hits) == 1  # bucket exists
@@ -66,13 +55,126 @@ async def test_max_keys_evicts_oldest_bucket_fifo():
     assert "c" in limiter._hits
 
 
+class _FakeScript:
+    """Mimics `Redis.register_script()`'s callable: the atomic INCR+EXPIRE Lua
+    script run via EVALSHA. Increments the counter, and records a TTL only the
+    first time a key is seen — same behavior a real Redis server gives when
+    running the script."""
+
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+        self.expired: dict[str, int] = {}
+
+    async def __call__(self, keys: list[str] | None = None, args: list[str] | None = None) -> int:
+        key = (keys or [""])[0]
+        ttl_seconds = int((args or ["0"])[0])
+        self.counts[key] = self.counts.get(key, 0) + 1
+        if self.counts[key] == 1:
+            self.expired[key] = ttl_seconds
+        return self.counts[key]
+
+
+class _FailingScript:
+    """Simulates a Redis outage/timeout: every call raises a redis-py error —
+    the same exception type RedisRateLimiter narrows its handling to."""
+
+    async def __call__(self, keys: list[str] | None = None, args: list[str] | None = None) -> int:
+        raise RedisConnectionError("connection refused")
+
+
 @pytest.mark.asyncio
-async def test_redis_rate_limiter_uses_shared_client_counters():
-    redis = _FakeRedis()
-    limiter = RedisRateLimiter(redis, namespace="auth", max_hits=1, window_seconds=60)
+async def test_redis_rate_limiter_uses_shared_script_counters():
+    script = _FakeScript()
+    limiter = RedisRateLimiter(script, namespace="auth", max_hits=1, window_seconds=60)
 
     await limiter.check("ip:user")
 
     with pytest.raises(RateLimitedError):
         await limiter.check("ip:user")
-    assert list(redis.expired.values()) == [61]
+    assert list(script.expired.values()) == [61]
+
+
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_builds_namespaced_bucketed_key():
+    """The Redis key mixes namespace + fixed window bucket + the caller's key,
+    so different endpoints (namespaces) never share a counter."""
+    script = _FakeScript()
+    limiter = RedisRateLimiter(script, namespace="auth", max_hits=5, window_seconds=60)
+
+    await limiter.check("ip:1.2.3.4")
+
+    (constructed_key,) = script.counts.keys()
+    assert constructed_key.startswith("rate:auth:")
+    assert constructed_key.endswith(":ip:1.2.3.4")
+
+
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_different_keys_get_independent_counters():
+    script = _FakeScript()
+    limiter = RedisRateLimiter(script, namespace="auth", max_hits=1, window_seconds=60)
+
+    await limiter.check("ip:a")
+    await limiter.check("ip:b")  # different key, independent counter
+
+    with pytest.raises(RateLimitedError):
+        await limiter.check("ip:a")
+
+
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_fails_open_by_default_when_redis_is_unavailable():
+    """A Redis outage must not turn into a 500 on every rate-limited route
+    (#234): the request is allowed through, not blocked, by default."""
+    limiter = RedisRateLimiter(_FailingScript(), namespace="auth", max_hits=1, window_seconds=60)
+
+    await limiter.check("ip:user")  # does not raise despite Redis being down
+
+
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_fails_closed_when_configured():
+    """Security-sensitive routes (login/register/refresh) opt into
+    fail_open=False (#234): an unreachable limiter must not hand out
+    unlimited attempts during an outage — treated as rate-limited instead."""
+    limiter = RedisRateLimiter(
+        _FailingScript(), namespace="login", max_hits=1, window_seconds=60, fail_open=False
+    )
+
+    with pytest.raises(RateLimitedError):
+        await limiter.check("ip:user")
+
+
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_throttles_failure_logging(caplog):
+    """A sustained outage must not flood logs with one warning per request
+    (#234): repeated failures within the throttle window log once."""
+    limiter = RedisRateLimiter(_FailingScript(), namespace="auth", max_hits=1, window_seconds=60)
+
+    with caplog.at_level(logging.WARNING, logger="app.core.rate_limit"):
+        await limiter.check("ip:a")
+        await limiter.check("ip:b")
+
+    assert len(caplog.records) == 1
+
+
+@pytest.mark.skipif(
+    not os.environ.get("REDIS_URL"), reason="requires a live Redis server (set REDIS_URL)"
+)
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_against_real_redis():
+    """Opt-in integration test: exercises the ACTUAL Lua script against a real
+    Redis server. The unit tests above use a Python fake that hand-replicates
+    the script's intended semantics and can't catch a real Lua syntax/logic
+    bug in `_INCR_AND_EXPIRE_SCRIPT`. Skipped unless REDIS_URL is set, so CI
+    without a Redis service stays green; a stage with Redis available gets
+    real coverage of the script itself."""
+    from app.core.rate_limit_factory import build_rate_limiter
+
+    limiter = build_rate_limiter(
+        namespace=f"test-{time.time_ns()}",
+        max_hits=2,
+        window_seconds=5,
+        redis_url=os.environ["REDIS_URL"],
+    )
+    await limiter.check("k")
+    await limiter.check("k")
+    with pytest.raises(RateLimitedError):
+        await limiter.check("k")
