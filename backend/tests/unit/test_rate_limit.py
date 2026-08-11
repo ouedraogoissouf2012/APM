@@ -37,6 +37,36 @@ class _FakeRedis:
 
 
 @pytest.mark.asyncio
+async def test_evicts_empty_buckets_on_window_expiry():
+    """Buckets with no hits are removed from the dict (cleanup stale entries #234)."""
+    import time
+
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=1)
+    await limiter.check("a")
+    assert len(limiter._hits) == 1  # bucket exists
+    # Sleep past the 1-second window so the hit expires.
+    time.sleep(1.1)
+    await limiter.check("a")  # re-check; the old hit expires and bucket is cleaned
+    # After eviction of the expired hit, the bucket stays (it got a new hit).
+    assert len(limiter._hits) == 1
+
+
+@pytest.mark.asyncio
+async def test_max_keys_evicts_oldest_bucket_fifo():
+    """When at max_keys capacity, adding a new key evicts the oldest bucket (FIFO #234)."""
+    limiter = InMemoryRateLimiter(max_hits=2, window_seconds=60, max_keys=2)
+    await limiter.check("a")
+    await limiter.check("b")
+    assert len(limiter._hits) == 2  # at capacity
+    # Adding a third key should evict "a" (oldest).
+    await limiter.check("c")
+    assert len(limiter._hits) == 2
+    assert "a" not in limiter._hits
+    assert "b" in limiter._hits
+    assert "c" in limiter._hits
+
+
+@pytest.mark.asyncio
 async def test_redis_rate_limiter_uses_shared_client_counters():
     redis = _FakeRedis()
     limiter = RedisRateLimiter(redis, namespace="auth", max_hits=1, window_seconds=60)

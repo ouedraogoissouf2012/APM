@@ -19,11 +19,14 @@ from app.features.shadowing.fake_llm import FakeShadowingLlm
 _settings = get_settings()
 
 # Process-wide limiter (reuses the shadowing budget — same drill family).
+# Backend chosen from config (Redis when REDIS_URL is set, else in-memory with
+# max_keys cap to prevent DoS via high-cardinality keys #234).
 _minimal_pairs_rate_limiter = build_rate_limiter(
     namespace="minimal_pairs",
     max_hits=_settings.shadowing_rate_limit_max,
     window_seconds=_settings.shadowing_rate_limit_window_seconds,
     redis_url=_settings.redis_url,
+    max_keys=_settings.rate_limit_max_keys,
 )
 
 
