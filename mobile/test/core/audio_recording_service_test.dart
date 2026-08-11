@@ -47,6 +47,46 @@ class _FakeRecorder implements PcmRecorder {
   void emit(List<int> bytes) => _current?.add(Uint8List.fromList(bytes));
 }
 
+/// A controllable stand-in for [Timer] so tests can fire the duration bound
+/// deterministically instead of waiting the real 60 s (#226).
+class _FakeTimer implements Timer {
+  _FakeTimer(this._callback);
+
+  final void Function() _callback;
+  bool cancelled = false;
+  bool _fired = false;
+
+  /// Simulates the timer elapsing. A no-op once cancelled or already fired,
+  /// matching a real [Timer]'s behaviour.
+  void fire() {
+    if (cancelled || _fired) return;
+    _fired = true;
+    _callback();
+  }
+
+  @override
+  void cancel() => cancelled = true;
+
+  @override
+  bool get isActive => !cancelled && !_fired;
+
+  @override
+  int get tick => 0;
+}
+
+/// Captures every [_FakeTimer] created via [factory], so a test can grab the
+/// most recent one and drive it (`.fire()`) or assert it was cancelled.
+class _TimerSpy {
+  final List<_FakeTimer> created = [];
+
+  Timer Function(Duration duration, void Function() callback) get factory =>
+      (duration, callback) {
+        final timer = _FakeTimer(callback);
+        created.add(timer);
+        return timer;
+      };
+}
+
 const _headerLen = 44;
 
 void main() {
@@ -172,6 +212,115 @@ void main() {
       expect(recorder.cancelCalls, 1);
       // After cancel, stop() has nothing to return.
       expect(await service.stop(), isNull);
+    });
+  });
+
+  group('DeviceAudioRecordingService bounds (#226)', () {
+    // RecordConfig has no native duration/size limit, so an utterance that
+    // never gets explicitly stopped would otherwise grow RAM and on-device
+    // storage without limit.
+    late _FakeRecorder recorder;
+    late _TimerSpy timers;
+
+    setUp(() {
+      recorder = _FakeRecorder();
+      timers = _TimerSpy();
+    });
+
+    test(
+      'the duration bound auto-stops capture, but a later stop() still '
+      'returns everything buffered',
+      () async {
+        final service = DeviceAudioRecordingService(
+          recorder: recorder,
+          createTimer: timers.factory,
+        );
+        expect(await service.start(), isTrue);
+        recorder.emit([1, 2, 3]);
+        await pumpEventQueue();
+
+        // Simulate the duration timer elapsing — no real 60 s wait.
+        timers.created.single.fire();
+        await pumpEventQueue();
+        expect(recorder.stopCalls, 1); // capture stopped by the bound...
+
+        // ...yet the learner's LATER explicit stop() still returns the take,
+        // and does not stop the recorder a second time.
+        final wav = await service.stop();
+        expect(wav, isNotNull);
+        expect(wav!.sublist(_headerLen), [1, 2, 3]);
+        expect(recorder.stopCalls, 1);
+      },
+    );
+
+    test('the byte bound auto-stops capture once exceeded', () async {
+      final service = DeviceAudioRecordingService(
+        recorder: recorder,
+        maxBytes: 4,
+        createTimer: timers.factory,
+      );
+      expect(await service.start(), isTrue);
+
+      recorder.emit([1, 2]); // 2 bytes: under the 4-byte cap
+      await pumpEventQueue();
+      expect(recorder.stopCalls, 0);
+
+      recorder.emit([3, 4, 5]); // 5 bytes total: over the cap -> auto-stop
+      await pumpEventQueue();
+      expect(recorder.stopCalls, 1);
+
+      final wav = await service.stop();
+      expect(wav!.sublist(_headerLen), [1, 2, 3, 4, 5]); // nothing lost
+      expect(recorder.stopCalls, 1); // not stopped twice
+    });
+
+    test('a normal short take is unaffected by either bound', () async {
+      final service = DeviceAudioRecordingService(
+        recorder: recorder,
+        createTimer: timers.factory,
+      );
+      expect(await service.start(), isTrue);
+      recorder.emit([1, 2]);
+      await pumpEventQueue();
+
+      final wav = await service.stop();
+
+      expect(wav!.sublist(_headerLen), [1, 2]);
+      expect(recorder.stopCalls, 1);
+      // The pending duration timer was cancelled by the normal stop(), not
+      // left dangling.
+      expect(timers.created.single.cancelled, isTrue);
+    });
+
+    test('cancel() also cancels the pending duration timer', () async {
+      final service = DeviceAudioRecordingService(
+        recorder: recorder,
+        createTimer: timers.factory,
+      );
+      await service.start();
+
+      await service.cancel();
+
+      expect(timers.created.single.cancelled, isTrue);
+    });
+
+    test('a fired duration timer does not fire again after normal stop()',
+        () async {
+      // Guards the _autoStopping/_reset lifecycle across takes: a timer that
+      // outlives its take (it shouldn't, but defensively) must not affect the
+      // NEXT take's recorder.stopCalls count.
+      final service = DeviceAudioRecordingService(
+        recorder: recorder,
+        createTimer: timers.factory,
+      );
+      await service.start();
+      recorder.emit([1]);
+      await service.stop();
+      final firstTimer = timers.created.single;
+
+      expect(firstTimer.cancelled, isTrue);
+      firstTimer.fire(); // a no-op: cancelled timers don't fire
+      expect(recorder.stopCalls, 1); // unaffected by the stray fire
     });
   });
 }

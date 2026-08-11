@@ -1,10 +1,14 @@
 import 'indexed_db_voice_take_kv.dart';
 import 'kv_voice_take_store.dart';
+import 'ttl_voice_take_store.dart';
 import 'voice_take_store.dart';
 
 /// Default / web factory. The web build now persists takes in IndexedDB (#205) so
 /// the audible before/after survives a page reload — matching the native build,
 /// which persists to files (chosen instead of this file by the conditional import
 /// on `dart.library.io`).
+///
+/// Wrapped in [TtlVoiceTakeStore] (#226): the raw audio is plaintext, so its
+/// retention is bounded rather than kept forever.
 VoiceTakeStore createVoiceTakeStore() =>
-    KvVoiceTakeStore(IndexedDbVoiceTakeKv());
+    TtlVoiceTakeStore(KvVoiceTakeStore(IndexedDbVoiceTakeKv()));
