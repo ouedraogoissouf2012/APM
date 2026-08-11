@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     jwt_secret: str
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60  # short-lived access token
+    access_token_expire_minutes: int = 15  # short-lived access token (#239)
     refresh_token_expire_days: int = 30
     # A rotated refresh token re-presented within this window is treated as a benign
     # near-simultaneous retry (a network retry, or a second device) — the stale token

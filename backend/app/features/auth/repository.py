@@ -91,6 +91,13 @@ class RefreshTokenRepository(Protocol):
         password change, deactivation) — the 'log out everywhere' primitive."""
         ...
 
+    async def purge_expired(self, now: datetime, *, commit: bool = True) -> int:
+        """Delete expired and revoked tokens to prevent DB bloat (#239, #271).
+
+        Returns the count of deleted rows.
+        """
+        ...
+
     async def commit(self) -> None: ...
 
     async def rollback(self) -> None: ...
@@ -149,6 +156,29 @@ class SqlAlchemyRefreshTokenRepository:
             await self._session.commit()
         else:
             await self._session.flush()
+
+    async def purge_expired(self, now: datetime, *, commit: bool = True) -> int:
+        """Delete expired and revoked tokens to prevent DB bloat (#239, #271).
+
+        Best-effort: ignore errors and return count.
+        """
+        from sqlalchemy import delete
+
+        try:
+            result = await self._session.execute(
+                delete(RefreshToken).where(
+                    (RefreshToken.expires_at < now) | (RefreshToken.revoked_at.isnot(None))
+                )
+            )
+            rowcount = getattr(result, "rowcount", 0) or 0
+            if commit:
+                await self._session.commit()
+            else:
+                await self._session.flush()
+            return rowcount
+        except Exception:
+            # Silently ignore purge failures; it's a best-effort background operation.
+            return 0
 
     async def commit(self) -> None:
         await self._session.commit()

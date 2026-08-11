@@ -1,6 +1,7 @@
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import jwt
 from pwdlib import PasswordHash
@@ -32,10 +33,20 @@ def verify_password(plain: str, hashed: str) -> bool:
     return _pwd.verify(plain, hashed)
 
 
+def create_dummy_password_hash() -> str:
+    """Create a realistic dummy hash for timing-attack resistance (#239).
+
+    When a user doesn't exist, we still call verify_password with this dummy hash
+    to equalize timing between 'email not found' (~1ms) and 'password invalid' (~50ms).
+    """
+    return hash_password(secrets.token_urlsafe(32))
+
+
 def create_access_token(subject: str) -> str:
     settings = get_settings()
     expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": subject, "exp": expire}
+    # jti enables token revocation (#239)
+    payload = {"sub": subject, "exp": expire, "jti": str(uuid4())}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

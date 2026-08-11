@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from app.core.security import (
     InvalidTokenError,
     create_access_token,
+    create_dummy_password_hash,
     decode_access_token,
     generate_refresh_token,
     hash_password,
@@ -93,8 +94,13 @@ class AuthService:
     async def login(self, email: str, password: str) -> AuthResult:
         email = normalize_email(email)
         user = await self._users.get_by_email(email)
-        if user is None or not verify_password(password, user.hashed_password):
+        # Timing-attack resistance (#239): if user not found, verify a dummy hash so timing
+        # is indistinguishable from 'user found, password wrong' (~50ms argon2 vs ~1ms oracle).
+        hashed_password = user.hashed_password if user is not None else create_dummy_password_hash()
+        if user is None or not verify_password(password, hashed_password):
             raise InvalidCredentialsError("Invalid credentials")
+        # Best-effort periodic purge of expired/revoked tokens (#239).
+        await self._refresh.purge_expired(datetime.now(UTC), commit=False)
         return await self._issue_tokens(user)
 
     async def refresh(self, raw_refresh_token: str) -> AuthResult:
