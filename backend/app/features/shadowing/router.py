@@ -1,12 +1,13 @@
 import base64
 
-from fastapi import APIRouter, Depends, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.client_ip import client_ip
 from app.config import get_settings
 from app.core.rate_limit import RateLimiter
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
+from app.features.conversation.audio_upload import parse_bounded_multipart
 from app.features.conversation.dependencies import get_tts_provider
 from app.features.conversation.providers.interfaces import TtsProvider
 from app.features.shadowing.dependencies import (
@@ -61,8 +62,6 @@ async def generate_phrase(
 @router.post("/shadowing/attempt", response_model=AttemptOut)
 async def score_attempt(
     request: Request,
-    audio: UploadFile,
-    target_text: str = Form(...),
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_shadowing_rate_limiter),
     service: ShadowingService = Depends(get_shadowing_service_with_stt),
@@ -71,7 +70,18 @@ async def score_attempt(
     coach the missed words. The audio is used then discarded (never stored)."""
     client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"shadowing-attempt:{client_host}:user:{current_user.id}")
-    data = await audio.read()
+    settings = get_settings()
+    # Bounded, in-memory upload (#230): a plain `UploadFile` parameter goes
+    # through Starlette's default parser, which spools past 1 MB and enforces no
+    # size cap at all — the same gap /transcribe closed for #120/#227.
+    data, fields = await parse_bounded_multipart(
+        request,
+        max_bytes=settings.max_upload_bytes,
+        spool_max_size=settings.max_request_body_bytes,
+    )
+    target_text = fields.get("target_text")
+    if not target_text:
+        raise HTTPException(status_code=422, detail="Missing 'target_text' field")
     result = await service.score_attempt(
         target=target_text, audio=data, native_language=current_user.native_language
     )
