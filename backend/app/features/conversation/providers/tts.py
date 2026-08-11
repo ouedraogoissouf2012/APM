@@ -14,23 +14,15 @@ import asyncio
 
 from app.domain.exceptions import LlmProviderError
 
-# Default neural voices per BCP-47 accent tag. The "Multilingual" voices are
-# Azure's newest and most natural/expressive — noticeably warmer and less flat
-# than the older ...Neural voices, which matters for a conversation partner.
-_VOICE_BY_TAG = {
-    "en-us": "en-US-AvaMultilingualNeural",
-    "en-gb": "en-GB-SoniaNeural",
-}
+# The "Multilingual" voice is Azure's newest and most natural/expressive —
+# noticeably warmer and less flat than the older ...Neural voices, which matters
+# for a conversation partner. Used as the default for every reply.
 _DEFAULT_VOICE = "en-US-AvaMultilingualNeural"
 
 # edge-tts talks to an UNOFFICIAL Microsoft endpoint — no key, no SLA, and
 # nothing previously stopped a hung connection from blocking a turn indefinitely
 # (#230). Bounded here (contained to this file); injectable for tests.
 _DEFAULT_TIMEOUT_SECONDS = 10.0
-
-
-def voice_for_language(language_tag: str) -> str:
-    return _VOICE_BY_TAG.get(language_tag.lower().replace("_", "-"), _DEFAULT_VOICE)
 
 
 class EdgeTtsProvider:
