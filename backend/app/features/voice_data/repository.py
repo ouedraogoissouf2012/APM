@@ -111,6 +111,30 @@ class SqlAlchemyVoiceDataSource:
         ]
 
     async def purge(self, user_id: int) -> dict[str, int]:
+        # Atomicity (#290): this whole cascade is ONE transaction (one commit,
+        # right at the bottom) and every step is a blind DELETE/UPDATE keyed on
+        # user_id/session_id — no read-decide-write on a value that could go
+        # stale. That gives us both invariants for free, without an explicit
+        # lock: (1) a mid-cascade failure (timeout, DB drop) never partially
+        # persists — get_db() closes the session on any exception, which rolls
+        # back everything already "done" in this transaction; (2) two concurrent
+        # purges for the same user can't orphan data — Postgres row-locks
+        # whichever step first has overlapping rows, so the second purge blocks
+        # until the first fully commits, then finds nothing left to touch.
+        # Both are exercised directly by test_erase_is_atomic_on_partial_failure
+        # and test_concurrent_erasure_from_same_user.
+        #
+        # An explicit `SELECT ... FOR UPDATE` on the user row was considered (it
+        # is the pattern used for read-modify-write races elsewhere, e.g.
+        # auth/repository.py's UserRepository.lock and the quota path in
+        # sessions/service.py) but deliberately left out: it isn't needed here
+        # (both tests above pass without it), and locking the user row BEFORE
+        # the sessions delete below would invert lock order against
+        # SessionService.record_turn_activity(), which autoflushes a
+        # ConversationSession update and only locks the user row afterwards —
+        # an AB-BA deadlock between "erase my data" and "record this turn" for
+        # the same user that doesn't exist today.
+
         # Sub-select the user's session ids once; transcripts and debriefs are
         # keyed by session, everything else by user directly.
         user_sessions = select(ConversationSession.id).where(ConversationSession.user_id == user_id)
