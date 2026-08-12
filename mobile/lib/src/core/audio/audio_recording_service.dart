@@ -102,9 +102,34 @@ class DeviceAudioRecordingService implements AudioRecordingService {
   // calling the underlying recorder's stop() twice (once from the bound,
   // once from an explicit stop()) for a single take.
   bool _autoStopping = false;
+  /// The in-progress start(), shared by every call that arrives before it
+  /// settles (#322): single-flight, collapsing a rapid double-tap on the
+  /// record button onto ONE real start.
+  ///
+  /// A double-tap fires two start() calls before either's caller-side state
+  /// update lands. Without this, both reach `_recorder.startStream()`
+  /// concurrently — record 6.2.1's `startStream()` closes the previous stream
+  /// controller as part of opening a new one, so the second call tears down
+  /// the first call's just-opened stream out from under it, orphaning its
+  /// StreamSubscription and leaving an empty/truncated WAV.
+  ///
+  /// Same single-flight idiom as `AuthenticatedApiClient._refreshAccessToken`:
+  /// the body is synchronous (no `await` before the assignment), so two
+  /// callers on the same event-loop turn observe the memoised Future rather
+  /// than each starting their own — and since that Future (not some other,
+  /// unlistened one) is what every caller awaits, an error from `_startOnce`
+  /// surfaces exactly once, to every caller, never as a separate unhandled
+  /// rejection.
+  Future<bool>? _startInFlight;
 
   @override
-  Future<bool> start() async {
+  Future<bool> start() {
+    return _startInFlight ??= _startOnce().whenComplete(() {
+      _startInFlight = null;
+    });
+  }
+
+  Future<bool> _startOnce() async {
     // Re-entrant safe: tear down any prior take first, so a second start() cannot
     // orphan a live subscription or leak the previous PCM buffer.
     await _teardown();
