@@ -155,6 +155,38 @@ async def test_redis_rate_limiter_throttles_failure_logging(caplog):
     assert len(caplog.records) == 1
 
 
+class _SpyRedisClient:
+    """Mimics redis.asyncio.Redis's async `aclose()`."""
+
+    def __init__(self) -> None:
+        self.closed = 0
+
+    async def aclose(self) -> None:
+        self.closed += 1
+
+
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_aclose_closes_its_client():
+    """#303: the Redis client passed at construction is what shutdown closes."""
+    client = _SpyRedisClient()
+    limiter = RedisRateLimiter(
+        _FakeScript(), namespace="auth", max_hits=1, window_seconds=60, client=client
+    )
+
+    await limiter.aclose()
+
+    assert client.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_aclose_is_a_noop_without_a_client():
+    """Constructing a limiter from a bare script fake (no `client=`, as every
+    other test in this file does) must not make aclose() blow up."""
+    limiter = RedisRateLimiter(_FakeScript(), namespace="auth", max_hits=1, window_seconds=60)
+
+    await limiter.aclose()  # must not raise
+
+
 @pytest.mark.skipif(
     not os.environ.get("REDIS_URL"), reason="requires a live Redis server (set REDIS_URL)"
 )

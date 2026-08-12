@@ -65,6 +65,7 @@ def test_production_rejects_deepseek_without_api_key():
             app_env="production",
             jwt_secret="a-secure-production-secret-32-bytes",
             cors_allow_origins="https://app.example.com",
+            redis_url="redis://prod-redis:6379/0",
             voice_engine="deepseek",
             debrief_engine="fake",
             deepseek_api_key="",
@@ -76,6 +77,7 @@ def test_production_allows_deepseek_with_safe_config():
         app_env="production",
         jwt_secret="a-secure-production-secret-32-bytes",
         cors_allow_origins="https://app.example.com",
+        redis_url="redis://prod-redis:6379/0",
         voice_engine="deepseek",
         debrief_engine="deepseek",
         deepseek_api_key="sk-test",
@@ -90,6 +92,7 @@ def test_production_rejects_gop_engine_without_service_url():
             app_env="production",
             jwt_secret="a-secure-production-secret-32-bytes",
             cors_allow_origins="https://app.example.com",
+            redis_url="redis://prod-redis:6379/0",
             pronunciation_engine="gop",
             gop_service_url="",
         )
@@ -100,6 +103,7 @@ def test_production_allows_gop_engine_with_service_url():
         app_env="production",
         jwt_secret="a-secure-production-secret-32-bytes",
         cors_allow_origins="https://app.example.com",
+        redis_url="redis://prod-redis:6379/0",
         pronunciation_engine="gop",
         gop_service_url="http://pronunciation:8100",
     )
@@ -114,6 +118,7 @@ def test_production_requires_both_keys_for_groq_fallback():
             app_env="production",
             jwt_secret="a-secure-production-secret-32-bytes",
             cors_allow_origins="https://app.example.com",
+            redis_url="redis://prod-redis:6379/0",
             voice_engine="groq_fallback",
             deepseek_api_key="sk-test",
             groq_api_key="",
@@ -123,6 +128,7 @@ def test_production_requires_both_keys_for_groq_fallback():
             app_env="production",
             jwt_secret="a-secure-production-secret-32-bytes",
             cors_allow_origins="https://app.example.com",
+            redis_url="redis://prod-redis:6379/0",
             voice_engine="groq_fallback",
             deepseek_api_key="",
             groq_api_key="gsk-test",
@@ -134,11 +140,49 @@ def test_production_allows_groq_fallback_with_both_keys():
         app_env="production",
         jwt_secret="a-secure-production-secret-32-bytes",
         cors_allow_origins="https://app.example.com",
+        redis_url="redis://prod-redis:6379/0",
         voice_engine="groq_fallback",
         deepseek_api_key="sk-test",
         groq_api_key="gsk-test",
     )
     assert settings.voice_engine == "groq_fallback"
+
+
+# --- REDIS_URL is required in staging/production (#304) ---
+# The rate limiter and TTS cache factories both silently fall back to a
+# single-process in-memory backend when REDIS_URL is empty — correct for
+# dev/test, silently wrong the moment there's more than one worker/instance.
+
+
+def test_production_rejects_missing_redis_url():
+    with pytest.raises(ValidationError, match="REDIS_URL is required"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            redis_url="",
+        )
+
+
+def test_staging_rejects_missing_redis_url():
+    with pytest.raises(ValidationError, match="REDIS_URL is required"):
+        _settings(
+            app_env="staging",
+            jwt_secret="a-secure-staging-secret-32-bytes-long",
+            cors_allow_origins="https://staging.example.com",
+            redis_url="",
+        )
+
+
+def test_production_allows_blank_redis_url_to_be_whitespace_only_rejected():
+    # Whitespace-only counts as unset (matches .strip() used elsewhere, e.g. CORS).
+    with pytest.raises(ValidationError, match="REDIS_URL is required"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            redis_url="   ",
+        )
 
 
 # --- Staging is treated like production for safety checks (#231) ---
@@ -172,6 +216,7 @@ def test_staging_allows_safe_config():
         app_env="staging",
         jwt_secret="a-secure-staging-secret-32-bytes-long",
         cors_allow_origins="https://staging.example.com",
+        redis_url="redis://staging-redis:6379/0",
     )
     assert settings.app_env == "staging"
 
