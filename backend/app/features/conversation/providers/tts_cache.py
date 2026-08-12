@@ -77,3 +77,8 @@ class RedisTtsCache:
         # Non-fatal — synthesis is always possible, just slower.
         with contextlib.suppress(Exception):
             await self._client.setex(key, self._ttl, audio)
+
+    async def aclose(self) -> None:
+        """Close the underlying Redis client's connection pool at process
+        shutdown (app.core.http_lifecycle, #303)."""
+        await self._client.aclose()

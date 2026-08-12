@@ -6,7 +6,7 @@ in one place regardless of how the change is triggered (admin action now, paymen
 later).
 """
 
-from datetime import date
+from datetime import UTC, datetime
 
 from app.core import quota
 from app.domain.exceptions import NotFoundError
@@ -29,11 +29,17 @@ class BillingService:
         return await self._users.save(user)
 
     def subscription_of(self, user: User) -> Subscription:
-        used = user.minutes_used_today if user.quota_date == date.today() else 0.0
+        # UTC, not local time (like everywhere else the daily quota is computed,
+        # e.g. sessions/service.py) — a server in a non-UTC timezone would
+        # otherwise reset/carry minutes_used_today at the wrong wall-clock
+        # moment, and disagree with the date sessions/service.py already used
+        # to decide whether quota was exhausted (#305).
+        today = datetime.now(UTC).date()
+        used = user.minutes_used_today if user.quota_date == today else 0.0
         return Subscription(
             tier=user.tier,
             is_premium=user.tier == TIER_PREMIUM,
             free_daily_minutes=self._free_daily,
             minutes_used_today=used,
-            remaining_minutes=quota.remaining_minutes(user, self._free_daily, date.today()),
+            remaining_minutes=quota.remaining_minutes(user, self._free_daily, today),
         )

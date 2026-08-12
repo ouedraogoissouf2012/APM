@@ -177,6 +177,13 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET must not use the example value in production")
         if "*" in self.cors_origins_list and self.cors_allow_credentials:
             raise ValueError("CORS_ALLOW_ORIGINS=* cannot be used with credentials in production")
+        # Both the rate limiter and the TTS cache silently fall back to a
+        # single-process in-memory backend when REDIS_URL is empty (#120/#234) —
+        # correct in dev/test, but WRONG the moment there's more than one
+        # worker/instance: each one gets its own limits/cache instead of a
+        # shared one, defeating both (#304).
+        if not self.redis_url.strip():
+            raise ValueError("REDIS_URL is required in staging/production")
         engines = (
             self.voice_engine,
             self.debrief_engine,

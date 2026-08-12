@@ -119,3 +119,10 @@ class TestRedisTtsCache:
         mock_client.get = AsyncMock(return_value="not bytes")  # type: ignore
         cache = RedisTtsCache(client=mock_client)
         assert await cache.get("hello") is None
+
+    async def test_aclose_closes_the_underlying_redis_client(self):
+        """#303: the Redis client's connection pool is closed at shutdown."""
+        mock_client = AsyncMock()
+        cache = RedisTtsCache(client=mock_client)
+        await cache.aclose()
+        mock_client.aclose.assert_called_once_with()

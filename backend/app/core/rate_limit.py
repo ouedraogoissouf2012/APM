@@ -9,7 +9,7 @@ disables limiting (used as the default in tests).
 import logging
 import time
 from collections import defaultdict, deque
-from typing import Protocol
+from typing import Any, Protocol
 
 from redis.exceptions import RedisError
 
@@ -110,6 +110,7 @@ class RedisRateLimiter:
         max_hits: int,
         window_seconds: int,
         fail_open: bool = True,
+        client: Any | None = None,
     ) -> None:
         self._script = script
         self._namespace = namespace
@@ -117,6 +118,10 @@ class RedisRateLimiter:
         self._window = window_seconds
         self._fail_open = fail_open
         self._last_failure_log = 0.0
+        # Only the factory (build_rate_limiter) passes a client — it's the one
+        # closed at shutdown (#303). Optional so tests can construct a limiter
+        # from a bare script fake without a Redis client to close.
+        self._client = client
 
     async def check(self, key: str) -> None:
         bucket = int(time.time() // self._window)
@@ -154,6 +159,13 @@ class RedisRateLimiter:
             self._fail_open,
             exc_info=True,
         )
+
+    async def aclose(self) -> None:
+        """Close the underlying Redis client's connection pool at process
+        shutdown (app.core.http_lifecycle, #303). A no-op when constructed
+        without a client (e.g. tests that only exercise the script)."""
+        if self._client is not None:
+            await self._client.aclose()
 
 
 class NoOpRateLimiter:

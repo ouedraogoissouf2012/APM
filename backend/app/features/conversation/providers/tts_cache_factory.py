@@ -7,6 +7,7 @@ the `TtsCache` interface, so nothing changes when the backend does.
 
 from typing import cast
 
+from app.core.http_lifecycle import register_closeable
 from app.features.conversation.providers.interfaces import TtsCache
 from app.features.conversation.providers.tts_cache import (
     InMemoryTtsCache,
@@ -38,4 +39,7 @@ def build_tts_cache(
     # redis-py's async client provides get, setex, etc. callable positionally,
     # satisfying our minimal interface; cast to the protocol we actually use.
     client = cast(type, Redis.from_url(redis_url))
-    return RedisTtsCache(client=client, ttl_seconds=ttl_seconds)
+    # Registered so its connection pool is closed at shutdown (#303) — otherwise
+    # it's reclaimed only by process exit/GC, like the LLM/STT/pronunciation
+    # clients were before #280.
+    return register_closeable(RedisTtsCache(client=client, ttl_seconds=ttl_seconds))

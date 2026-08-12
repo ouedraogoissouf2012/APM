@@ -9,6 +9,7 @@ the `RateLimiter` interface, so nothing above changes when the backend does.
 
 from typing import cast
 
+from app.core.http_lifecycle import register_closeable
 from app.core.rate_limit import (
     _INCR_AND_EXPIRE_SCRIPT,
     InMemoryRateLimiter,
@@ -59,10 +60,16 @@ def build_rate_limiter(
     # on every check(). Its actual return type is broader than our minimal
     # RedisScript contract, so cast to what RedisRateLimiter actually uses.
     script = cast(RedisScript, client.register_script(_INCR_AND_EXPIRE_SCRIPT))
-    return RedisRateLimiter(
-        script,
-        namespace=namespace,
-        max_hits=max_hits,
-        window_seconds=window_seconds,
-        fail_open=fail_open,
+    # Registered so its connection pool is closed at shutdown (#303) — otherwise
+    # it's reclaimed only by process exit/GC, like the LLM/STT/pronunciation
+    # clients were before #280.
+    return register_closeable(
+        RedisRateLimiter(
+            script,
+            namespace=namespace,
+            max_hits=max_hits,
+            window_seconds=window_seconds,
+            fail_open=fail_open,
+            client=client,
+        )
     )
