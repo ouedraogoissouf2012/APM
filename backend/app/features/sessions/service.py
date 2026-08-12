@@ -112,6 +112,25 @@ class SessionService:
             now = datetime.now(UTC)
             if is_stale(_as_utc(active.last_activity_at), now, self._inactivity_timeout):
                 await self._close_session(active, user, now)
+                if quota.remaining_minutes(user, self._free_daily, now.date()) <= 0:
+                    # Re-check quota AFTER the reap (#301): the check above ran
+                    # before the abandoned session's residual usage was billed onto
+                    # `user` (same locked, in-memory object `_close_session` just
+                    # updated), so it can pass on a stale balance the reap alone
+                    # pushes over the daily cap. Commit the reap's billing before
+                    # rejecting — it is real usage that happened, and letting the
+                    # exception unwind uncommitted would both lose it (get_db()
+                    # rolls back the whole request on an unhandled exception) and
+                    # leave the abandoned session "active" forever, reintroducing
+                    # the #119 lockout the reaper exists to prevent. When quota is
+                    # still OK after the reap, we deliberately do NOT commit here:
+                    # the user row stays locked ("for the whole use case", per the
+                    # class docstring) all the way to the single commit below,
+                    # instead of releasing it mid-function and reopening a window
+                    # for a second concurrent start() to slip in before the new
+                    # session is created.
+                    await self._sessions.commit()
+                    raise QuotaExhaustedError("Daily free quota exhausted")
             else:
                 raise ActiveSessionExistsError("A session is already in progress")
 

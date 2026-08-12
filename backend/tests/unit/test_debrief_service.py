@@ -39,6 +39,9 @@ class _FakeDebriefs:
         self._existing = existing
         self.saved = None
 
+    async def lock_for_session(self, session_id):
+        pass
+
     async def save(self, session_id, cefr_estimate, summary, errors):
         self.saved = (session_id, cefr_estimate, summary, errors)
 
@@ -220,6 +223,9 @@ async def test_generate_nudges_user_cefr_level_toward_the_estimate():
 
 
 class _ExplodingDebriefs:
+    async def lock_for_session(self, session_id):
+        pass
+
     async def get_by_session(self, session_id):
         return None
 

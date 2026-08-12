@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.debrief.models import Debrief
@@ -13,10 +13,31 @@ class DebriefRepository(Protocol):
 
     async def get_by_session(self, session_id: int) -> Debrief | None: ...
 
+    async def lock_for_session(self, session_id: int) -> None:
+        """Acquire a Postgres transaction-scoped advisory lock keyed on this
+        session_id, serialising concurrent debrief generation for the SAME
+        session (#302). Deliberately NOT a row lock on `sessions` or `users`:
+        those are already locked in a fixed order elsewhere (start()/end() lock
+        the user row first; a row lock here would invert that order against a
+        concurrent /end for the same session) and a row lock would stay held
+        for the whole — multi-second — LLM analysis, stalling unrelated
+        session-lifecycle calls (start/end/record_turn_activity) for this user.
+        An advisory lock has no row to collide with, so it serialises this one
+        invariant without touching either. Auto-released at commit/rollback."""
+        ...
+
 
 class SqlAlchemyDebriefRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def lock_for_session(self, session_id: int) -> None:
+        # A 2-key advisory lock, namespaced by a fixed hash of "debrief" so this
+        # can never collide with an unrelated advisory lock elsewhere keyed by a
+        # raw id (there are none today, but the namespace costs nothing).
+        await self._session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtext("debrief"), session_id))
+        )
 
     async def save(
         self, session_id: int, cefr_estimate: str, summary: str, errors: list[dict]

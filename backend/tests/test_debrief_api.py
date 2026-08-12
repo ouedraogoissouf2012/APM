@@ -1,9 +1,16 @@
+import asyncio
+
 import pytest
+from fastapi import Depends
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import InMemoryRateLimiter
+from app.database import get_db
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.dependencies import get_debrief_rate_limiter, get_debrief_service
+from app.features.debrief.models import Debrief
 from app.features.debrief.repository import SqlAlchemyDebriefRepository
 from app.features.debrief.service import DebriefService
 from app.features.sessions.repository import SqlAlchemySessionRepository
@@ -127,6 +134,78 @@ async def test_generate_debrief_is_rate_limited_per_user(client, db_session):
         assert blocked.status_code == 429
     finally:
         app.dependency_overrides.pop(get_debrief_service, None)
+
+
+class _CountingLlm:
+    """Counts real analyses and adds a small delay so two concurrent requests
+    are genuinely both in flight when they'd reach the analyzer — widening the
+    race window instead of relying on luck to prove the lock, not the timing."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, system_prompt, history):
+        self.calls += 1
+        await asyncio.sleep(0.05)
+        return '{"cefr_estimate": "A2", "summary": "Nice work", "errors": []}'
+
+
+@pytest.mark.asyncio
+async def test_concurrent_debrief_requests_run_the_analyzer_once(client, db_session):
+    """#302: two concurrent POST /sessions/{id}/debrief for the SAME session must
+    not both run the slow/costly LLM analysis, nor crash on debriefs.session_id's
+    unique constraint. generate()'s session-row lock serialises them: the loser
+    blocks until the winner's save() commits, then its own existence re-check sees
+    the persisted debrief and returns it directly — the analyzer never runs a
+    second time.
+
+    The override below deliberately keeps `db: AsyncSession = Depends(get_db)` as
+    its own parameter (rather than closing over the `db_session` fixture, as the
+    other tests in this file do) so each concurrent request gets its own
+    request-scoped session/connection through the test's overridden get_db —
+    mirroring production, where two real concurrent requests never share a
+    session. Reusing one AsyncSession across two concurrent coroutines would
+    both misrepresent production and be unsafe on its own (AsyncSession does not
+    support concurrent use)."""
+    token = await _register(client, email="concurrent-debrief@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+    await SqlAlchemyTranscriptRepository(db_session).save(
+        session_id, [{"role": "user", "content": "i is happy"}]
+    )
+    await db_session.commit()
+
+    llm = _CountingLlm()
+
+    def _override(db: AsyncSession = Depends(get_db)) -> DebriefService:
+        return DebriefService(
+            sessions=SqlAlchemySessionRepository(db),
+            transcripts=SqlAlchemyTranscriptRepository(db),
+            debriefs=SqlAlchemyDebriefRepository(db),
+            analyzer=DebriefAnalyzer(llm),
+        )
+
+    app.dependency_overrides[get_debrief_service] = _override
+    try:
+        responses = await asyncio.gather(
+            client.post(f"/sessions/{session_id}/debrief", headers=headers),
+            client.post(f"/sessions/{session_id}/debrief", headers=headers),
+        )
+    finally:
+        app.dependency_overrides.pop(get_debrief_service, None)
+
+    for r in responses:
+        assert r.status_code == 201, r.text  # neither request 500s
+    bodies = [r.json() for r in responses]
+    assert bodies[0]["summary"] == bodies[1]["summary"] == "Nice work"
+    assert llm.calls == 1  # only the winner ran the (slow, costly) analysis
+
+    db_session.expire_all()
+    count = await db_session.scalar(
+        select(func.count()).select_from(Debrief).where(Debrief.session_id == session_id)
+    )
+    assert count == 1  # no duplicate row, no IntegrityError
 
 
 @pytest.mark.asyncio

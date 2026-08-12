@@ -127,6 +127,29 @@ async def test_start_reaps_a_stale_session_instead_of_locking_the_user_out():
 
 
 @pytest.mark.asyncio
+async def test_start_blocks_when_the_reap_itself_pushes_over_quota():
+    # #301: the quota check above runs BEFORE the reap bills the abandoned
+    # session's residual usage, so it can pass on a stale balance the reap alone
+    # pushes over the cap. Issue's own numbers: 9.9/10 min used, a session
+    # abandoned 40 min ago gets reaped for +5 min (turn_meter_cap) -> 14.9, 49%
+    # over budget. A second quota check after the reap must catch this instead
+    # of letting the new session start anyway.
+    service, user = await _service_with_user(minutes_used_today=9.9)
+    first = await service.start(user.id, "free", None)
+    stale = datetime.now(UTC) - timedelta(minutes=40)
+    first.started_at = stale
+    first.last_activity_at = stale
+
+    with pytest.raises(QuotaExhaustedError):
+        await service.start(user.id, "free", None)
+
+    # The reap's own billing must still land — it's real usage that happened,
+    # and skipping it would leave the abandoned session active forever (#119).
+    assert first.ended_at is not None
+    assert user.minutes_used_today == pytest.approx(14.9, abs=0.05)
+
+
+@pytest.mark.asyncio
 async def test_start_still_blocks_when_active_session_is_recent():
     # A genuinely active (recent) session must still block a second start.
     service, user = await _service_with_user()
