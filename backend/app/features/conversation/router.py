@@ -28,6 +28,8 @@ from app.features.idempotency.service import ClaimStatus, IdempotencyService
 
 router = APIRouter(prefix="/sessions/{session_id}", tags=["conversation"])
 
+_TURN_LOCK_CONFLICT_MESSAGE = "A turn is already in progress for this session"
+
 
 @router.post("/turn", response_model=TurnOut)
 async def take_turn(
@@ -42,13 +44,41 @@ async def take_turn(
 ) -> TurnOut:
     """Non-streaming turn (used for offline replay, #127). An optional
     `Idempotency-Key` header makes a replay safe: the same key returns the same
-    reply without re-processing the turn or re-charging the quota (#119)."""
+    reply without re-processing the turn or re-charging the quota (#119).
+
+    Serialised by the SAME per-session turn lock as /turn/stream (#256, #299):
+    without it, two CONCURRENT turns with no Idempotency-Key would read the
+    same base transcript and the second's persist would overwrite the first
+    (a lost turn) while both charge the quota. Acquired before take_turn reads
+    the base transcript, released once it returns (success or failure) — the
+    lock section is scoped to `_process`, so run_once's existing
+    except-Exception-then-release already frees a newly-claimed idempotency
+    key when the lock is contended, with no duplicated cleanup here."""
     client_host = client_ip(request, get_settings().trust_proxy_headers)
     await limiter.check(f"turn:{client_host}:user:{current_user.id}")
 
     async def _process() -> str:
-        result = await service.take_turn(session_id, current_user, payload.text)
-        return result.reply
+        if not await idempotency.acquire_turn_lock(current_user.id, session_id):
+            raise ConflictError(_TURN_LOCK_CONFLICT_MESSAGE)
+        try:
+            result = await service.take_turn(session_id, current_user, payload.text)
+            return result.reply
+        finally:
+            try:
+                await idempotency.release_turn_lock(current_user.id, session_id)
+            except Exception:
+                # Best-effort, like the meter and on_persisted's idempotency.complete
+                # below: a release failure must never mask take_turn's real outcome —
+                # neither a successful, already-persisted+metered reply nor a genuine
+                # domain error (404/409) should be replaced by this cleanup call's own
+                # failure (Python's finally-overrides-return/raise semantics would do
+                # exactly that otherwise). Worst case the lock self-heals via the
+                # stale-reclaim window (~STALE_CLAIM_SECONDS) instead of a transient
+                # DB blip here corrupting the response or re-opening #299's race via a
+                # wrongly-released idempotency claim.
+                logging.getLogger(__name__).warning(
+                    "Turn lock release failed for session %s", session_id, exc_info=True
+                )
 
     reply = await idempotency.run_once(current_user.id, idempotency_key, _process)
     return TurnOut(reply=reply)
@@ -121,7 +151,7 @@ async def stream_turn(
     if not await idempotency.acquire_turn_lock(current_user.id, session_id):
         if newly_claimed and idempotency_key is not None:
             await idempotency.release(current_user.id, idempotency_key)
-        raise ConflictError("A turn is already in progress for this session")
+        raise ConflictError(_TURN_LOCK_CONFLICT_MESSAGE)
     prepared = None
     try:
         prepared = await service.prepare_turn(session_id, current_user, payload.text)

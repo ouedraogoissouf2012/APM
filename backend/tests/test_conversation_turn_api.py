@@ -3,6 +3,7 @@
 VOICE_ENGINE defaults to "fake", so the LLM is FakeLlm -> reply "You said: <text>".
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -79,6 +80,133 @@ async def test_turn_rejected_after_session_ended(client):
 
     resp = await client.post(f"/sessions/{session_id}/turn", headers=headers, json={"text": "hi"})
     assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_turn_refuses_a_second_turn_while_one_is_in_flight(client, db_session):
+    # #299: /turn (non-streaming) now carries the SAME per-session lock as
+    # /turn/stream (#256/#229) — a turn already in flight (its lock held)
+    # refuses a concurrent one with 409 instead of reading the same base
+    # transcript and overwriting it.
+    from sqlalchemy import select
+
+    from app.features.auth.models import User
+    from app.features.idempotency.repository import SqlAlchemyIdempotencyRepository
+    from app.features.idempotency.service import IdempotencyService
+
+    email = "inflight-turn@b.com"
+    headers = await _auth_header(client, email=email)
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    user_id = (await db_session.execute(select(User.id).where(User.email == email))).scalar_one()
+    lock = IdempotencyService(SqlAlchemyIdempotencyRepository(db_session))
+    assert await lock.acquire_turn_lock(user_id, session_id) is True  # a turn is "in flight"
+
+    blocked = await client.post(
+        f"/sessions/{session_id}/turn", headers=headers, json={"text": "two"}
+    )
+    assert blocked.status_code == 409, blocked.text
+
+    # Once the in-flight turn releases, a new turn is accepted again.
+    await lock.release_turn_lock(user_id, session_id)
+    ok = await client.post(f"/sessions/{session_id}/turn", headers=headers, json={"text": "three"})
+    assert ok.status_code == 200, ok.text
+
+
+class _GatedLlm:
+    """Blocks inside complete() until released, so a test can pin the exact
+    moment a request is mid-flight (past acquire_turn_lock, before persist)
+    and fire a genuinely concurrent second request at a deterministic point —
+    instead of racing on unpredictable real timing."""
+
+    def __init__(self, started: asyncio.Event, release: asyncio.Event) -> None:
+        self._started = started
+        self._release = release
+
+    async def complete(self, system_prompt, history):
+        self._started.set()
+        await self._release.wait()
+        last_user = next((m.content for m in reversed(history) if m.role == "user"), "")
+        return f"You said: {last_user}"
+
+    async def stream_complete(self, system_prompt, history):
+        raise NotImplementedError("not exercised by this test")
+        yield  # pragma: no cover - makes this an async generator
+
+
+@pytest.mark.asyncio
+async def test_turn_concurrent_requests_second_rejected_only_one_persists_and_meters(
+    client, db_session
+):
+    """#299: two REALLY concurrent POST /turn (asyncio.gather, no
+    Idempotency-Key) for the same session, racing on the real Postgres-backed
+    IdempotencyRepository — not a manually pre-seeded lock. Before this fix,
+    both would read the same base transcript; the second's save would
+    overwrite the first (a lost turn) while both charged the quota."""
+    headers = await _auth_header(client, email="race-turn@b.com")
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    meter_calls: list[tuple[int, int]] = []
+
+    async def _counting_meter(session_id: int, user_id: int) -> None:
+        meter_calls.append((session_id, user_id))
+
+    def _gated_service(db: AsyncSession = Depends(get_db)) -> ConversationTurnService:
+        return ConversationTurnService(
+            sessions=SqlAlchemySessionRepository(db),
+            transcripts=SqlAlchemyTranscriptRepository(db),
+            profiles=SqlAlchemyProfileRepository(db),
+            llm=_GatedLlm(started, release),
+            meter=_counting_meter,
+        )
+
+    app.dependency_overrides[get_conversation_turn_service] = _gated_service
+    try:
+        first_task = asyncio.create_task(
+            client.post(f"/sessions/{session_id}/turn", headers=headers, json={"text": "first"})
+        )
+        # Wait until the first request holds the lock and is mid-flight (blocked
+        # inside the LLM call) before firing the second — deterministic overlap.
+        await asyncio.wait_for(started.wait(), timeout=5)
+
+        try:
+            second = await asyncio.wait_for(
+                client.post(
+                    f"/sessions/{session_id}/turn", headers=headers, json={"text": "second"}
+                ),
+                timeout=5,
+            )
+        finally:
+            # Always release the gate, even if the second request times out or
+            # the assertion below fails — a regression that removes the lock
+            # would let "second" through to the same gated LLM and hang both
+            # requests forever instead of a fast, clear test failure.
+            release.set()
+        assert second.status_code == 409, second.text
+
+        first = await asyncio.wait_for(first_task, timeout=5)
+        assert first.status_code == 200, first.text
+        assert first.json()["reply"] == "You said: first"
+    finally:
+        app.dependency_overrides.pop(get_conversation_turn_service, None)
+
+    # Exactly one turn persisted (the second's 409 never reached the transcript —
+    # no overwrite), and the quota metered exactly once (no double-charge).
+    from sqlalchemy import select
+
+    from app.features.auth.models import User
+
+    user_id = (
+        await db_session.execute(select(User.id).where(User.email == "race-turn@b.com"))
+    ).scalar_one()
+    transcript = await SqlAlchemyTranscriptRepository(db_session).get_by_session(session_id)
+    assert transcript is not None
+    assert [t["content"] for t in transcript.turns] == ["first", "You said: first"]
+    assert meter_calls == [(session_id, user_id)]
 
 
 @pytest.mark.asyncio
