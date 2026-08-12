@@ -4,6 +4,7 @@ import pytest
 
 from app.core.rate_limit import InMemoryRateLimiter
 from app.features.auth.dependencies import (
+    get_change_password_rate_limiter,
     get_login_rate_limiter,
     get_refresh_rate_limiter,
     get_register_rate_limiter,
@@ -186,3 +187,85 @@ async def test_login_rate_limit_keys_are_independent_by_email(client):
         "/auth/login", json={"email": "one@b.com", "password": "s3cret!pass"}
     )
     assert blocked.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_change_password_succeeds_with_correct_old_password(client):
+    reg = await client.post("/auth/register", json={"email": "cp@b.com", "password": "s3cret!pass"})
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    resp = await client.post(
+        "/auth/password",
+        json={"old_password": "s3cret!pass", "new_password": "n3w!password"},
+        headers=headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    # The OLD password must actually stop working — a bug that changed the
+    # response but not the persisted hash (e.g. saving a detached/stale ORM
+    # instance) would leave every other assertion here green.
+    old_login = await client.post(
+        "/auth/login", json={"email": "cp@b.com", "password": "s3cret!pass"}
+    )
+    assert old_login.status_code == 401
+    new_login = await client.post(
+        "/auth/login", json={"email": "cp@b.com", "password": "n3w!password"}
+    )
+    assert new_login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_change_password_is_rate_limited(client):
+    # #300: a stolen access token (short-lived, but not the password) must not be
+    # able to brute-force old_password unthrottled — symmetric to login.
+    limiter = InMemoryRateLimiter(max_hits=2, window_seconds=60)
+    app.dependency_overrides[get_change_password_rate_limiter] = lambda: limiter
+    reg = await client.post(
+        "/auth/register", json={"email": "cprl@b.com", "password": "s3cret!pass"}
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    attempt = {"old_password": "WRONG", "new_password": "n3w!password"}
+
+    assert (await client.post("/auth/password", json=attempt, headers=headers)).status_code == 401
+    assert (await client.post("/auth/password", json=attempt, headers=headers)).status_code == 401
+    blocked = await client.post("/auth/password", json=attempt, headers=headers)
+    assert blocked.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_change_password_rate_limit_is_keyed_by_user_id_not_token_or_ip(client):
+    # #300 explicitly requires per-user_id keying (the caller is authenticated,
+    # unlike login/register) — NOT per-token and NOT per-IP.
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_change_password_rate_limiter] = lambda: limiter
+    reg1 = await client.post(
+        "/auth/register", json={"email": "cp1@b.com", "password": "s3cret!pass"}
+    )
+    token_a = reg1.json()["access_token"]
+    attempt = {"old_password": "WRONG", "new_password": "n3w!password"}
+
+    assert (
+        await client.post(
+            "/auth/password", json=attempt, headers={"Authorization": f"Bearer {token_a}"}
+        )
+    ).status_code == 401
+
+    # A SECOND, DIFFERENT token for the SAME user — proves the key is user_id,
+    # not the token/credentials string. If it were token-keyed, an attacker
+    # could evade the throttle just by fetching a fresh token for the same
+    # stolen account (e.g. via /auth/login) instead of reusing the exhausted one.
+    login = await client.post("/auth/login", json={"email": "cp1@b.com", "password": "s3cret!pass"})
+    token_b = login.json()["access_token"]
+    assert token_b != token_a
+    blocked = await client.post(
+        "/auth/password", json=attempt, headers={"Authorization": f"Bearer {token_b}"}
+    )
+    assert blocked.status_code == 429
+
+    # A DIFFERENT user, same test-client IP, own bucket — untouched by user 1's
+    # block. If this were IP-keyed, user 2 would inherit user 1's block too.
+    reg2 = await client.post(
+        "/auth/register", json={"email": "cp2@b.com", "password": "s3cret!pass"}
+    )
+    headers2 = {"Authorization": f"Bearer {reg2.json()['access_token']}"}
+    assert (await client.post("/auth/password", json=attempt, headers=headers2)).status_code == 401

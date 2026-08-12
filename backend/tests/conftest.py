@@ -26,6 +26,7 @@ from app.config import get_settings  # noqa: E402
 from app.core.rate_limit import NoOpRateLimiter  # noqa: E402
 from app.database import Base, get_db  # noqa: E402
 from app.features.auth.dependencies import (  # noqa: E402
+    get_change_password_rate_limiter,
     get_login_rate_limiter,
     get_refresh_rate_limiter,
     get_register_rate_limiter,
@@ -73,6 +74,7 @@ async def client(_engine, _setup_db) -> AsyncClient:
     app.dependency_overrides[get_register_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_login_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_refresh_rate_limiter] = lambda: NoOpRateLimiter()
+    app.dependency_overrides[get_change_password_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_conversation_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_debrief_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_mission_rate_limiter] = lambda: NoOpRateLimiter()

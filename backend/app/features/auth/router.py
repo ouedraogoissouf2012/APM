@@ -6,6 +6,7 @@ from app.core.rate_limit import RateLimiter
 from app.core.security import hash_token
 from app.features.auth.dependencies import (
     get_auth_service,
+    get_change_password_rate_limiter,
     get_current_admin,
     get_current_user,
     get_login_rate_limiter,
@@ -94,7 +95,12 @@ async def change_password(
     payload: ChangePasswordIn,
     current_user: User = Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
+    limiter: RateLimiter = Depends(get_change_password_rate_limiter),
 ) -> None:
+    # Keyed by user_id, not IP (#300): the caller is already authenticated via
+    # get_current_user, so this throttles brute-forcing old_password with a
+    # stolen access token regardless of which IP the attacker calls from.
+    await limiter.check(f"change_password:{current_user.id}")
     await service.change_password(current_user, payload.old_password, payload.new_password)
 
 

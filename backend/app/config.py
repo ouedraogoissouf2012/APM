@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     register_rate_limit_window_seconds: int = 60
     refresh_rate_limit_max: int = 10
     refresh_rate_limit_window_seconds: int = 60
+    # A stolen access token (15 min TTL) but not the password could otherwise
+    # brute-force old_password on /auth/password without limit (#300). Keyed by
+    # user_id, not IP (the caller is already authenticated) — symmetric to login.
+    change_password_rate_limit_max: int = 5
+    change_password_rate_limit_window_seconds: int = 900  # 15 minutes
     conversation_rate_limit_max: int = 20
     conversation_rate_limit_window_seconds: int = 60
     debrief_rate_limit_max: int = 5
