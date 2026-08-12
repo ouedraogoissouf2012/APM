@@ -50,6 +50,18 @@ class DebriefService:
 
     async def generate(self, session_id: int, user: User) -> Debrief:
         await get_owned_session(self._sessions, session_id, user.id)
+        # Serialise concurrent debrief requests for the SAME session (#302):
+        # without this, two concurrent calls both read `existing is None`, both
+        # run the slow/costly LLM analysis, and the second `save()` then
+        # violates debriefs.session_id's unique constraint with an uncaught
+        # IntegrityError (500). An advisory lock (see DebriefRepository) rather
+        # than a row lock on `sessions`/`users`, which start()/end() already
+        # lock in a fixed order and which this call would otherwise hold for
+        # the whole multi-second analysis. The second request blocks here until
+        # the first's save() commits (which releases the advisory lock), then
+        # the re-check below sees the persisted debrief and returns it
+        # directly, without ever calling the analyzer.
+        await self._debriefs.lock_for_session(session_id)
         existing = await self._debriefs.get_by_session(session_id)
         if existing is not None:
             return existing
