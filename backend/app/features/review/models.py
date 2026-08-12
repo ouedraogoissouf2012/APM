@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -24,11 +25,20 @@ class ReviewItem(Base):
     __tablename__ = "review_items"
     # One SRS item per (user, error_type): a type re-appearing updates its schedule
     # instead of creating a second row.
-    __table_args__ = (UniqueConstraint("user_id", "error_type", name="uq_review_user_error_type"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "error_type", name="uq_review_user_error_type"),
+        # Composite index: serves list_for_user's plain user_id lookup (every
+        # session-end upsert) as a leftmost-prefix match, and closes #288's
+        # gap by making next_review_at filterable too. Per-user rows are
+        # currently capped at len(CANONICAL_ERROR_TYPES) by the taxonomy
+        # (error_taxonomy.py), so today's win is mostly headroom for if that
+        # cap is ever lifted — see the migration docstring for measured impact.
+        Index("ix_review_items_user_id_next_review_at", "user_id", "next_review_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     error_type: Mapped[str] = mapped_column(String(40), nullable=False)
     # The most recent correction seen for this type, shown as the review example.

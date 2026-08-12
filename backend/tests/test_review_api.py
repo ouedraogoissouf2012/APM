@@ -8,6 +8,7 @@ db session, then assert the endpoint.
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import text
 
 from app.features.review.repository import SqlAlchemyReviewRepository
 from app.features.review.service import ReviewService
@@ -103,6 +104,27 @@ async def test_review_only_sees_own_items(client, db_session):
 async def test_review_requires_auth(client):
     resp = await client.get("/me/review")
     assert resp.status_code == 401, resp.text
+
+
+@pytest.mark.asyncio
+async def test_review_items_has_next_review_at_index(db_session):
+    """#288: next_review_at must stay index-covered so list_due's per-user scan
+    doesn't regress to an unindexed column if the model is edited later.
+
+    Checks the LIVE schema (this test's DB is provisioned by
+    Base.metadata.create_all, same as CI) rather than the ORM's in-memory
+    metadata, so it also catches a name/column mismatch between models.py and
+    the Alembic migration that create_all-only CI can't see.
+    """
+    result = await db_session.execute(
+        text(
+            "SELECT indexdef FROM pg_indexes WHERE tablename = 'review_items'"
+            " AND indexname = 'ix_review_items_user_id_next_review_at'"
+        )
+    )
+    indexdef = result.scalar_one_or_none()
+    assert indexdef is not None, "composite (user_id, next_review_at) index is missing"
+    assert indexdef.endswith("(user_id, next_review_at)"), indexdef
 
 
 @pytest.mark.asyncio
