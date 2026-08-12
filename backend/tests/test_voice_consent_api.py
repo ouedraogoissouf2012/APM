@@ -65,6 +65,33 @@ async def test_grant_and_revoke_persist(client):
 
 
 @pytest.mark.asyncio
+async def test_transcribe_after_revoked_consent_returns_normalized_403(client):
+    """stt_router.py raises a raw HTTPException(403, detail=...) on the consent
+    gate — it must come back in the SAME {"error": {"code", "message"}} envelope
+    as every other error, not FastAPI's default {"detail": ...} body (#241)."""
+    app.dependency_overrides[get_stt_provider] = lambda: _FakeStt()
+    try:
+        headers = await _auth(client)
+        await client.put("/me/voice-consent", headers=headers, json={"transcription": False})
+
+        resp = await client.post(
+            "/transcribe",
+            headers=headers,
+            files={"audio": ("speech.wav", _wav(), "audio/wav")},
+        )
+
+        assert resp.status_code == 403, resp.text
+        assert resp.json() == {
+            "error": {
+                "code": "Forbidden",
+                "message": "Transcription consent has been revoked",
+            }
+        }
+    finally:
+        app.dependency_overrides.pop(get_stt_provider, None)
+
+
+@pytest.mark.asyncio
 async def test_transcribe_is_gated_by_consent(client):
     # Server STT is enabled here (fake provider) so the consent gate is what we
     # actually exercise, not the "server STT disabled" 404.

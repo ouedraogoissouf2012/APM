@@ -27,6 +27,26 @@ async def test_register_returns_tokens_and_user(client):
 
 
 @pytest.mark.asyncio
+async def test_register_rejects_oversized_native_language_with_normalized_422(client):
+    """A native_language over its BCP-47 bound (max 8 chars) must be rejected by
+    Pydantic before it ever reaches the database, with the SAME error envelope as
+    every other error — not a bare {"detail": [...]} (#241)."""
+    resp = await client.post(
+        "/auth/register",
+        json={
+            "email": "toolong@b.com",
+            "password": "s3cret!pass",
+            "native_language": "way-too-long",
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    assert set(body.keys()) == {"error"}
+    assert set(body["error"].keys()) == {"code", "message"}
+    assert body["error"]["code"] == "ValidationError"
+
+
+@pytest.mark.asyncio
 async def test_register_duplicate_email_rejected(client):
     payload = {"email": "dup@b.com", "password": "s3cret!pass"}
     first = await client.post("/auth/register", json=payload)

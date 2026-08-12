@@ -4,12 +4,15 @@ Registered once on the app. Keeps services/routes free of HTTP status concerns
 and guarantees a single, normalized error body: {"error": {"code", "message"}}.
 """
 
+import http
 import logging
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.domain.exceptions import (
     AuthenticationError,
@@ -43,6 +46,19 @@ _STATUS_BY_EXCEPTION: list[tuple[type[DomainError], int]] = [
 ]
 
 
+def _error_response(
+    http_status: int, code: str, message: str, *, headers: dict[str, str] | None = None
+) -> JSONResponse:
+    """The one place that builds the normalized error body — every handler below
+    goes through this so {"error": {"code", "message"}} cannot drift into a
+    per-handler ad-hoc shape."""
+    return JSONResponse(
+        status_code=http_status,
+        content={"error": {"code": code, "message": message}},
+        headers=headers,
+    )
+
+
 def _make_handler(http_status: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
     async def handler(request: Request, exc: Exception) -> JSONResponse:
         message = getattr(exc, "message", "") or str(exc)
@@ -51,11 +67,7 @@ def _make_handler(http_status: int) -> Callable[[Request, Exception], Awaitable[
             headers["WWW-Authenticate"] = "Bearer"  # RFC 6750
         elif http_status == status.HTTP_429_TOO_MANY_REQUESTS:
             headers["Retry-After"] = "60"  # Retry after 60 seconds
-        return JSONResponse(
-            status_code=http_status,
-            content={"error": {"code": exc.__class__.__name__, "message": message}},
-            headers=headers,
-        )
+        return _error_response(http_status, exc.__class__.__name__, message, headers=headers)
 
     return handler
 
@@ -78,9 +90,10 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
         exc_info=exc,
         extra={"request_id": request_id},
     )
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": {"code": "InternalServerError", "message": "Internal server error"}},
+    return _error_response(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "InternalServerError",
+        "Internal server error",
         headers={"X-Request-ID": request_id},
     )
 
@@ -89,15 +102,53 @@ async def _data_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """SQLAlchemy DataError (e.g., constraint violation, value out of range).
     Mapped to 422 since it indicates invalid input — likely a client sending data
     that bypassed Pydantic validation or a pre-check."""
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"error": {"code": "DataError", "message": "Invalid input"}},
-    )
+    return _error_response(status.HTTP_422_UNPROCESSABLE_ENTITY, "DataError", "Invalid input")
+
+
+async def _http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """FastAPI/Starlette's built-in HTTPException, raised ad hoc across routers for
+    one-off checks (e.g. a 403 consent gate, a 422 pre-check) — AND the one Starlette's
+    own router raises directly for an unmatched route (404) or wrong method (405).
+    Without this, both fall back to Starlette's default {"detail": ...} body — a second,
+    incompatible error shape next to every DomainError's {"error": {"code", "message"}}.
+
+    Registered under starlette.exceptions.HTTPException (not fastapi.HTTPException, a
+    subclass of it) so it also catches the router-raised 404/405: Starlette dispatches
+    by walking the exception's MRO for the first registered ancestor, and a plain
+    starlette.exceptions.HTTPException's MRO does not include the fastapi subclass.
+
+    Typed as the base Exception (not HTTPException) because Starlette requires every
+    registered handler to accept Exception — it dispatches by the exact class it was
+    registered under, so this only ever runs for an HTTPException in practice."""
+    detail = getattr(exc, "detail", "")
+    message = detail if isinstance(detail, str) else str(detail)
+    exc_status = getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        code = http.HTTPStatus(exc_status).phrase.replace(" ", "")
+    except ValueError:
+        code = "HTTPException"
+    return _error_response(exc_status, code, message, headers=getattr(exc, "headers", None))
+
+
+def _validation_field_message(err: dict) -> str:
+    location = ".".join(str(part) for part in err["loc"] if part != "body")
+    return f"{location}: {err['msg']}" if location else str(err["msg"])
+
+
+async def _validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """A request body/query/path field that fails Pydantic validation (e.g.
+    native_language over its max length). FastAPI's default handler returns
+    {"detail": [...]} — normalized here to the same envelope as every other error."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else []
+    message = "; ".join(_validation_field_message(err) for err in errors)
+    return _error_response(status.HTTP_422_UNPROCESSABLE_ENTITY, "ValidationError", message)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
     for exc_type, http_status in _STATUS_BY_EXCEPTION:
         app.add_exception_handler(exc_type, _make_handler(http_status))
     app.add_exception_handler(DataError, _data_error_handler)
+    app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
+    app.add_exception_handler(RequestValidationError, _validation_error_handler)
     # Catch-all for unmapped exceptions (bugs): logged + normalized 500.
     app.add_exception_handler(Exception, _unhandled_exception_handler)

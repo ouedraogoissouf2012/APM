@@ -64,6 +64,12 @@ async def test_transcribe_rejects_oversized_upload(client, monkeypatch):
             files={"audio": ("speech.webm", b"x" * 50, "audio/webm")},
         )
         assert resp.status_code == 413, resp.text
+        # audio_upload.py raises a raw HTTPException — must still come back in the
+        # SAME normalized envelope as every other error, not FastAPI's default
+        # {"detail": ...} (#241).
+        body = resp.json()
+        assert set(body.keys()) == {"error"}
+        assert set(body["error"].keys()) == {"code", "message"}
     finally:
         app.dependency_overrides.pop(get_stt_provider, None)
 
@@ -107,6 +113,9 @@ async def test_transcribe_missing_audio_part_returns_422(client):
             files={"other": ("note.txt", b"not audio", "text/plain")},
         )
         assert resp.status_code == 422, resp.text
+        body = resp.json()
+        assert set(body.keys()) == {"error"}
+        assert set(body["error"].keys()) == {"code", "message"}
     finally:
         app.dependency_overrides.pop(get_stt_provider, None)
 
