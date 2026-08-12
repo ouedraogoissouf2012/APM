@@ -25,6 +25,9 @@ class IdempotencyKey(Base):
     # the work is still running (a concurrent replay must wait, not re-process);
     # a non-NULL value is the completed, cacheable result (for a turn, the reply).
     response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Indexed (#306): the periodic purge task (#271) filters by created_at; without
+    # this the ORM metadata drifts from the index migration 1a2b3c4d5e6f already
+    # created, so a future autogenerate would DROP it.
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), index=True, nullable=False
     )
