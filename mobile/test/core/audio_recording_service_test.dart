@@ -19,12 +19,16 @@ class _FakeRecorder implements PcmRecorder {
   StreamController<Uint8List>? _current;
   bool permission = true;
   bool throwOnStart = false;
+  bool throwOnHasPermission = false;
   int startCalls = 0;
   int stopCalls = 0;
   int cancelCalls = 0;
 
   @override
-  Future<bool> hasPermission() async => permission;
+  Future<bool> hasPermission() async {
+    if (throwOnHasPermission) throw StateError('permission check failed');
+    return permission;
+  }
 
   @override
   Future<Stream<Uint8List>> startStream(RecordConfig config) async {
@@ -182,6 +186,92 @@ void main() {
       expect(recorder.startCalls, 2);
       expect(wav!.sublist(_headerLen), [2]); // only the second take survives
     });
+
+    test(
+      'two concurrent start() calls (double-tap) share one real capture, '
+      'not two racing startStream() calls (#322)',
+      () async {
+        // Neither call is awaited before the other fires — this is exactly the
+        // double-tap shape: both start() calls land before either's state
+        // update (and thus before either resolves).
+        final first = service.start();
+        final second = service.start();
+
+        expect(await first, isTrue);
+        expect(await second, isTrue);
+        // Only ONE real startStream() call reached the recorder — the second
+        // caller shared the first's in-flight Future instead of triggering a
+        // second concurrent start (which record 6.2.1 would otherwise let
+        // tear down the first call's just-opened stream, orphaning it).
+        expect(recorder.startCalls, 1);
+
+        // The single resulting stream is intact: emitted chunks are captured
+        // and stop() returns the real, complete take — not an empty/truncated
+        // WAV from an orphaned subscription.
+        recorder.emit([1, 2, 3]);
+        final wav = await service.stop();
+        expect(wav, isNotNull);
+        expect(wav!.sublist(_headerLen), [1, 2, 3]);
+      },
+    );
+
+    test(
+      'start() calls sharing an in-flight future both resolve to the SAME '
+      'result, including on failure',
+      () async {
+        recorder.throwOnStart = true;
+        final first = service.start();
+        final second = service.start();
+
+        expect(await first, isFalse);
+        expect(await second, isFalse);
+        expect(recorder.startCalls, 1);
+      },
+    );
+
+    test(
+      'an exception thrown before startStream (not just a false return) '
+      'propagates to every de-duplicated caller exactly once, with no '
+      'separate unhandled rejection',
+      () async {
+        // hasPermission() is NOT wrapped in try/catch inside _startOnce(), so
+        // unlike throwOnStart above this exercises a THROWN error, not a
+        // returned false. Both start() calls must observe it via their own
+        // await/catch — a leftover unlistened Future from the single-flight
+        // plumbing would otherwise surface this as a SECOND, separate
+        // "Unhandled exception in zone" independent of these catches, which
+        // flutter_test's zoned error handling would report as a stray test
+        // failure even though both callers here handle it correctly.
+        recorder.throwOnHasPermission = true;
+        final first = service.start();
+        final second = service.start();
+
+        await expectLater(first, throwsStateError);
+        await expectLater(second, throwsStateError);
+      },
+    );
+
+    test(
+      'after a de-duplicated start settles, a later start() is a fresh, '
+      'independent call (not permanently stuck sharing the old future)',
+      () async {
+        final first = service.start();
+        final second = service.start();
+        await first;
+        await second;
+        expect(recorder.startCalls, 1);
+
+        // Not concurrent with the pair above — this is a genuinely later call,
+        // so it must tear down the first take and start a real new one.
+        recorder.emit([9]); // belongs to the abandoned first take
+        expect(await service.start(), isTrue);
+        expect(recorder.startCalls, 2);
+        recorder.emit([7]);
+
+        final wav = await service.stop();
+        expect(wav!.sublist(_headerLen), [7]); // only the second take survives
+      },
+    );
 
     test('startStream failure returns false and leaves no half-open state', () async {
       recorder.throwOnStart = true;
