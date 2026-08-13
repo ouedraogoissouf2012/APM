@@ -25,7 +25,10 @@ void main() {
         'latest_started_at': '2026-08-05T10:00:00Z',
         'baseline_cefr': 'A2',
         'latest_cefr': 'B1',
+        'baseline_turns': 6,
+        'latest_turns': 4,
         'resolved': ['verb_tense'],
+        'improved': ['preposition'],
         'new_or_worse': <String>[],
       },
     );
@@ -34,7 +37,10 @@ void main() {
     expect(proof, isNotNull);
     expect(proof!.baselineCefr, 'A2');
     expect(proof.latestCefr, 'B1');
+    expect(proof.baselineTurns, 6);
+    expect(proof.latestTurns, 4);
     expect(proof.resolved, ['verb_tense']);
+    expect(proof.improved, ['preposition']);
   });
 
   test('returns null when there is not enough history (404)', () async {

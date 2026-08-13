@@ -23,7 +23,8 @@ class _FakePlayback implements AudioPlaybackService {
   @override
   Future<void> playClip(String audioB64, String mime) async {}
   @override
-  Future<void> playBytes(Uint8List bytes, String mime) async => playedLengths.add(bytes.length);
+  Future<void> playBytes(Uint8List bytes, String mime) async =>
+      playedLengths.add(bytes.length);
   @override
   Future<void> stop() async {}
 }
@@ -36,18 +37,26 @@ Mission _mission() => const Mission(
   likelyQuestions: [],
 );
 
-Proof _proof({List<String> resolved = const ['verb_tense'], List<String> worse = const []}) =>
-    Proof(
-      skill: 'job_interview',
-      baselineSessionId: 1,
-      latestSessionId: 2,
-      baselineStartedAt: DateTime.utc(2026, 8, 1),
-      latestStartedAt: DateTime.utc(2026, 8, 5),
-      baselineCefr: 'A2',
-      latestCefr: 'B1',
-      resolved: resolved,
-      newOrWorse: worse,
-    );
+Proof _proof({
+  List<String> resolved = const ['verb_tense'],
+  List<String> improved = const [],
+  List<String> worse = const [],
+  int baselineTurns = 6,
+  int latestTurns = 4,
+}) => Proof(
+  skill: 'job_interview',
+  baselineSessionId: 1,
+  latestSessionId: 2,
+  baselineStartedAt: DateTime.utc(2026, 8, 1),
+  latestStartedAt: DateTime.utc(2026, 8, 5),
+  baselineCefr: 'A2',
+  latestCefr: 'B1',
+  baselineTurns: baselineTurns,
+  latestTurns: latestTurns,
+  resolved: resolved,
+  improved: improved,
+  newOrWorse: worse,
+);
 
 Future<void> _pump(WidgetTester tester, ProofRepository repo) async {
   await tester.pumpWidget(
@@ -65,9 +74,13 @@ Future<void> _pump(WidgetTester tester, ProofRepository repo) async {
 }
 
 void main() {
-  testWidgets('shows the before/after CEFR and resolved errors', (tester) async {
+  testWidgets('shows the before/after CEFR and resolved errors', (
+    tester,
+  ) async {
     final repo = _MockRepo();
-    when(() => repo.forSkill('job_interview')).thenAnswer((_) async => _proof());
+    when(
+      () => repo.forSkill('job_interview'),
+    ).thenAnswer((_) async => _proof());
 
     await _pump(tester, repo);
 
@@ -75,6 +88,87 @@ void main() {
     expect(find.text('B1'), findsOneWidget); // now
     expect(find.byKey(const Key('resolved_verb_tense')), findsOneWidget);
     expect(find.text('Temps du verbe'), findsOneWidget); // humanised label
+  });
+
+  testWidgets(
+    'shows the turn counts so a shorter session is not spun as progress (#333)',
+    (tester) async {
+      final repo = _MockRepo();
+      when(
+        () => repo.forSkill('job_interview'),
+      ).thenAnswer((_) async => _proof(baselineTurns: 6, latestTurns: 2));
+
+      await _pump(tester, repo);
+
+      expect(find.byKey(const Key('proof_turns')), findsOneWidget);
+      expect(find.textContaining('6 échanges avant'), findsOneWidget);
+      expect(find.textContaining('2 échanges maintenant'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'flags a shorter latest session so it is not read as unqualified progress (#333)',
+    (tester) async {
+      final repo = _MockRepo();
+      when(
+        () => repo.forSkill('job_interview'),
+      ).thenAnswer((_) async => _proof(baselineTurns: 6, latestTurns: 2));
+
+      await _pump(tester, repo);
+
+      expect(
+        find.byKey(const Key('proof_shorter_session_note')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'does not flag a shorter session when the latest turn count is at least the '
+    'baseline (#333)',
+    (tester) async {
+      final repo = _MockRepo();
+      when(
+        () => repo.forSkill('job_interview'),
+      ).thenAnswer((_) async => _proof(baselineTurns: 4, latestTurns: 6));
+
+      await _pump(tester, repo);
+
+      expect(find.byKey(const Key('proof_shorter_session_note')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'shows the turn count as "non disponible" rather than a misleading zero (#333)',
+    (tester) async {
+      final repo = _MockRepo();
+      when(
+        () => repo.forSkill('job_interview'),
+      ).thenAnswer((_) async => _proof(baselineTurns: 0, latestTurns: 4));
+
+      await _pump(tester, repo);
+
+      expect(
+        find.textContaining("nombre d'échanges non disponible"),
+        findsOneWidget,
+      );
+      // Unknown turn counts can't be honestly compared, so no shorter-session note either.
+      expect(find.byKey(const Key('proof_shorter_session_note')), findsNothing);
+    },
+  );
+
+  testWidgets('shows errors still made but less often as "improved" (#333)', (
+    tester,
+  ) async {
+    final repo = _MockRepo();
+    when(() => repo.forSkill('job_interview')).thenAnswer(
+      (_) async => _proof(resolved: const [], improved: const ['preposition']),
+    );
+
+    await _pump(tester, repo);
+
+    expect(find.byKey(const Key('improved_preposition')), findsOneWidget);
+    expect(find.textContaining('En progrès'), findsOneWidget);
   });
 
   testWidgets('surfaces regressions honestly', (tester) async {
@@ -89,7 +183,9 @@ void main() {
     expect(find.textContaining('À surveiller'), findsOneWidget);
   });
 
-  testWidgets('shows a "building" state when there is no proof yet', (tester) async {
+  testWidgets('shows a "building" state when there is no proof yet', (
+    tester,
+  ) async {
     final repo = _MockRepo();
     when(() => repo.forSkill('job_interview')).thenAnswer((_) async => null);
 
@@ -107,41 +203,58 @@ void main() {
     expect(find.byKey(const Key('proof_error')), findsOneWidget);
   });
 
-  testWidgets('audible before/after: plays the first then the latest take (#199)',
-      (tester) async {
+  testWidgets(
+    'audible before/after: plays the first then the latest take (#199)',
+    (tester) async {
+      final repo = _MockRepo();
+      when(
+        () => repo.forSkill('job_interview'),
+      ).thenAnswer((_) async => _proof());
+      final store = InMemoryVoiceTakeStore();
+      await store.saveTake(
+        'job_interview',
+        Uint8List.fromList(const [1, 2, 3]),
+      ); // baseline
+      await store.saveTake(
+        'job_interview',
+        Uint8List.fromList(const [4, 5, 6, 7]),
+      ); // latest
+      final playback = _FakePlayback();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            proofRepositoryProvider.overrideWithValue(repo),
+            voiceTakeStoreProvider.overrideWithValue(store),
+            audioPlaybackProvider.overrideWithValue(playback),
+          ],
+          child: const MaterialApp(home: ProofScreen(skill: 'job_interview')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('audible_proof')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('play_baseline')));
+      await tester.tap(find.byKey(const Key('play_latest')));
+      await tester.pumpAndSettle();
+
+      // Baseline (3 bytes) then latest (4 bytes) were played.
+      expect(playback.playedLengths, [3, 4]);
+    },
+  );
+
+  testWidgets('audible before/after is hidden until there are two takes', (
+    tester,
+  ) async {
     final repo = _MockRepo();
-    when(() => repo.forSkill('job_interview')).thenAnswer((_) async => _proof());
+    when(
+      () => repo.forSkill('job_interview'),
+    ).thenAnswer((_) async => _proof());
     final store = InMemoryVoiceTakeStore();
-    await store.saveTake('job_interview', Uint8List.fromList(const [1, 2, 3])); // baseline
-    await store.saveTake('job_interview', Uint8List.fromList(const [4, 5, 6, 7])); // latest
-    final playback = _FakePlayback();
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          proofRepositoryProvider.overrideWithValue(repo),
-          voiceTakeStoreProvider.overrideWithValue(store),
-          audioPlaybackProvider.overrideWithValue(playback),
-        ],
-        child: const MaterialApp(home: ProofScreen(skill: 'job_interview')),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const Key('audible_proof')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('play_baseline')));
-    await tester.tap(find.byKey(const Key('play_latest')));
-    await tester.pumpAndSettle();
-
-    // Baseline (3 bytes) then latest (4 bytes) were played.
-    expect(playback.playedLengths, [3, 4]);
-  });
-
-  testWidgets('audible before/after is hidden until there are two takes', (tester) async {
-    final repo = _MockRepo();
-    when(() => repo.forSkill('job_interview')).thenAnswer((_) async => _proof());
-    final store = InMemoryVoiceTakeStore();
-    await store.saveTake('job_interview', Uint8List.fromList(const [1, 2, 3])); // only baseline
+    await store.saveTake(
+      'job_interview',
+      Uint8List.fromList(const [1, 2, 3]),
+    ); // only baseline
 
     await tester.pumpWidget(
       ProviderScope(
@@ -157,40 +270,45 @@ void main() {
     expect(find.byKey(const Key('audible_proof')), findsNothing);
   });
 
-  testWidgets('tapping "Tenter le transfert" compiles a challenge and launches it',
-      (tester) async {
-    final repo = _MockRepo();
-    when(() => repo.forSkill('job_interview')).thenAnswer((_) async => _proof());
-    when(
-      () => repo.transferChallenge('job_interview'),
-    ).thenAnswer((_) async => _mission());
+  testWidgets(
+    'tapping "Tenter le transfert" compiles a challenge and launches it',
+    (tester) async {
+      final repo = _MockRepo();
+      when(
+        () => repo.forSkill('job_interview'),
+      ).thenAnswer((_) async => _proof());
+      when(
+        () => repo.transferChallenge('job_interview'),
+      ).thenAnswer((_) async => _mission());
 
-    final router = GoRouter(
-      initialLocation: '/proof/job_interview',
-      routes: [
-        GoRoute(
-          path: '/proof/:skill',
-          builder: (_, state) =>
-              ProofScreen(skill: state.pathParameters['skill']!),
+      final router = GoRouter(
+        initialLocation: '/proof/job_interview',
+        routes: [
+          GoRoute(
+            path: '/proof/:skill',
+            builder: (_, state) =>
+                ProofScreen(skill: state.pathParameters['skill']!),
+          ),
+          GoRoute(
+            path: '/conversation',
+            builder: (_, _) =>
+                const Scaffold(body: Text('Conversation target')),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [proofRepositoryProvider.overrideWithValue(repo)],
+          child: MaterialApp.router(routerConfig: router),
         ),
-        GoRoute(
-          path: '/conversation',
-          builder: (_, _) => const Scaffold(body: Text('Conversation target')),
-        ),
-      ],
-    );
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [proofRepositoryProvider.overrideWithValue(repo)],
-        child: MaterialApp.router(routerConfig: router),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('transfer_button')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('transfer_button')));
+      await tester.pumpAndSettle();
 
-    verify(() => repo.transferChallenge('job_interview')).called(1);
-    expect(find.text('Conversation target'), findsOneWidget); // launched
-  });
+      verify(() => repo.transferChallenge('job_interview')).called(1);
+      expect(find.text('Conversation target'), findsOneWidget); // launched
+    },
+  );
 }
