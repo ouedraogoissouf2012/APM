@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:apm/src/data/models/profile.dart';
 import 'package:apm/src/data/repositories/profile_repository.dart';
 import 'package:apm/src/ui/profile/view_model/profile_view_model.dart';
@@ -88,6 +90,53 @@ void main() {
     expect(saved, isFalse);
     expect(c.read(profileViewModelProvider).value!.accent, 'us');
   });
+
+  test(
+    'save does not flash the screen to a full-screen loading state (#335)',
+    () async {
+      final repo = _MockProfileRepository();
+      when(repo.getProfile).thenAnswer((_) async => _profile);
+      final updateCompleter = Completer<Profile>();
+      when(
+        () => repo.updateProfile(
+          interests: any(named: 'interests'),
+          goal: any(named: 'goal'),
+          correctionIntensity: any(named: 'correctionIntensity'),
+          accent: any(named: 'accent'),
+          memorySummary: any(named: 'memorySummary'),
+        ),
+      ).thenAnswer((_) => updateCompleter.future);
+      final c = _containerWith(repo);
+
+      await c.read(profileViewModelProvider.future);
+      final saveFuture = c
+          .read(profileViewModelProvider.notifier)
+          .save(interestsText: 'cooking', accent: 'uk');
+
+      // Let save() run up to its await on the repository call, without
+      // resolving it — this is the window the OLD code spent in
+      // AsyncLoading(), flashing the screen to a full-screen spinner for
+      // what is really a small in-place edit (the caller's local `_saving`
+      // flag already drives the busy button state).
+      await Future<void>.delayed(Duration.zero);
+      final duringSave = c.read(profileViewModelProvider);
+      expect(duringSave, isA<AsyncData<Profile>>());
+      expect(duringSave.value!.accent, 'us'); // still the pre-save profile
+
+      updateCompleter.complete(
+        const Profile(
+          interests: ['cooking'],
+          goal: 'travel',
+          correctionIntensity: 'detailed',
+          accent: 'uk',
+        ),
+      );
+      final saved = await saveFuture;
+
+      expect(saved, isTrue);
+      expect(c.read(profileViewModelProvider).value!.accent, 'uk');
+    },
+  );
 
   test('saveMemory sends the edited memory summary and updates state', () async {
     final repo = _MockProfileRepository();

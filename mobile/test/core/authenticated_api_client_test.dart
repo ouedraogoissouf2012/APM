@@ -35,9 +35,8 @@ class _InMemoryTokenStorage implements TokenStorage {
 }
 
 void main() {
-  // Every test below constructs its OWN TokenRefresher (never the implicit
-  // shared/global one, sharedTokenRefresher) — that global would leak
-  // generation/in-flight state across test cases.
+  // Every test below constructs its OWN TokenRefresher — sharing one across
+  // test cases would leak generation/in-flight state between them.
   test(
     'refreshes tokens and retries once after an authenticated 401',
     () async {

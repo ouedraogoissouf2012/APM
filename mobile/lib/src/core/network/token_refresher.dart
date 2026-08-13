@@ -3,35 +3,6 @@ import '../storage/token_storage.dart';
 import 'api_client.dart';
 import 'api_exception.dart';
 
-TokenRefresher? _sharedTokenRefresher;
-
-/// The app-wide [TokenRefresher] — used by [AuthRepository] and
-/// [AuthenticatedApiClient] when neither is given one explicitly, so the two
-/// end up sharing the same single-flight lock and logout coordination (#316)
-/// even though they're constructed from two different places in the app's DI
-/// graph (core/network/providers.dart and the auth feature's view model).
-/// [api]/[storage] only matter for the FIRST call — within ONE running app
-/// (one `ProviderScope`/`ProviderContainer`, its whole-process normal
-/// lifetime), [ApiClient]/[TokenStorage] are themselves singletons (see
-/// core/network/providers.dart), so every later call just returns the
-/// already-built instance regardless of what's passed.
-///
-/// Known limitation: this is a bare top-level variable, not scoped to a
-/// `ProviderContainer` — if the app ever rebuilds its whole DI graph in the
-/// SAME isolate (a fresh container with its own [ApiClient]/[TokenStorage]),
-/// this would keep returning the FIRST container's instance. Not a concern
-/// for a normal running app (one container for its whole lifetime) or for
-/// this codebase's tests (every test that touches auth overrides
-/// `authRepositoryProvider`/`authenticatedApiClientProvider` directly, so the
-/// real constructors — and this function — are never reached); would matter
-/// for a hypothetical future test/scenario that builds the real classes
-/// through more than one container in the same run.
-///
-/// Tests must NEVER rely on this global — construct a fresh [TokenRefresher]
-/// per test and inject it explicitly, or state will leak between test cases.
-TokenRefresher sharedTokenRefresher(ApiClient api, TokenStorage storage) =>
-    _sharedTokenRefresher ??= TokenRefresher(api, storage);
-
 /// Owns the ONE `/auth/refresh` flow shared by [AuthRepository] (explicit
 /// refresh, e.g. on startup) and [AuthenticatedApiClient] (401-triggered
 /// refresh on any authenticated call) — merging what used to be two
