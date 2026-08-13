@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
 import '../../../core/network/providers.dart';
-import '../../../core/observability/providers.dart';
+import '../../../core/observability/ref_report_error.dart';
 import '../../../data/models/vocabulary_entry.dart';
 import '../../../data/repositories/vocabulary_repository.dart';
 import '../../echo/view_model/echo_view_model.dart';
@@ -36,12 +36,12 @@ class VocabularyViewModel extends AsyncNotifier<List<VocabularyEntry>> {
       await ref.read(audioPlaybackProvider).playClip(clip.audioB64, clip.mime);
       return true;
     } catch (e, s) {
-      ref.read(crashReporterProvider).captureError(
-            e,
-            s,
-            context: 'VocabularyViewModel.speak',
-            data: {'word': entry.word},
-          );
+      ref.reportError(
+        e,
+        s,
+        context: 'VocabularyViewModel.speak',
+        data: {'word': entry.word},
+      );
       return false;
     }
   }
@@ -66,12 +66,12 @@ class VocabularyViewModel extends AsyncNotifier<List<VocabularyEntry>> {
       // (#351) An unexpected failure here would otherwise vanish silently —
       // report it so a recurring cause is visible instead of just a rolled
       // back optimistic update with no trail.
-      ref.read(crashReporterProvider).captureError(
-            e,
-            s,
-            context: 'VocabularyViewModel.mark',
-            data: {'entryId': entry.id, 'status': status},
-          );
+      ref.reportError(
+        e,
+        s,
+        context: 'VocabularyViewModel.mark',
+        data: {'entryId': entry.id, 'status': status},
+      );
       if (previous != null) state = AsyncData(previous);
       return false;
     }

@@ -9,15 +9,6 @@ import '../../../core/offline/offline_turn_queue.dart';
 import '../../../core/offline/providers.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/repositories/auth_repository.dart';
-import '../../debrief/view_model/debrief_view_model.dart';
-import '../../history/view_model/progress_view_model.dart';
-import '../../home/view_model/streak_view_model.dart';
-import '../../missions/view_model/mission_view_model.dart';
-import '../../privacy/view_model/voice_privacy_view_model.dart';
-import '../../profile/view_model/profile_view_model.dart';
-import '../../proof/view_model/proof_view_model.dart';
-import '../../review/view_model/review_view_model.dart';
-import '../../vocabulary/view_model/vocabulary_view_model.dart';
 
 // Plain Riverpod providers (no codegen) — fewer moving parts, simple to maintain.
 // Infrastructure providers (HTTP clients, token storage) live in
@@ -36,16 +27,33 @@ final authViewModelProvider = AsyncNotifierProvider<AuthViewModel, AppUser?>(
   AuthViewModel.new,
 );
 
+/// A capability that must be told which user is active — reset to `null` on
+/// sign-out, re-synced whenever a new session starts. Adapts
+/// [VoiceTakeUserSession]/[OfflineTurnQueueUserSession]'s existing
+/// `setCurrentUser` (declared in core/audio and core/offline respectively,
+/// each with an identical signature but no shared interface of their own)
+/// so [AuthViewModel] can hold ONE list and iterate it (#373) instead of a
+/// pair of near-identical `_sync*User` methods — each of which used to be
+/// called by hand at all FOUR of build()/login()/register()/logout()'s
+/// session-change points. Adding a third capability meant adding both a new
+/// method AND four new call sites; forgetting one silently left that
+/// capability out of sync with who's actually signed in. Adding one here
+/// means editing exactly [AuthViewModel._sessionScopedCapabilities].
+class UserSessionScoped {
+  UserSessionScoped(this.setCurrentUser);
+
+  final void Function(int? userId) setCurrentUser;
+}
+
 class AuthViewModel extends AsyncNotifier<AppUser?> {
   @override
   Future<AppUser?> build() async {
     final user = await ref.watch(authRepositoryProvider).currentUser();
-    // Keep the voice-take store's key-scoping in sync (#319) — a session
-    // restored on app start (still-valid tokens, no fresh login/register
-    // call) is the one transition login()/register() below don't cover.
-    _syncVoiceTakeUser(user);
-    // Same for the offline turn queue's key-scoping (#349).
-    _syncOfflineQueueUser(user);
+    // Keep every per-user capability's key-scoping in sync (#319, #349) — a
+    // session restored on app start (still-valid tokens, no fresh
+    // login/register call) is the one transition login()/register() below
+    // don't cover.
+    _syncSessionScopedCapabilities(user);
     return user;
   }
 
@@ -56,8 +64,7 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
           .read(authRepositoryProvider)
           .login(email: email, password: password),
     );
-    _syncVoiceTakeUser(state.value);
-    _syncOfflineQueueUser(state.value);
+    _syncSessionScopedCapabilities(state.value);
   }
 
   Future<void> register({
@@ -75,8 +82,7 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
             nativeLanguage: nativeLanguage,
           ),
     );
-    _syncVoiceTakeUser(state.value);
-    _syncOfflineQueueUser(state.value);
+    _syncSessionScopedCapabilities(state.value);
   }
 
   Future<void> logout() async {
@@ -92,33 +98,24 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
     // race the pending-purge bookkeeping below.
     state = const AsyncLoading();
     await ref.read(authRepositoryProvider).logout();
-    // Drop every per-user cache (#348): every one of these is a plain (non-
-    // autoDispose) provider, so without this the next account on this
-    // shared device would inherit the previous learner's cached
-    // profile/streak/progress/review/voice-consent/vocabulary/proof/
-    // debrief/mission state instead of loading their own. invalidate() on
-    // a .family provider (proofProvider, debriefProvider) drops every
-    // cached instance of that family, not just one id — the right thing
-    // here since logout doesn't know which ids were viewed. debriefProvider
-    // also calls ref.keepAlive() internally; invalidate() still forces a
-    // rebuild on next read regardless — keepAlive only blocks disposal from
-    // losing listeners, not an explicit invalidation.
-    ref.invalidate(profileViewModelProvider);
-    ref.invalidate(streakProvider);
-    ref.invalidate(progressProvider);
-    ref.invalidate(reviewProvider);
-    ref.invalidate(voiceConsentProvider);
-    ref.invalidate(vocabularyViewModelProvider);
-    ref.invalidate(proofProvider);
-    ref.invalidate(debriefProvider);
-    ref.invalidate(missionViewModelProvider);
+    // Every per-user CACHE provider (profile/streak/progress/review/
+    // voice-consent/vocabulary/proof/debrief/mission) used to be dropped
+    // right here with a hand-maintained list of 9 `ref.invalidate` calls
+    // (#348) — fragile, since a 10th per-user provider added later could
+    // silently be left off that list, reintroducing exactly the
+    // cross-account leak #348 fixed. #373 replaces it structurally: those
+    // providers are scoped into a [UserSessionScope]-owned ProviderScope
+    // (main.dart), keyed on the signed-in user's id, so they're torn down
+    // automatically the moment `state` below flips this id to `null` —
+    // there is nothing to invalidate here, and nothing to remember to add.
+    //
     // Purge the raw voice takes (#226): they must not outlive THIS user's
     // session on a shared device — the next account logging in here must not
     // be able to hear a previous learner's spoken audio. Still signed in as
-    // the departing user at this point (see _syncVoiceTakeUser below) so a
-    // FAILED purge here is tagged to THEM specifically (#319) — the store
-    // then refuses to read their takes back, even if they're the one who
-    // signs back in on this device.
+    // the departing user at this point (see _syncSessionScopedCapabilities
+    // below) so a FAILED purge here is tagged to THEM specifically (#319) —
+    // the store then refuses to read their takes back, even if they're the
+    // one who signs back in on this device.
     await _bestEffortPurge(
       () => ref.read(voiceTakeStoreProvider).eraseAll(),
       'AuthViewModel.logout: voice take purge failed',
@@ -126,17 +123,18 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
     // Purge this user's queued-but-unsent turns (#349): PendingTurn.text is
     // the learner's own spoken utterance, so it must not linger on a shared
     // device once they've signed out. Still tagged to the departing user at
-    // this point (see _syncOfflineQueueUser below), which is what makes this
-    // purge target the RIGHT key.
+    // this point (see _syncSessionScopedCapabilities below), which is what
+    // makes this purge target the RIGHT key.
     await _bestEffortPurge(() async {
       final queue = ref.read(offlineTurnQueueProvider);
       if (queue is OfflineTurnQueueUserSession) {
         await (queue as OfflineTurnQueueUserSession).purgeCurrentUser();
       }
     }, 'AuthViewModel.logout: offline turn queue purge failed');
-    // Now clear the session: no one is signed in until the next login.
-    _syncVoiceTakeUser(null);
-    _syncOfflineQueueUser(null);
+    // Now clear the session: no one is signed in until the next login. This
+    // is also what UserSessionScope watches to key/dispose the per-user
+    // provider subtree above.
+    _syncSessionScopedCapabilities(null);
     state = const AsyncData(null);
   }
 
@@ -155,26 +153,36 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
     }
   }
 
-  /// Keeps the voice-take store's per-user key-scoping (#319) aligned with
-  /// the session. A no-op unless the resolved store happens to be
-  /// user-scoped (it is in production — see persistent_voice_take_store*.
-  /// dart — a plain fake in a unit test may not be, harmlessly).
-  void _syncVoiceTakeUser(AppUser? user) {
+  /// Every per-user capability registered with [AuthViewModel] (#373) — see
+  /// [UserSessionScoped]. A capability is a no-op inclusion unless the
+  /// resolved instance actually is user-scoped (both are in production —
+  /// see persistent_voice_take_store*.dart / SecureOfflineTurnQueue — a
+  /// plain fake in a unit test may not be, harmlessly).
+  List<UserSessionScoped> _sessionScopedCapabilities() {
+    final capabilities = <UserSessionScoped>[];
     final store = ref.read(voiceTakeStoreProvider);
     if (store is VoiceTakeUserSession) {
-      (store as VoiceTakeUserSession).setCurrentUser(user?.id);
+      capabilities.add(
+        UserSessionScoped((store as VoiceTakeUserSession).setCurrentUser),
+      );
     }
-  }
-
-  /// Keeps the offline turn queue's per-user key-scoping (#349, mirrors
-  /// _syncVoiceTakeUser/#319) aligned with the session. A no-op unless the
-  /// resolved queue happens to be user-scoped (it is in production — see
-  /// SecureOfflineTurnQueue — a plain fake in a unit test may not be,
-  /// harmlessly).
-  void _syncOfflineQueueUser(AppUser? user) {
     final queue = ref.read(offlineTurnQueueProvider);
     if (queue is OfflineTurnQueueUserSession) {
-      (queue as OfflineTurnQueueUserSession).setCurrentUser(user?.id);
+      capabilities.add(
+        UserSessionScoped((queue as OfflineTurnQueueUserSession).setCurrentUser),
+      );
+    }
+    return capabilities;
+  }
+
+  /// Keeps every per-user capability's key-scoping (#319, #349) aligned with
+  /// the session by iterating [_sessionScopedCapabilities] — the single call
+  /// site a new capability needs to be added to, instead of a new
+  /// `_syncXUser` method duplicated at all four of this class's
+  /// session-change points.
+  void _syncSessionScopedCapabilities(AppUser? user) {
+    for (final capability in _sessionScopedCapabilities()) {
+      capability.setCurrentUser(user?.id);
     }
   }
 }

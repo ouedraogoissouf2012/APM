@@ -9,30 +9,8 @@ import 'package:apm/src/core/offline/offline_turn_queue.dart';
 import 'package:apm/src/core/offline/pending_turn.dart';
 import 'package:apm/src/core/offline/providers.dart';
 import 'package:apm/src/data/models/app_user.dart';
-import 'package:apm/src/data/models/debrief.dart';
-import 'package:apm/src/data/models/mission.dart';
-import 'package:apm/src/data/models/progress_snapshot.dart';
-import 'package:apm/src/data/models/review_item.dart';
-import 'package:apm/src/data/models/streak.dart';
-import 'package:apm/src/data/models/vocabulary_entry.dart';
-import 'package:apm/src/data/models/voice_consent.dart';
 import 'package:apm/src/data/repositories/auth_repository.dart';
-import 'package:apm/src/data/repositories/debrief_repository.dart';
-import 'package:apm/src/data/repositories/progress_repository.dart';
-import 'package:apm/src/data/repositories/proof_repository.dart';
-import 'package:apm/src/data/repositories/review_repository.dart';
-import 'package:apm/src/data/repositories/streak_repository.dart';
-import 'package:apm/src/data/repositories/vocabulary_repository.dart';
-import 'package:apm/src/data/repositories/voice_privacy_repository.dart';
 import 'package:apm/src/ui/auth/view_model/auth_view_model.dart';
-import 'package:apm/src/ui/debrief/view_model/debrief_view_model.dart';
-import 'package:apm/src/ui/history/view_model/progress_view_model.dart';
-import 'package:apm/src/ui/home/view_model/streak_view_model.dart';
-import 'package:apm/src/ui/missions/view_model/mission_view_model.dart';
-import 'package:apm/src/ui/privacy/view_model/voice_privacy_view_model.dart';
-import 'package:apm/src/ui/proof/view_model/proof_view_model.dart';
-import 'package:apm/src/ui/review/view_model/review_view_model.dart';
-import 'package:apm/src/ui/vocabulary/view_model/vocabulary_view_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -40,21 +18,6 @@ import 'package:mocktail/mocktail.dart';
 class _MockAuthRepository extends Mock implements AuthRepository {}
 
 class _MockCrashReporter extends Mock implements CrashReporter {}
-
-class _MockStreakRepository extends Mock implements StreakRepository {}
-
-class _MockProgressRepository extends Mock implements ProgressRepository {}
-
-class _MockReviewRepository extends Mock implements ReviewRepository {}
-
-class _MockVoicePrivacyRepository extends Mock
-    implements VoicePrivacyRepository {}
-
-class _MockVocabularyRepository extends Mock implements VocabularyRepository {}
-
-class _MockProofRepository extends Mock implements ProofRepository {}
-
-class _MockDebriefRepository extends Mock implements DebriefRepository {}
 
 /// Records every setCurrentUser()/purgeCurrentUser() call (#349), mirroring
 /// _SpyVoiceTakeStore, so a test can assert the logout->purge wiring and the
@@ -127,13 +90,6 @@ ProviderContainer _containerWith(
   VoiceTakeStore? takeStore,
   CrashReporter? crashReporter,
   OfflineTurnQueue? offlineQueue,
-  StreakRepository? streakRepo,
-  ProgressRepository? progressRepo,
-  ReviewRepository? reviewRepo,
-  VoicePrivacyRepository? voicePrivacyRepo,
-  VocabularyRepository? vocabularyRepo,
-  ProofRepository? proofRepo,
-  DebriefRepository? debriefRepo,
 }) {
   final c = ProviderContainer(
     overrides: [
@@ -144,20 +100,6 @@ ProviderContainer _containerWith(
         crashReporterProvider.overrideWithValue(crashReporter),
       if (offlineQueue != null)
         offlineTurnQueueProvider.overrideWithValue(offlineQueue),
-      if (streakRepo != null)
-        streakRepositoryProvider.overrideWithValue(streakRepo),
-      if (progressRepo != null)
-        progressRepositoryProvider.overrideWithValue(progressRepo),
-      if (reviewRepo != null)
-        reviewRepositoryProvider.overrideWithValue(reviewRepo),
-      if (voicePrivacyRepo != null)
-        voicePrivacyRepositoryProvider.overrideWithValue(voicePrivacyRepo),
-      if (vocabularyRepo != null)
-        vocabularyRepositoryProvider.overrideWithValue(vocabularyRepo),
-      if (proofRepo != null)
-        proofRepositoryProvider.overrideWithValue(proofRepo),
-      if (debriefRepo != null)
-        debriefRepositoryProvider.overrideWithValue(debriefRepo),
     ],
   );
   addTearDown(c.dispose);
@@ -343,141 +285,6 @@ void main() {
         await c.read(authViewModelProvider.notifier).logout();
 
         expect(takeStore.setCurrentUserCalls, [_user.id, null]);
-      },
-    );
-  });
-
-  group('per-user provider invalidation on logout (#348)', () {
-    test(
-      'every cached per-user provider is invalidated — the next account '
-      'on this device never sees a previous learner\'s cached data',
-      () async {
-        final repo = _MockAuthRepository();
-        when(repo.currentUser).thenAnswer((_) async => _user);
-        when(repo.logout).thenAnswer((_) async {});
-
-        final streakRepo = _MockStreakRepository();
-        var streakCalls = 0;
-        when(streakRepo.load).thenAnswer((_) async {
-          streakCalls++;
-          return const Streak(
-            currentStreak: 0,
-            longestStreak: 0,
-            weeklyGoalMinutes: 0,
-            minutesThisWeek: 0,
-          );
-        });
-
-        final progressRepo = _MockProgressRepository();
-        var progressCalls = 0;
-        when(progressRepo.load).thenAnswer((_) async {
-          progressCalls++;
-          return const ProgressSnapshot(
-            sessions: [],
-            cefrTrend: [],
-            recurringErrors: [],
-          );
-        });
-
-        final reviewRepo = _MockReviewRepository();
-        var reviewCalls = 0;
-        when(reviewRepo.dueItems).thenAnswer((_) async {
-          reviewCalls++;
-          return <ReviewItem>[];
-        });
-
-        final voicePrivacyRepo = _MockVoicePrivacyRepository();
-        var voiceConsentCalls = 0;
-        when(voicePrivacyRepo.getConsent).thenAnswer((_) async {
-          voiceConsentCalls++;
-          return const VoiceConsent(
-            transcription: true,
-            scoring: false,
-            b2bShare: false,
-            modelTraining: false,
-          );
-        });
-
-        final vocabularyRepo = _MockVocabularyRepository();
-        var vocabularyCalls = 0;
-        when(vocabularyRepo.list).thenAnswer((_) async {
-          vocabularyCalls++;
-          return <VocabularyEntry>[];
-        });
-
-        final proofRepo = _MockProofRepository();
-        var proofCalls = 0;
-        when(() => proofRepo.forSkill(any())).thenAnswer((_) async {
-          proofCalls++;
-          return null;
-        });
-
-        final debriefRepo = _MockDebriefRepository();
-        var debriefCalls = 0;
-        when(() => debriefRepo.getOrGenerate(any())).thenAnswer((_) async {
-          debriefCalls++;
-          return const Debrief(cefrEstimate: 'A1', summary: '', errors: []);
-        });
-
-        final c = _containerWith(
-          repo,
-          streakRepo: streakRepo,
-          progressRepo: progressRepo,
-          reviewRepo: reviewRepo,
-          voicePrivacyRepo: voicePrivacyRepo,
-          vocabularyRepo: vocabularyRepo,
-          proofRepo: proofRepo,
-          debriefRepo: debriefRepo,
-        );
-
-        await c.read(authViewModelProvider.future); // build() -> signed in
-
-        // Prime every provider once, as if the FIRST account had used the app.
-        await c.read(streakProvider.future);
-        await c.read(progressProvider.future);
-        await c.read(reviewProvider.future);
-        await c.read(voiceConsentProvider.future);
-        await c.read(vocabularyViewModelProvider.future);
-        await c.read(proofProvider('reading').future);
-        await c.read(debriefProvider(1).future);
-        c
-            .read(missionViewModelProvider.notifier)
-            .selectSourceType(MissionSourceType.cv);
-
-        await c.read(authViewModelProvider.notifier).logout();
-
-        // Re-reading now must hit the repository again — not serve the
-        // first account's cached value to whoever logs in next.
-        await c.read(streakProvider.future);
-        await c.read(progressProvider.future);
-        await c.read(reviewProvider.future);
-        await c.read(voiceConsentProvider.future);
-        await c.read(vocabularyViewModelProvider.future);
-        await c.read(proofProvider('reading').future);
-        await c.read(
-          debriefProvider(1).future,
-        ); // keepAlive() must not block this
-
-        expect(streakCalls, 2, reason: 'streakProvider not invalidated');
-        expect(progressCalls, 2, reason: 'progressProvider not invalidated');
-        expect(reviewCalls, 2, reason: 'reviewProvider not invalidated');
-        expect(
-          voiceConsentCalls,
-          2,
-          reason: 'voiceConsentProvider not invalidated',
-        );
-        expect(
-          vocabularyCalls,
-          2,
-          reason: 'vocabularyViewModelProvider not invalidated',
-        );
-        expect(proofCalls, 2, reason: 'proofProvider not invalidated');
-        expect(debriefCalls, 2, reason: 'debriefProvider not invalidated');
-        expect(
-          c.read(missionViewModelProvider).sourceType,
-          MissionSourceType.offer, // back to the default: build() reran
-          reason: 'missionViewModelProvider not invalidated',
-        );
       },
     );
   });

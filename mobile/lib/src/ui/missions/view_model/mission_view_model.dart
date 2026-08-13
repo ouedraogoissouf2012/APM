@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
-import '../../../core/observability/providers.dart';
+import '../../../core/observability/ref_report_error.dart';
 import '../../../data/models/mission.dart';
 import '../../../data/repositories/mission_repository.dart';
 
@@ -72,7 +72,7 @@ class MissionViewModel extends Notifier<MissionState> {
       // report it so a recurring cause (a new backend error shape, a
       // compile-flow regression) is visible instead of just "failed" with
       // no trail.
-      ref.read(crashReporterProvider).captureError(e, s, context: 'MissionViewModel.compile');
+      ref.reportError(e, s, context: 'MissionViewModel.compile');
       state = state.copyWith(status: MissionStatus.failed);
       return false;
     }

@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
 import '../../../core/network/providers.dart';
-import '../../../core/observability/providers.dart';
+import '../../../core/observability/ref_report_error.dart';
 import '../../../data/repositories/onboarding_repository.dart';
 import '../../conversation/view_model/conversation_providers.dart';
 import '../../profile/view_model/profile_view_model.dart';
@@ -102,11 +102,11 @@ class PlacementViewModel extends Notifier<PlacementState> {
         // (an empty answer just advances, honestly scored as "no speech"
         // heard), but a silent STT failure would otherwise hide a
         // recurring transcription outage from anyone.
-        ref.read(crashReporterProvider).captureError(
-              e,
-              s,
-              context: 'PlacementViewModel.stopAndTranscribe: transcription failed',
-            );
+        ref.reportError(
+          e,
+          s,
+          context: 'PlacementViewModel.stopAndTranscribe: transcription failed',
+        );
         heard = '';
       }
     }
@@ -156,7 +156,7 @@ class PlacementViewModel extends Notifier<PlacementState> {
       return true;
     } catch (e, s) {
       // (#351) see the matching comment in stopAndTranscribe() above.
-      ref.read(crashReporterProvider).captureError(e, s, context: 'PlacementViewModel.submit');
+      ref.reportError(e, s, context: 'PlacementViewModel.submit');
       state = state.copyWith(status: PlacementStatus.failed);
       return false;
     }
