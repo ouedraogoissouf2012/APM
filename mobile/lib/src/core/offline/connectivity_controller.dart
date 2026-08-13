@@ -32,10 +32,6 @@ final connectivityControllerProvider =
 /// that fails on the network is queued here (so it's never lost) and the UI goes
 /// offline; a successful sync replays the queue and returns online.
 class ConnectivityController extends Notifier<ConnectivityState> {
-  /// Injectable so tests get a deterministic idempotency key.
-  static String Function(int sessionId) keyFactory =
-      (sessionId) => '$sessionId-${DateTime.now().microsecondsSinceEpoch}';
-
   OfflineTurnQueue get _queue => ref.read(offlineTurnQueueProvider);
   OfflineTurnSync get _sync => ref.read(offlineTurnSyncProvider);
 
@@ -53,12 +49,25 @@ class ConnectivityController extends Notifier<ConnectivityState> {
   }
 
   /// Queues a turn that failed on the network and marks the app offline.
-  Future<void> recordFailedTurn(int sessionId, String text) async {
+  ///
+  /// [idempotencyKey] MUST be the SAME key the failed attempt was sent with
+  /// (#313): the server may have already received and be processing (or have
+  /// fully processed) that request when only the response was lost on the
+  /// network. Generating a fresh key here would make the replay a genuinely
+  /// NEW request, so the server would run the turn a second time — double
+  /// LLM call, double transcript entry, double quota charge — instead of the
+  /// idempotency layer recognising it as the same request and replaying the
+  /// cached result.
+  Future<void> recordFailedTurn(
+    int sessionId,
+    String text, {
+    required String idempotencyKey,
+  }) async {
     await _queue.enqueue(
       PendingTurn(
         sessionId: sessionId,
         text: text,
-        idempotencyKey: keyFactory(sessionId),
+        idempotencyKey: idempotencyKey,
       ),
     );
     final count = (await _queue.pending()).length;
