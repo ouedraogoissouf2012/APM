@@ -68,14 +68,35 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
   }
 
   /// Replays the word Ava spoke (the learner can listen again before guessing).
+  ///
+  /// Guarded/wrapped like EchoViewModel.playModel (#343): [_busy] — shared with
+  /// [playMine] — stops a rapid double-tap running two clips at once (whichever
+  /// restore lands LAST would otherwise strand the phase at `playing`), and the
+  /// try/catch guarantees the phase is restored even if playClip throws
+  /// (unsupported/corrupt audio, a browser rejection) — without it, an exception
+  /// leaks out and leaves the orb frozen at `playing` with no recovery. Restores
+  /// the phase captured BEFORE playback rather than a `wasGuessing` special-case,
+  /// which mis-restored to the transient `playing` phase when called outside
+  /// guessing.
   Future<void> playWord() async {
+    if (_busy) return;
     final b64 = state.spokenAudioB64;
     if (b64 == null || b64.isEmpty) return;
-    final wasGuessing = state.phase == PairPhase.guessing;
+    _busy = true;
+    final restore = state.phase;
     state = state.copyWith(phase: PairPhase.playing);
-    await ref.read(audioPlaybackProvider).playClip(b64, state.spokenMime);
+    var failed = false;
+    try {
+      await ref.read(audioPlaybackProvider).playClip(b64, state.spokenMime);
+    } catch (_) {
+      failed = true;
+    } finally {
+      _busy = false;
+    }
     if (!ref.mounted) return;
-    state = state.copyWith(phase: wasGuessing ? PairPhase.guessing : state.phase);
+    state = failed
+        ? state.copyWith(phase: restore, error: 'Could not play the word.')
+        : state.copyWith(phase: restore, clearError: true);
   }
 
   /// Records the learner's discrimination choice and reveals correct/incorrect.
@@ -128,11 +149,22 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
     }
   }
 
-  /// Replays the learner's own production recording.
+  /// Replays the learner's own production recording. Shares [_busy] with
+  /// [playWord] (#343) so the two can't play over each other on the one speaker,
+  /// and a double-tap can't stack two playbacks; a throwing playBytes surfaces
+  /// an error instead of leaking out.
   Future<void> playMine() async {
+    if (_busy) return;
     final bytes = state.myRecording;
     if (bytes == null || bytes.isEmpty) return;
-    await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
+    _busy = true;
+    try {
+      await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
+    } catch (_) {
+      if (ref.mounted) state = state.copyWith(error: 'Could not play your recording.');
+    } finally {
+      _busy = false;
+    }
   }
 
   /// Advances to the next round (up to [kMinimalPairsTotalRounds]).

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:apm/src/core/audio/audio_playback_service.dart';
@@ -21,6 +22,26 @@ class _FakeAudio implements AudioPlaybackService {
   Future<void> playBytes(Uint8List bytes, String mime) async => played.add('MINE');
   @override
   Future<void> stop() async {}
+}
+
+/// playClip always throws — to prove playWord still restores the phase (#343).
+class _ThrowingAudio extends _FakeAudio {
+  @override
+  Future<void> playClip(String audioB64, String mime) async =>
+      throw Exception('playback failed');
+}
+
+/// playClip blocks until [release], so a test can fire a second (guarded) call
+/// while the first is genuinely in flight (#343).
+class _GatedAudio extends _FakeAudio {
+  final Completer<void> _gate = Completer<void>();
+  int playClipCalls = 0;
+  void release() => _gate.complete();
+  @override
+  Future<void> playClip(String audioB64, String mime) async {
+    playClipCalls++;
+    await _gate.future;
+  }
 }
 
 class _FakeRecorder implements AudioRecordingService {
@@ -70,6 +91,40 @@ void main() {
     expect([s.pair!.wordA, s.pair!.wordB], contains(s.spokenWord));
     expect(s.spokenAudioB64, 'WORDB64');
     expect(s.phase, PairPhase.guessing);
+  });
+
+  test('#343: playWord restores the phase and reports an error if playback throws', () async {
+    final repo = _MockRepo();
+    when(() => repo.synthesize(any()))
+        .thenAnswer((_) async => const AudioClip('WORDB64', 'audio/mpeg'));
+    final c = _container(repo, audio: _ThrowingAudio());
+    await _vm(c).loadPair();
+    expect(_state(c).phase, PairPhase.guessing);
+
+    await _vm(c).playWord(); // playClip throws inside
+
+    // Without the try/catch the exception would leak and strand the orb at
+    // `playing` forever; it must return to the pre-playback phase + surface it.
+    expect(_state(c).phase, PairPhase.guessing);
+    expect(_state(c).error, isNotNull);
+  });
+
+  test('#343: a rapid double-tap on playWord plays the clip once (busy guard)', () async {
+    final repo = _MockRepo();
+    when(() => repo.synthesize(any()))
+        .thenAnswer((_) async => const AudioClip('WORDB64', 'audio/mpeg'));
+    final audio = _GatedAudio();
+    final c = _container(repo, audio: audio);
+    await _vm(c).loadPair();
+
+    final first = _vm(c).playWord(); // starts, blocks on the gate
+    final second = _vm(c).playWord(); // guarded -> immediate no-op
+    expect(_state(c).phase, PairPhase.playing);
+
+    audio.release();
+    await Future.wait([first, second]);
+    expect(audio.playClipCalls, 1); // only one real playback, no concurrent race
+    expect(_state(c).phase, PairPhase.guessing);
   });
 
   test('a correct guess is marked correct', () async {

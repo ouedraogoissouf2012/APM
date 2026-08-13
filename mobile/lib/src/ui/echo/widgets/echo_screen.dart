@@ -105,6 +105,7 @@ class _RoundView extends ConsumerWidget {
 
   static VoiceOrbState _orbFor(EchoPhase phase) => switch (phase) {
     EchoPhase.idle => VoiceOrbState.idle,
+    EchoPhase.loadingPhrase => VoiceOrbState.thinking,
     EchoPhase.playingModel || EchoPhase.playingMine => VoiceOrbState.speaking,
     EchoPhase.recording => VoiceOrbState.listening,
     EchoPhase.scoring => VoiceOrbState.thinking,
@@ -182,6 +183,7 @@ class _RoundView extends ConsumerWidget {
 
   static String _labelFor(EchoPhase phase) => switch (phase) {
     EchoPhase.idle => 'touche pour t’enregistrer',
+    EchoPhase.loadingPhrase => 'je prépare la phrase…',
     EchoPhase.playingModel => 'écoute le modèle',
     EchoPhase.playingMine => 'écoute ta voix',
     EchoPhase.recording => 'je t’écoute — touche pour arrêter',
@@ -200,6 +202,7 @@ class _RoundView extends ConsumerWidget {
   static String? _tapHintFor(EchoPhase phase) => switch (phase) {
     EchoPhase.idle || EchoPhase.reviewing => 'enregistrer',
     EchoPhase.recording => 'arrêter',
+    EchoPhase.loadingPhrase ||
     EchoPhase.playingModel ||
     EchoPhase.playingMine ||
     EchoPhase.scoring => null,

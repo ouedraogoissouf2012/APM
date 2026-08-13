@@ -151,6 +151,25 @@ void main() {
     expect(_state(c).phase, EchoPhase.idle);
   });
 
+  test('#342: phase is loadingPhrase while the fetch is in flight, then idle', () async {
+    final repo = _MockEchoRepository();
+    final gate = Completer<ShadowingPhrase>();
+    when(repo.nextPhrase).thenAnswer((_) => gate.future); // blocks mid-load
+    when(
+      () => repo.synthesize(any()),
+    ).thenAnswer((_) async => const AudioClip('B64', 'audio/mpeg'));
+    final c = _container(repo: repo);
+
+    final pending = _vm(c).loadPhrase();
+    // The previous round's orb is on screen during a reload; while loading it
+    // must read as busy (disabled), not idle (an enabled dead tap) — #342.
+    expect(_state(c).phase, EchoPhase.loadingPhrase);
+
+    gate.complete(const ShadowingPhrase(text: 'x', focus: 'f', tip: 't'));
+    await pending;
+    expect(_state(c).phase, EchoPhase.idle);
+  });
+
   test(
     'playModel plays the synthesized model clip and restores the idle phase',
     () async {
