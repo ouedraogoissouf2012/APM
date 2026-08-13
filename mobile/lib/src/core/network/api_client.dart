@@ -7,7 +7,24 @@ import 'api_exception.dart';
 
 class ApiClient {
   ApiClient(AppConfig config, {Dio? dio})
-    : _dio = dio ?? Dio(BaseOptions(baseUrl: config.apiBaseUrl));
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: config.apiBaseUrl,
+              // #317: without these, a request whose TCP connection is accepted
+              // but never answered (captive portal, a cellular network that
+              // blackholes the socket) hangs forever — no DioException is ever
+              // thrown, so the offline/error path never triggers and the UI is
+              // stuck "thinking" indefinitely. `receiveTimeout` resets on every
+              // received byte (not the total response duration), so it doesn't
+              // cut off a normal SSE turn stream mid-flight — only a truly dead
+              // connection with no bytes at all for the whole window trips it.
+              connectTimeout: const Duration(seconds: 10),
+              sendTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 30),
+            ),
+          );
 
   final Dio _dio;
 
@@ -32,7 +49,13 @@ class ApiClient {
       final response = await _dio.post<Map<String, dynamic>>(
         path,
         data: form,
-        options: _options(bearer),
+        // A longer, dedicated sendTimeout (#317): Dio's send timer is a flat
+        // wall-clock cap on the WHOLE upload, never reset by progress — the
+        // 15s default (fine for a small JSON body) would abort a still-healthy
+        // multi-MB audio upload (recordings run up to 4 MB, see
+        // AudioRecordingService._defaultMaxBytes) on a slow connection well
+        // before it could finish.
+        options: _options(bearer, sendTimeout: const Duration(seconds: 60)),
       );
       return response.data ?? <String, dynamic>{};
     } on DioException catch (e) {
@@ -50,7 +73,7 @@ class ApiClient {
       final response = await _dio.post<Map<String, dynamic>>(
         path,
         data: body,
-        options: _options(bearer, headers),
+        options: _options(bearer, extra: headers),
       );
       return response.data ?? <String, dynamic>{};
     } on DioException catch (e) {
@@ -144,9 +167,21 @@ class ApiClient {
         // Same header logic as the JSON verbs (bearer + custom headers, e.g. an
         // Idempotency-Key) — shared via _headers so streaming can't silently drop
         // a header the non-streaming path sends.
+        //
+        // A much longer, dedicated receiveTimeout (#317): the backend
+        // deliberately never times out a reply already in progress (see
+        // turn_service.py/fallback.py — "never abort a reply in progress"),
+        // and Dio's receive timer resets on every SSE byte but NOT across a
+        // silent gap between sentences while the LLM is still generating. The
+        // global 30s default (right for an ordinary JSON call) would kill a
+        // legitimately slow-but-healthy conversation turn. Still finite —
+        // #317's actual concern (a connection that answers NOTHING, ever)
+        // trips this well before 2 minutes, since receiveTimeout also covers
+        // the wait for the very first byte.
         options: Options(
           responseType: ResponseType.stream,
           headers: _headers(bearer, headers),
+          receiveTimeout: const Duration(minutes: 2),
         ),
       );
     } on DioException catch (e) {
@@ -156,13 +191,14 @@ class ApiClient {
     yield* byteStream.transform(utf8.decoder).transform(const LineSplitter());
   }
 
-  Map<String, String> _headers(String? bearer, [Map<String, String>? extra]) => {
-    if (bearer != null) 'Authorization': 'Bearer $bearer',
-    ...?extra,
-  };
+  Map<String, String> _headers(String? bearer, [Map<String, String>? extra]) =>
+      {if (bearer != null) 'Authorization': 'Bearer $bearer', ...?extra};
 
-  Options _options(String? bearer, [Map<String, String>? extra]) =>
-      Options(headers: _headers(bearer, extra));
+  Options _options(
+    String? bearer, {
+    Map<String, String>? extra,
+    Duration? sendTimeout,
+  }) => Options(headers: _headers(bearer, extra), sendTimeout: sendTimeout);
 
   ApiException _toApiException(DioException e) {
     final status = e.response?.statusCode ?? 0;
