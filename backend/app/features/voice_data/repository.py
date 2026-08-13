@@ -1,4 +1,5 @@
-from typing import cast
+from collections.abc import AsyncIterator
+from typing import Protocol, cast
 
 from sqlalchemy import CursorResult, Executable, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,24 @@ from app.features.vocabulary.models import VocabularyEntry
 _DEFAULT_CEFR = "A1"
 
 
+class VoiceDataStreamSource(Protocol):
+    """What the streaming export endpoint depends on (#365) — deliberately a
+    SEPARATE, narrower Protocol from ``VoiceDataSource`` (service.py): that one
+    is owned by ``VoiceDataService`` and returns fully-materialized lists, the
+    opposite of what a memory-bounded export needs. Keeping this Protocol here
+    (repository.py, this ticket's territory) lets the router depend on an
+    interface — not the concrete class — so a fake can stand in for it in unit
+    tests, without touching ``VoiceDataService`` or its Protocol at all."""
+
+    def stream_utterances(self, user_id: int) -> AsyncIterator[dict]: ...
+
+    def stream_vocabulary(self, user_id: int) -> AsyncIterator[dict]: ...
+
+    def stream_debriefs(self, user_id: int) -> AsyncIterator[dict]: ...
+
+    def stream_review_items(self, user_id: int) -> AsyncIterator[dict]: ...
+
+
 class SqlAlchemyVoiceDataSource:
     """Aggregates and erases the learner's voice-derived rows across features.
 
@@ -38,13 +57,21 @@ class SqlAlchemyVoiceDataSource:
 
     Deliberately KEPT (not voice-derived): the user account row, refresh tokens,
     the voice-consent record (a consent audit trail), and the profile's onboarding
-    settings (interests/goal/accent/correction_intensity)."""
+    settings (interests/goal/accent/correction_intensity).
+
+    Export (#365): each category has a ``stream_*`` method that yields rows one
+    at a time off a server-side cursor (``AsyncSession.stream``/``stream_scalars``)
+    instead of buffering the whole result set — a very active learner's full
+    history is never held in memory at once. The plain (list-returning) methods
+    below are thin wrappers that fully drain a stream; they exist only because
+    ``VoiceDataSource`` (the Protocol ``VoiceDataService`` depends on) still
+    declares that shape."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def utterances(self, user_id: int) -> list[dict]:
-        rows = await self._session.execute(
+    async def stream_utterances(self, user_id: int) -> AsyncIterator[dict]:
+        result = await self._session.stream(
             select(
                 ConversationSession.id,
                 ConversationSession.started_at,
@@ -54,27 +81,30 @@ class SqlAlchemyVoiceDataSource:
             .where(ConversationSession.user_id == user_id)
             .order_by(ConversationSession.started_at.asc())
         )
-        out: list[dict] = []
-        for session_id, started_at, turns in rows:
+        async for session_id, started_at, turns in result:
             for turn in turns or []:
                 if isinstance(turn, dict) and turn.get("role") == ROLE_USER:
-                    out.append(
-                        {
-                            "session_id": session_id,
-                            "started_at": started_at.isoformat(),
-                            "text": str(turn.get("content", "")),
-                        }
-                    )
-        return out
+                    yield {
+                        "session_id": session_id,
+                        "started_at": started_at.isoformat(),
+                        "text": str(turn.get("content", "")),
+                    }
 
-    async def vocabulary(self, user_id: int) -> list[dict]:
-        rows = await self._session.scalars(
+    async def utterances(self, user_id: int) -> list[dict]:
+        return [item async for item in self.stream_utterances(user_id)]
+
+    async def stream_vocabulary(self, user_id: int) -> AsyncIterator[dict]:
+        result = await self._session.stream_scalars(
             select(VocabularyEntry).where(VocabularyEntry.user_id == user_id)
         )
-        return [{"word": e.word, "translation": e.translation, "example": e.example} for e in rows]
+        async for e in result:
+            yield {"word": e.word, "translation": e.translation, "example": e.example}
 
-    async def debriefs(self, user_id: int) -> list[dict]:
-        rows = await self._session.execute(
+    async def vocabulary(self, user_id: int) -> list[dict]:
+        return [item async for item in self.stream_vocabulary(user_id)]
+
+    async def stream_debriefs(self, user_id: int) -> AsyncIterator[dict]:
+        result = await self._session.stream(
             select(
                 ConversationSession.id,
                 ConversationSession.started_at,
@@ -86,29 +116,33 @@ class SqlAlchemyVoiceDataSource:
             .where(ConversationSession.user_id == user_id)
             .order_by(ConversationSession.started_at.asc())
         )
-        return [
-            {
+        async for session_id, started_at, cefr_estimate, summary, errors in result:
+            yield {
                 "session_id": session_id,
                 "started_at": started_at.isoformat(),
                 "cefr_estimate": cefr_estimate,
                 "summary": summary,
                 "errors": errors or [],
             }
-            for session_id, started_at, cefr_estimate, summary, errors in rows
-        ]
 
-    async def review_items(self, user_id: int) -> list[dict]:
-        rows = await self._session.scalars(select(ReviewItem).where(ReviewItem.user_id == user_id))
-        return [
-            {
+    async def debriefs(self, user_id: int) -> list[dict]:
+        return [item async for item in self.stream_debriefs(user_id)]
+
+    async def stream_review_items(self, user_id: int) -> AsyncIterator[dict]:
+        result = await self._session.stream_scalars(
+            select(ReviewItem).where(ReviewItem.user_id == user_id)
+        )
+        async for r in result:
+            yield {
                 "error_type": r.error_type,
                 "latest_correction": r.latest_correction,
                 "stage": r.stage,
                 "status": r.status,
                 "next_review_at": r.next_review_at.isoformat() if r.next_review_at else None,
             }
-            for r in rows
-        ]
+
+    async def review_items(self, user_id: int) -> list[dict]:
+        return [item async for item in self.stream_review_items(user_id)]
 
     async def purge(self, user_id: int) -> dict[str, int]:
         # Atomicity (#290): this whole cascade is ONE transaction (one commit,

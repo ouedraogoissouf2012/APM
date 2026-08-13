@@ -47,7 +47,10 @@ class ProofDelta:
 
 class ProofDataSource(Protocol):
     async def sessions_for_skill(self, user_id: int, skill: str) -> list[SessionErrors]:
-        """Ended sessions for the skill that have a debrief, oldest first."""
+        """The baseline (earliest) and latest ended sessions for the skill that
+        have a debrief, oldest first: `[]` when none match, one element when
+        only a single session does, two when there's a before/after to compare.
+        """
         ...
 
 

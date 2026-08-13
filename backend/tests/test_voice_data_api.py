@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.rate_limit import InMemoryRateLimiter
 from app.features.analytics.models import AnalyticsEventRow
 from app.features.auth.models import User
 from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER
@@ -22,7 +23,9 @@ from app.features.sessions.models import ConversationSession
 from app.features.vocabulary.models import VocabularyEntry
 from app.features.vocabulary.repository import SqlAlchemyVocabularyRepository
 from app.features.vocabulary.service import VocabularyService
+from app.features.voice_data.dependencies import get_voice_data_export_rate_limiter
 from app.features.voice_data.repository import SqlAlchemyVoiceDataSource
+from app.main import app
 
 
 async def _auth(client, email="vd@b.com"):
@@ -324,3 +327,50 @@ async def test_erase_is_atomic_on_partial_failure(client, db_session, _engine, m
 async def test_voice_data_requires_auth(client):
     assert (await client.post("/me/voice-data/export")).status_code == 401
     assert (await client.delete("/me/voice-data")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_export_streams_the_full_history_without_truncation(client, db_session):
+    """#365: the export is now streamed off a server-side cursor instead of
+    materialized in one query — a learner with a sizeable history must still
+    get EVERY row back, not a silently truncated page. 6 sessions x 5 learner
+    turns = 30 utterances, well past what any single default page size would
+    return if truncation had crept back in."""
+    headers, user_id = await _auth(client, email="vd-big@b.com")
+    session_count, turns_per_session = 6, 5
+    expected_texts = set()
+    for s in range(session_count):
+        start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+        session_id = start.json()["session_id"]
+        transcript = []
+        for t in range(turns_per_session):
+            text = f"session {s} turn {t}"
+            transcript.append({"role": ROLE_ASSISTANT, "content": "?"})
+            transcript.append({"role": ROLE_USER, "content": text})
+            expected_texts.add(text)
+        await SqlAlchemyTranscriptRepository(db_session).save(session_id, transcript)
+        await client.post(f"/sessions/{session_id}/end", headers=headers)
+    await db_session.commit()
+
+    resp = await client.post("/me/voice-data/export", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["utterances"]) == session_count * turns_per_session
+    assert {u["text"] for u in body["utterances"]} == expected_texts
+
+
+@pytest.mark.asyncio
+async def test_export_is_rate_limited(client):
+    """#365: the export endpoint now has a dedicated limiter — repeated calls
+    (the 'repetable sans throttle' half of the DoW-by-memory scenario) must be
+    capped even though each individual call is now memory-bounded."""
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_voice_data_export_rate_limiter] = lambda: limiter
+    try:
+        headers, _ = await _auth(client, email="vd-rl@b.com")
+        first = await client.post("/me/voice-data/export", headers=headers)
+        assert first.status_code == 200, first.text
+        second = await client.post("/me/voice-data/export", headers=headers)
+        assert second.status_code == 429, second.text
+    finally:
+        app.dependency_overrides.pop(get_voice_data_export_rate_limiter, None)
