@@ -106,3 +106,22 @@ def test_strip_persistent_instructions_removes_common_commands():
     assert "ignore previous instructions" not in cleaned.lower()
     assert "you are now" not in cleaned.lower()
     assert "Good progress" in cleaned
+
+
+def test_strip_persistent_instructions_default_bound_is_unchanged():
+    # #334 parameterized max_chars but must NOT change behavior for callers
+    # that don't pass it (profile/debrief/onboarding memory-summary writes) —
+    # the default must still be the 500-char memory-summary bound.
+    cleaned = strip_persistent_instructions("a" * 600)
+    assert len(cleaned) == 500
+
+
+def test_strip_persistent_instructions_honors_an_explicit_max_chars():
+    # The mission compiler's use case (#334): a caller with a larger natural
+    # size must be able to opt into a bigger bound instead of being silently
+    # clipped to the memory-summary default.
+    cleaned = strip_persistent_instructions("a" * 3000, max_chars=4000)
+    assert len(cleaned) == 3000  # under the custom bound -> preserved whole
+
+    clipped = strip_persistent_instructions("a" * 5000, max_chars=4000)
+    assert len(clipped) == 4000  # over the custom bound -> still enforced

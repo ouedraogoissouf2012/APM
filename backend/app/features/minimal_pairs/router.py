@@ -10,7 +10,7 @@ from app.features.minimal_pairs.dependencies import (
     get_minimal_pairs_rate_limiter,
     get_minimal_pairs_service,
 )
-from app.features.minimal_pairs.schemas import PairAttemptOut
+from app.features.minimal_pairs.schemas import MAX_WORD_CHARS, PairAttemptOut
 from app.features.minimal_pairs.service import MinimalPairsService
 
 router = APIRouter(prefix="/minimal-pairs", tags=["minimal-pairs"])
@@ -39,6 +39,15 @@ async def score_attempt(
     other = fields.get("other")
     if not target or not other:
         raise HTTPException(status_code=422, detail="Missing 'target' or 'other' field")
+    # #328: parse_bounded_multipart bounds the AUDIO part but not text fields — an
+    # unbounded target/other would block the event loop in the sync word-normalize
+    # step below and be injected into the coaching LLM prompt.
+    for field_name, value in (("target", target), ("other", other)):
+        if len(value) > MAX_WORD_CHARS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"'{field_name}' must be at most {MAX_WORD_CHARS} characters",
+            )
     result = await service.score_attempt(
         target=target,
         other=other,

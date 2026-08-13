@@ -61,13 +61,21 @@ def _clean_interests(values: list[str]) -> list[str]:
     return [value for value in cleaned if value]
 
 
-def strip_persistent_instructions(value: str) -> str:
-    """Remove common prompt-injection commands before persisting learner memory."""
+def strip_persistent_instructions(value: str, max_chars: int = _MAX_MEMORY_CHARS) -> str:
+    """Remove common prompt-injection commands before persisting learner memory.
 
-    cleaned = _clean_text(value, _MAX_MEMORY_CHARS)
+    [max_chars] bounds the input before the regex substitutions run and the
+    output after; defaults to the memory-summary bound (#334). A caller whose
+    content has a different natural size — e.g. the mission compiler's much
+    longer pasted job offer / CV — must pass its own bound explicitly, or it
+    would be silently clipped to this memory-summary default regardless of
+    what it asked for elsewhere.
+    """
+
+    cleaned = _clean_text(value, max_chars)
     for pattern in _INSTRUCTION_PATTERNS:
         cleaned = pattern.sub("[removed instruction]", cleaned)
-    return _clean_text(cleaned, _MAX_MEMORY_CHARS)
+    return _clean_text(cleaned, max_chars)
 
 
 def render_untrusted_block(lines: list[tuple[str, str]]) -> str:

@@ -16,6 +16,7 @@ from app.features.shadowing.dependencies import (
     get_shadowing_service_with_stt,
 )
 from app.features.shadowing.schemas import (
+    MAX_TARGET_TEXT_CHARS,
     AttemptOut,
     CoachIn,
     CoachOut,
@@ -82,6 +83,16 @@ async def score_attempt(
     target_text = fields.get("target_text")
     if not target_text:
         raise HTTPException(status_code=422, detail="Missing 'target_text' field")
+    # #328: parse_bounded_multipart bounds the AUDIO part but not text fields — an
+    # unbounded target_text would block the event loop in the sync word-diff below
+    # (target.split() over megabytes of text), amplify into the GOP call, and be
+    # injected into the coaching LLM prompt. Same bound CoachIn.target_text uses
+    # for the SAME string on the follow-up /shadowing/coach call.
+    if len(target_text) > MAX_TARGET_TEXT_CHARS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'target_text' must be at most {MAX_TARGET_TEXT_CHARS} characters",
+        )
     result = await service.score_attempt(
         target=target_text, audio=data, native_language=current_user.native_language
     )

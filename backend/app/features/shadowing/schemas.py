@@ -1,5 +1,10 @@
 from pydantic import BaseModel, Field
 
+# Shared with router.py's manual bound on the /shadowing/attempt multipart
+# `target_text` field (#328) — the same string flows into CoachIn.target_text
+# on the follow-up /shadowing/coach call, so both must agree on one bound.
+MAX_TARGET_TEXT_CHARS = 300
+
 
 class PhraseOut(BaseModel):
     text: str
@@ -37,7 +42,7 @@ class CoachIn(BaseModel):
     """Ask for coaching on a scored attempt's misses. Sent AFTER the attempt is
     displayed, so the slow coaching LLM never blocks the score UI."""
 
-    target_text: str = Field(min_length=1, max_length=300)
+    target_text: str = Field(min_length=1, max_length=MAX_TARGET_TEXT_CHARS)
     missed_words: list[str] = Field(default_factory=list, max_length=50)
 
 
