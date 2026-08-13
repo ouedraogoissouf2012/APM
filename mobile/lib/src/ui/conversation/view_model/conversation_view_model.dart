@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
+import '../../../core/observability/providers.dart';
+import '../../../core/offline/connectivity_controller.dart';
 import '../../../core/speech/speech_service.dart';
 import '../../../data/models/session_modes.dart';
+import '../../../data/repositories/conversation_repository.dart' show ActiveSessionData;
 import '../../history/view_model/progress_view_model.dart';
 import '../../home/view_model/streak_view_model.dart';
 import '../../profile/view_model/profile_view_model.dart';
@@ -34,7 +39,20 @@ final conversationViewModelProvider = NotifierProvider<ConversationViewModel, Co
 /// read/write the shared state through a narrow seam rather than the Notifier.
 class ConversationViewModel extends Notifier<ConversationState> implements ConversationHost {
   @override
-  ConversationState build() => const ConversationState();
+  ConversationState build() {
+    // #312: an offline turn's reply is currently thrown away by OfflineTurnSync
+    // (it only returns a count) — refetch the authoritative transcript from the
+    // server whenever the pending queue shrinks (a sync just replayed at least
+    // one turn), so the reply that was invisible while offline actually shows
+    // up. A drop can also mean a turn was definitively rejected and dropped
+    // (not synced) — re-fetching is still correct either way: it shows exactly
+    // what the server has, which is what the transcript should reflect.
+    ref.listen<ConnectivityState>(connectivityControllerProvider, (previous, next) {
+      final justSynced = previous != null && next.pendingCount < previous.pendingCount;
+      if (justSynced) unawaited(_refreshTurnsFromServer());
+    });
+    return const ConversationState();
+  }
 
   late final ReplyPlayback _playback = ReplyPlayback(ref, this);
   late final PushToTalkController _pushToTalk = PushToTalkController(ref, this, _playback);
@@ -45,6 +63,12 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
   bool get mounted => ref.mounted;
 
   Future<void> start({String mode = kSessionModeFree, String? scenarioId, int? missionId}) async {
+    // #311: without this, the pending-turn counter starts at 0 on every app
+    // launch regardless of what's actually queued — a turn recorded offline in
+    // a previous run stays invisible (no banner, no retry) until SOMETHING else
+    // happens to touch the connectivity state.
+    await ref.read(connectivityControllerProvider.notifier).refresh();
+
     final repo = ref.read(conversationRepositoryProvider);
 
     int sessionId;
@@ -205,6 +229,56 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
       }
     }
     state = const ConversationState();
+  }
+
+  /// Re-fetches the active session's transcript from the server and replaces
+  /// [ConversationState.turns] with it (#312). Triggered when the offline queue
+  /// shrinks (a sync just ran): OfflineTurnSync only reports HOW MANY turns it
+  /// sent, not their replies, so a replayed turn's reply is otherwise never
+  /// shown anywhere.
+  ///
+  /// Skipped (both before AND after the network call — a turn can start WHILE
+  /// the fetch is in flight) unless the conversation is idle, so a stale server
+  /// snapshot can never clobber text that is streaming in right now. Also
+  /// double-checked against the session id both before and after, so a session
+  /// change mid-fetch can't apply the wrong session's turns. `getActiveSession`
+  /// only carries role+content (no correction), so any correction chip already
+  /// attached locally is preserved by matching it back onto the re-fetched turn
+  /// with the same role+content — otherwise this refresh would silently wipe a
+  /// gold chip the learner is currently looking at.
+  Future<void> _refreshTurnsFromServer() async {
+    final sid = state.sessionId;
+    if (sid == null || state.status != ConversationStatus.idle) return;
+    final ActiveSessionData? active;
+    try {
+      active = await ref.read(conversationRepositoryProvider).getActiveSession();
+    } catch (e, s) {
+      if (ref.mounted) {
+        ref.read(crashReporterProvider).captureError(
+          e,
+          s,
+          context: 'ConversationViewModel._refreshTurnsFromServer: refetch failed',
+        );
+      }
+      return;
+    }
+    if (!ref.mounted || active == null) return;
+    if (active.sessionId != sid || state.sessionId != sid) return;
+    if (state.status != ConversationStatus.idle) return;
+    final corrections = {
+      for (final t in state.turns)
+        if (t.correction != null) '${t.role} ${t.content}': t.correction!,
+    };
+    state = state.copyWith(
+      turns: [
+        for (final t in active.turns)
+          ConversationTurn(
+            t.role,
+            t.content,
+            correction: corrections['${t.role} ${t.content}'],
+          ),
+      ],
+    );
   }
 
   /// Test hook: await any in-flight background audio playback. Production code

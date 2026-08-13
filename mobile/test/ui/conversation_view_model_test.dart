@@ -10,6 +10,10 @@ import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/observability/providers.dart';
+import 'package:apm/src/core/offline/connectivity_controller.dart';
+import 'package:apm/src/core/offline/offline_turn_queue.dart';
+import 'package:apm/src/core/offline/pending_turn.dart';
+import 'package:apm/src/core/offline/providers.dart';
 import 'package:apm/src/core/speech/speech_service.dart';
 import 'package:apm/src/data/models/profile.dart';
 import 'package:apm/src/data/models/progress_snapshot.dart';
@@ -43,6 +47,23 @@ class _MockStreakRepository extends Mock implements StreakRepository {}
 class _MockReviewRepository extends Mock implements ReviewRepository {}
 
 class _MockProgressRepository extends Mock implements ProgressRepository {}
+
+/// In-memory offline queue — overridden by default in [_container] so
+/// ConversationViewModel.start()'s new connectivity refresh() (#311) never
+/// touches the real secure-storage-backed queue in tests.
+class _InMemoryOfflineQueue implements OfflineTurnQueue {
+  final List<PendingTurn> _turns = [];
+
+  @override
+  Future<void> enqueue(PendingTurn turn) async => _turns.add(turn);
+
+  @override
+  Future<List<PendingTurn>> pending() async => List.of(_turns);
+
+  @override
+  Future<void> remove(String idempotencyKey) async =>
+      _turns.removeWhere((t) => t.idempotencyKey == idempotencyKey);
+}
 
 /// Records which audio clips were played, so tests can assert the server voice
 /// is used (and the on-device voice is not).
@@ -130,6 +151,36 @@ class _ControllableAudio implements AudioPlaybackService {
   Future<void> stop() async {
     stopCalls++;
     release();
+  }
+}
+
+/// A neural-audio player whose [stop] deliberately does NOT unblock an
+/// in-flight [playClip] (unlike every other fake here) — simulating what
+/// native_player.dart/web_player.dart's stop() used to do before #314. Proves
+/// that ReplyPlayback.cancel() unblocks awaitPlayback via its OWN bookkeeping
+/// (`_playbackTask = null`), not by depending on the player to cooperate.
+class _StubbornAudio implements AudioPlaybackService {
+  final firstPlayStarted = Completer<void>();
+  final Completer<void> _gate = Completer<void>();
+  int stopCalls = 0;
+
+  @override
+  Future<void> playClip(String audioB64, String mime) async {
+    if (!firstPlayStarted.isCompleted) firstPlayStarted.complete();
+    await _gate.future;
+  }
+
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async {}
+
+  @override
+  Future<void> stop() async {
+    stopCalls++; // deliberately does not complete _gate
+  }
+
+  /// Lets the orphaned clip unwind so nothing is left hanging after the test.
+  void release() {
+    if (!_gate.isCompleted) _gate.complete();
   }
 }
 
@@ -278,6 +329,7 @@ ProviderContainer _container(
   AudioRecordingService? recorder,
   VoiceTakeStore? takeStore,
   CrashReporter? crashReporter,
+  OfflineTurnQueue? offlineQueue,
 }) {
   final c = ProviderContainer(
     overrides: [
@@ -285,6 +337,10 @@ ProviderContainer _container(
       speechServiceProvider.overrideWithValue(speech),
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
+      // start() now calls connectivityControllerProvider.notifier.refresh()
+      // (#311), which reads this — default to an in-memory fake so tests
+      // never hit the real secure-storage-backed queue.
+      offlineTurnQueueProvider.overrideWithValue(offlineQueue ?? _InMemoryOfflineQueue()),
       if (takeStore != null) voiceTakeStoreProvider.overrideWithValue(takeStore),
       if (crashReporter != null) crashReporterProvider.overrideWithValue(crashReporter),
       // Avoid any real /config network fetch in tests.
@@ -483,6 +539,7 @@ void main() {
         conversationRepositoryProvider.overrideWithValue(_repoReturning(3)),
         speechServiceProvider.overrideWithValue(speech),
         profileRepositoryProvider.overrideWithValue(profileRepo),
+        offlineTurnQueueProvider.overrideWithValue(_InMemoryOfflineQueue()),
       ],
     );
     addTearDown(c.dispose);
@@ -503,6 +560,7 @@ void main() {
         conversationRepositoryProvider.overrideWithValue(_repoReturning(3)),
         speechServiceProvider.overrideWithValue(speech),
         profileRepositoryProvider.overrideWithValue(profileRepo),
+        offlineTurnQueueProvider.overrideWithValue(_InMemoryOfflineQueue()),
       ],
     );
     addTearDown(c.dispose);
@@ -956,6 +1014,7 @@ void main() {
         streakRepositoryProvider.overrideWithValue(streakRepo),
         reviewRepositoryProvider.overrideWithValue(reviewRepo),
         progressRepositoryProvider.overrideWithValue(progressRepo),
+        offlineTurnQueueProvider.overrideWithValue(_InMemoryOfflineQueue()),
         runtimeConfigProvider.overrideWith(
           (ref) async => const RuntimeConfig(
             demoMode: false,
@@ -1201,6 +1260,213 @@ void main() {
       expect(c.read(conversationViewModelProvider).status,
           ConversationStatus.idle);
       verifyNever(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')));
+    });
+  });
+
+  group('offline turn replay (#311, #312, #313)', () {
+    test('start() rehydrates the pending-turn count from the offline queue '
+        '(#311)', () async {
+      // Before the fix, pendingCount always started at 0 regardless of what
+      // was actually queued from a previous run — an offline turn stayed
+      // invisible (no banner, no retry) until something else happened to
+      // touch connectivity state.
+      final queue = _InMemoryOfflineQueue()
+        ..enqueue(
+          const PendingTurn(sessionId: 1, text: 'queued', idempotencyKey: 'k1'),
+        );
+      final c = _container(_repoReturning(1), _FakeSpeech(''), offlineQueue: queue);
+
+      await c.read(conversationViewModelProvider.notifier).start();
+
+      final connectivity = c.read(connectivityControllerProvider);
+      expect(connectivity.pendingCount, 1);
+      expect(connectivity.hasPending, isTrue);
+    });
+
+    test("a replayed offline turn's reply is fetched into the transcript "
+        'once the queue drains (#312)', () async {
+      // Before the fix, OfflineTurnSync.sync() sent the queued turn and threw
+      // away its reply (only a count was returned) — the reply was NEVER
+      // shown anywhere, even though the server had it.
+      final queue = _InMemoryOfflineQueue()
+        ..enqueue(
+          const PendingTurn(sessionId: 1, text: 'queued', idempotencyKey: 'k1'),
+        );
+      final repo = _repoReturning(1);
+      when(
+        () => repo.sendTurn(1, 'queued', idempotencyKey: 'k1'),
+      ).thenAnswer((_) async => 'Nice to hear from you again!');
+      when(() => repo.getActiveSession()).thenAnswer(
+        (_) async => const ActiveSessionData(
+          sessionId: 1,
+          mode: 'free',
+          scenarioId: null,
+          turns: [
+            (
+              role: 'assistant',
+              content:
+                  "Hi, let's practise English. What would you like to talk about today?",
+            ),
+            (role: 'user', content: 'queued'),
+            (role: 'assistant', content: 'Nice to hear from you again!'),
+          ],
+        ),
+      );
+      final c = _container(repo, _FakeSpeech(''), offlineQueue: queue);
+      final vm = c.read(conversationViewModelProvider.notifier);
+      await vm.start(); // rehydrates pendingCount=1; turns = [opening line]
+
+      // The real replay path: syncPending() -> OfflineTurnSync.sync() sends
+      // the queued turn and drains the queue, which fires the ref.listen in
+      // build() and triggers the re-fetch. The refresh itself is
+      // unawaited() by design (a background reaction to the state change,
+      // not something syncPending's caller should block on) — pumpEventQueue
+      // lets it finish before asserting.
+      await c.read(connectivityControllerProvider.notifier).syncPending();
+      await pumpEventQueue();
+
+      final state = c.read(conversationViewModelProvider);
+      expect(state.turns.map((t) => t.content).toList(), [
+        "Hi, let's practise English. What would you like to talk about today?",
+        'queued',
+        'Nice to hear from you again!',
+      ]);
+      expect(c.read(connectivityControllerProvider).pendingCount, 0);
+    });
+
+    test('a correction chip already attached locally survives a #312 '
+        'refresh (the server snapshot carries no correction data)', () async {
+      final queue = _InMemoryOfflineQueue();
+      final repo = _MockConversationRepository();
+      when(
+        () => repo.startSession(
+          mode: any(named: 'mode'),
+          scenarioId: any(named: 'scenarioId'),
+        ),
+      ).thenAnswer((_) async => 1);
+      when(
+        () => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')),
+      ).thenAnswer(
+        (_) => Stream.fromIterable(const [
+          ReplySentence('Good.'),
+          CorrectionEvent(
+            TurnCorrection(
+              original: 'i is happy',
+              correction: 'I am happy',
+              rule: "Use 'am' with 'I'.",
+              alternatives: ["I'm happy"],
+            ),
+          ),
+        ]),
+      );
+      when(() => repo.getActiveSession()).thenAnswer(
+        (_) async => const ActiveSessionData(
+          sessionId: 1,
+          mode: 'free',
+          scenarioId: null,
+          turns: [
+            (
+              role: 'assistant',
+              content:
+                  "Hi, let's practise English. What would you like to talk about today?",
+            ),
+            (role: 'user', content: 'i is happy'),
+            (role: 'assistant', content: 'Good.'),
+          ],
+        ),
+      );
+      final c = _container(repo, _FakeSpeech('i is happy'), offlineQueue: queue);
+      final vm = c.read(conversationViewModelProvider.notifier);
+      await vm.start();
+      await vm.listenAndRespond(); // attaches the correction to the user turn
+
+      // A queue drain (unrelated to this turn) still fires the refresh.
+      await queue.enqueue(
+        const PendingTurn(sessionId: 1, text: 'x', idempotencyKey: 'other'),
+      );
+      await c.read(connectivityControllerProvider.notifier).refresh();
+      await queue.remove('other');
+      await c.read(connectivityControllerProvider.notifier).refresh();
+      await pumpEventQueue(); // let the unawaited() refresh finish
+
+      final userTurn = c
+          .read(conversationViewModelProvider)
+          .turns
+          .firstWhere((t) => t.role == kRoleUser);
+      expect(userTurn.correction?.correction, 'I am happy');
+    });
+
+    test('a turn that fails on the network is queued under the SAME '
+        'idempotency key it was sent with, not a freshly generated one '
+        '(#313)', () async {
+      final repo = _MockConversationRepository();
+      when(
+        () => repo.startSession(
+          mode: any(named: 'mode'),
+          scenarioId: any(named: 'scenarioId'),
+        ),
+      ).thenAnswer((_) async => 1);
+      String? sentKey;
+      when(
+        () => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')),
+      ).thenAnswer((invocation) {
+        sentKey = invocation.namedArguments[#idempotencyKey] as String;
+        return Stream<TurnEvent>.error(
+          const ApiException(statusCode: 0, code: 'network', message: 'offline'),
+        );
+      });
+      final queue = _InMemoryOfflineQueue();
+      final c = _container(repo, _FakeSpeech('hello'), offlineQueue: queue);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond();
+
+      final queued = await queue.pending();
+      expect(queued, hasLength(1));
+      expect(sentKey, isNotNull);
+      expect(queued.single.idempotencyKey, sentKey);
+      expect(c.read(connectivityControllerProvider).pendingCount, 1);
+    });
+  });
+
+  group('reply audio cancellation (#314)', () {
+    test(
+        'cancel unblocks awaitPlayback immediately via its own bookkeeping, '
+        'even when the underlying player.stop() does not itself unblock '
+        'playback', () async {
+      final repo = _MockConversationRepository();
+      when(
+        () => repo.startSession(
+          mode: any(named: 'mode'),
+          scenarioId: any(named: 'scenarioId'),
+        ),
+      ).thenAnswer((_) async => 1);
+      when(
+        () => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')),
+      ).thenAnswer(
+        (_) => Stream.fromIterable(const [
+          ReplySentence('Bye.'),
+          AudioClip('QUJD', 'audio/mpeg'),
+        ]),
+      );
+      final audio = _StubbornAudio();
+      final c = _container(repo, _FakeSpeech('hi'), serverTts: true, audio: audio);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      final loop = vm.listenAndRespond();
+      await audio.firstPlayStarted.future; // the clip is now "playing"
+
+      // Before #314, this could hang up to 20s waiting for a player that
+      // never unblocks on its own; reply_playback.dart's cancel() now clears
+      // its own bookkeeping instead of depending on the player to cooperate.
+      await vm.stopConversation().timeout(const Duration(seconds: 2));
+      await vm.awaitPlaybackForTest().timeout(const Duration(seconds: 2));
+
+      expect(audio.stopCalls, 1);
+      audio.release(); // let the orphaned clip unwind so nothing leaks
+      await loop;
     });
   });
 }

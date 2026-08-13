@@ -28,6 +28,14 @@ class ReplyPlayback {
 
   ConversationRepository get _repo => _ref.read(conversationRepositoryProvider);
 
+  // Set by cancel() so streamReplyAndSpeak's loop stops touching state /
+  // enqueuing clips even if the caller's own `isLive` predicate does not
+  // account for cancellation (push-to-talk's does not: it only checks
+  // `_host.mounted`). Without this, cancel() could stop the CURRENT clip yet
+  // the still-running stream keeps enqueuing new ones right after — audibly
+  // resuming the assistant's voice moments after the learner tapped Stop.
+  bool _cancelled = false;
+
   /// Streams the reply sentence by sentence: each sentence is spoken as soon as
   /// it arrives (so the learner hears the first words while the model is still
   /// writing) and the on-screen reply grows in step. Returns whether the caller
@@ -47,18 +55,20 @@ class ReplyPlayback {
     final serverTts = await _ref.read(serverTtsProvider.future);
     final buffer = StringBuffer();
     var hasText = false;
+    // A fresh turn is always live even if a PRIOR turn was cancelled mid-stream.
+    _cancelled = false;
+    // A per-turn idempotency key (#261): if this turn is retried at the network
+    // layer, the server replays the cached reply instead of re-persisting the
+    // transcript or re-charging the quota. Unique per attempt — the same pattern
+    // the offline queue uses for the non-streaming turn. Declared OUTSIDE the
+    // try block (not inlined into streamTurn's call) so a network failure in the
+    // catch below can queue the offline replay under this EXACT SAME key (#313)
+    // instead of a fresh one — a try-scoped local would not be visible there.
+    final idempotencyKey = '$sessionId-${DateTime.now().microsecondsSinceEpoch}';
     try {
-      // A per-turn idempotency key (#261): if this turn is retried at the network
-      // layer, the server replays the cached reply instead of re-persisting the
-      // transcript or re-charging the quota. Unique per attempt — the same pattern
-      // the offline queue uses for the non-streaming turn.
-      final events = _repo.streamTurn(
-        sessionId,
-        heard,
-        idempotencyKey: '$sessionId-${DateTime.now().microsecondsSinceEpoch}',
-      );
+      final events = _repo.streamTurn(sessionId, heard, idempotencyKey: idempotencyKey);
       await for (final event in events) {
-        if (!isLive()) return false;
+        if (!isLive() || _cancelled) return false;
         switch (event) {
           case ReplySentence(:final text):
             buffer.write(hasText ? ' $text' : text);
@@ -77,7 +87,7 @@ class ReplyPlayback {
             // Attach to the learner's turn -> gold chip under their bubble.
             _attachCorrection(correction);
         }
-        if (!isLive()) return false;
+        if (!isLive() || _cancelled) return false;
       }
     } catch (e) {
       // On a NETWORK failure, don't lose the turn: queue it for replay on
@@ -87,7 +97,7 @@ class ReplyPlayback {
       if (offline) {
         await _ref
             .read(connectivityControllerProvider.notifier)
-            .recordFailedTurn(sessionId, heard);
+            .recordFailedTurn(sessionId, heard, idempotencyKey: idempotencyKey);
       }
       if (_host.mounted) {
         _host.state = _host.state.copyWith(
@@ -140,10 +150,18 @@ class ReplyPlayback {
 
   /// Stops and discards any queued or in-flight reply audio — called when the
   /// learner stops or ends the conversation, so the neural voice does not keep
-  /// talking after the session is over.
+  /// talking after the session is over. Also stops streamReplyAndSpeak's loop
+  /// from enqueuing anything more for the turn it may still be mid-stream on
+  /// (see `_cancelled`), independent of whatever the caller's `isLive` does.
   Future<void> cancel() async {
+    _cancelled = true;
     _clipQueue.clear();
     await _ref.read(audioPlaybackProvider).stop();
+    // #314: stop() now unblocks an in-flight play() promptly, but don't wait on
+    // _drainClips's own cleanup to notice — clear the flag immediately so a
+    // caller that checks/awaits playback right after cancel() (e.g. the loop
+    // re-opening the mic) sees "nothing playing" without a stray delay.
+    _playbackTask = null;
   }
 
   /// Sets (or replaces) the current assistant turn as its text streams in, and

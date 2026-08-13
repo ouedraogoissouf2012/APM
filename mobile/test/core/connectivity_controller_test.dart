@@ -50,9 +50,6 @@ void main() {
   setUp(() {
     queue = _InMemoryQueue();
     sync = _FakeSync(queue);
-    // Deterministic idempotency keys in tests.
-    var counter = 0;
-    ConnectivityController.keyFactory = (sessionId) => 'key-${counter++}';
     container = ProviderContainer(
       overrides: [
         offlineTurnQueueProvider.overrideWithValue(queue),
@@ -62,22 +59,26 @@ void main() {
     addTearDown(container.dispose);
   });
 
-  test('recordFailedTurn queues the turn and goes offline', () async {
+  test('recordFailedTurn queues the turn under the SAME key it failed with '
+      '(#313)', () async {
     final ctrl = container.read(connectivityControllerProvider.notifier);
 
-    await ctrl.recordFailedTurn(1, 'I like sports');
+    // The caller (reply_playback.dart) always passes the exact key the failed
+    // attempt was sent with — recordFailedTurn must not regenerate a new one,
+    // or the server would run the turn twice (once per key) on replay.
+    await ctrl.recordFailedTurn(1, 'I like sports', idempotencyKey: 'k1');
 
     final state = container.read(connectivityControllerProvider);
     expect(state.online, isFalse);
     expect(state.pendingCount, 1);
     expect(queue.turns.single.text, 'I like sports');
-    expect(queue.turns.single.idempotencyKey, 'key-0');
+    expect(queue.turns.single.idempotencyKey, 'k1');
   });
 
   test('syncPending clears the queue and returns online', () async {
     final ctrl = container.read(connectivityControllerProvider.notifier);
-    await ctrl.recordFailedTurn(1, 'a');
-    await ctrl.recordFailedTurn(1, 'b');
+    await ctrl.recordFailedTurn(1, 'a', idempotencyKey: 'k1');
+    await ctrl.recordFailedTurn(1, 'b', idempotencyKey: 'k2');
 
     await ctrl.syncPending();
 
@@ -88,7 +89,7 @@ void main() {
 
   test('syncPending stays offline when nothing could be sent', () async {
     final ctrl = container.read(connectivityControllerProvider.notifier);
-    await ctrl.recordFailedTurn(1, 'a');
+    await ctrl.recordFailedTurn(1, 'a', idempotencyKey: 'k1');
     sync.succeeds = false; // still offline
 
     await ctrl.syncPending();
