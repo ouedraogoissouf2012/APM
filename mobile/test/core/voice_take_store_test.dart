@@ -37,4 +37,22 @@ void main() {
     expect(await store.takesFor('a'), isNull); // one take each -> nothing to compare
     expect(await store.takesFor('b'), isNull);
   });
+
+  test('knownSkills reports every skill with something stored (#321)',
+      () async {
+    final store = InMemoryVoiceTakeStore();
+    await store.saveTake('a', _bytes([1]));
+    await store.saveTake('b', _bytes([2]));
+
+    expect(await store.knownSkills(), {'a', 'b'});
+  });
+
+  test('knownSkills is empty after eraseAll', () async {
+    final store = InMemoryVoiceTakeStore();
+    await store.saveTake('a', _bytes([1]));
+
+    await store.eraseAll();
+
+    expect(await store.knownSkills(), isEmpty);
+  });
 }

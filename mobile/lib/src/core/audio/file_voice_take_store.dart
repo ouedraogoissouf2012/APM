@@ -10,7 +10,7 @@ import 'voice_take_store.dart';
 /// The directory is injected (a thunk, so opening it can be async and lazy) which
 /// keeps the provider synchronous AND makes the store unit-testable against a temp
 /// directory. Privacy (#128): these files live on the device only.
-class FileVoiceTakeStore implements VoiceTakeStore {
+class FileVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
   FileVoiceTakeStore(this._openDir);
 
   final Future<Directory> Function() _openDir;
@@ -69,8 +69,33 @@ class FileVoiceTakeStore implements VoiceTakeStore {
     if (await latest.exists()) await latest.delete();
   }
 
+  /// Returns SAFE-transformed stems (post-[_safe]), not necessarily the
+  /// original skill strings — fine for [SkillEnumerator]'s only consumer
+  /// ([TtlVoiceTakeStore.sweepExpired], #321), which only feeds these back
+  /// into [takesFor]/[deleteSkill]: [_safe] is idempotent on its own output,
+  /// so re-applying it to an already-safe stem is a no-op and round-trips
+  /// to the exact same files.
+  @override
+  Future<Set<String>> knownSkills() async {
+    final dir = _dir ??= await _openDir();
+    if (!await dir.exists()) return const {};
+    final stems = <String>{};
+    await for (final entry in dir.list()) {
+      if (entry is! File) continue;
+      final name = entry.uri.pathSegments.last;
+      // Strip whichever of our two suffixes is present; skip anything else
+      // (this directory is dedicated to voice takes, but be defensive).
+      if (name.endsWith('.baseline')) {
+        stems.add(name.substring(0, name.length - '.baseline'.length));
+      } else if (name.endsWith('.latest')) {
+        stems.add(name.substring(0, name.length - '.latest'.length));
+      }
+    }
+    return stems;
+  }
+
   /// Skill -> a safe filename stem (skills are scenario ids, but be defensive).
-  static String _safe(String skill) => skill.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+  static String _safe(String skill) => safeStorageKey(skill);
 
   static bool _equal(Uint8List a, Uint8List b) {
     if (a.length != b.length) return false;

@@ -21,6 +21,10 @@ abstract class VoiceTakeKvStore {
 
   /// Removes every entry — the on-device erase (#219).
   Future<void> clear();
+
+  /// Every key currently present — used only by [KvVoiceTakeStore.knownSkills]
+  /// for the startup TTL sweep (#321).
+  Future<Set<String>> keys();
 }
 
 /// [VoiceTakeStore] implemented over a persistent [VoiceTakeKvStore], mirroring
@@ -31,7 +35,7 @@ abstract class VoiceTakeKvStore {
 /// Because the KV persists across app runs (IndexedDB on web), so does the audible
 /// before/after — that persistence is the whole point of #205 (the previous web
 /// fallback was in-memory and lost the "you, 7 days ago" comparison on reload).
-class KvVoiceTakeStore implements VoiceTakeStore {
+class KvVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
   KvVoiceTakeStore(this._kv);
 
   final VoiceTakeKvStore _kv;
@@ -69,9 +73,24 @@ class KvVoiceTakeStore implements VoiceTakeStore {
     await _kv.delete('$key.latest');
   }
 
+  /// Returns SAFE-transformed stems (post-[_safe]) — see the equivalent note
+  /// on [FileVoiceTakeStore.knownSkills]; round-trips correctly through
+  /// [takesFor]/[deleteSkill] because [_safe] is idempotent on its own output.
+  @override
+  Future<Set<String>> knownSkills() async {
+    final stems = <String>{};
+    for (final key in await _kv.keys()) {
+      if (key.endsWith('.baseline')) {
+        stems.add(key.substring(0, key.length - '.baseline'.length));
+      } else if (key.endsWith('.latest')) {
+        stems.add(key.substring(0, key.length - '.latest'.length));
+      }
+    }
+    return stems;
+  }
+
   /// Skill -> a safe key stem (skills are scenario ids/slugs, but be defensive).
-  static String _safe(String skill) =>
-      skill.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+  static String _safe(String skill) => safeStorageKey(skill);
 
   static bool _equal(Uint8List a, Uint8List b) {
     if (a.length != b.length) return false;

@@ -32,4 +32,19 @@ void main() {
     expect(takes!.baseline, Uint8List.fromList([1, 1, 1]));
     expect(takes.latest, Uint8List.fromList([2, 2, 2]));
   });
+
+  test('keys() enumerates entries in the real IndexedDB store (#321)',
+      () async {
+    // Unique per run so re-runs don't collide in the shared browser database.
+    final key = 'e2e_keys_${DateTime.now().microsecondsSinceEpoch}';
+    final kv = IndexedDbVoiceTakeKv();
+
+    await kv.write(key, Uint8List.fromList([1]));
+
+    expect(await kv.keys(), contains(key));
+
+    await kv.delete(key);
+
+    expect(await kv.keys(), isNot(contains(key)));
+  });
 }

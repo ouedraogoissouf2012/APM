@@ -95,4 +95,20 @@ void main() {
     expect(takes!.baseline, Uint8List.fromList([1, 1, 1]));
     expect(takes.latest, Uint8List.fromList([2, 2, 2]));
   });
+
+  test('the real Web Crypto (crypto.subtle) AES-GCM path honours the AAD '
+      'binding (#320) — a ciphertext copied to a different skill fails to '
+      'decrypt', () async {
+    final raw = _RawStore();
+    final keyStorage = _InMemoryKeyValueStore();
+    final store = EncryptedVoiceTakeStore(raw, keyStorage: keyStorage);
+    await store.saveTake('restaurant', Uint8List.fromList([1, 2, 3]));
+    await store.saveTake('restaurant', Uint8List.fromList([4, 5, 6]));
+    final stolen = raw._baseline['restaurant']!;
+
+    raw._baseline['job_interview'] = stolen;
+    raw._latest['job_interview'] = stolen;
+
+    expect(await store.takesFor('job_interview'), isNull);
+  });
 }

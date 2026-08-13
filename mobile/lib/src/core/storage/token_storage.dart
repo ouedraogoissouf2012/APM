@@ -10,6 +10,12 @@ abstract class TokenStorage {
   Future<void> clear();
 }
 
+/// Web limitation (#318, evaluated — not fixed here): the access/refresh
+/// tokens this stores are protected by the SAME underlying
+/// `flutter_secure_storage` AES key as [SecureKeyValueStore] — see that
+/// class's doc comment for the verified, detailed explanation of why no
+/// `WebOptions(wrapKey: ...)` was added and what web actually protects
+/// against today (passive access, not DevTools/XSS).
 class SecureTokenStorage implements TokenStorage {
   SecureTokenStorage([FlutterSecureStorage? storage])
     : _storage = storage ?? const FlutterSecureStorage();

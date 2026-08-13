@@ -73,6 +73,26 @@ class TtlVoiceTakeStore implements VoiceTakeStore {
   @override
   Future<void> deleteSkill(String skill) => _inner.deleteSkill(skill);
 
+  /// Startup sweep (#321): [takesFor]'s purge-on-stale-read only fires for a
+  /// skill someone actually re-reads — a skill saved once and never reopened
+  /// keeps its stale bytes indefinitely, well past [ttl], until an explicit
+  /// [eraseAll]. This purges every EXPIRED skill up front instead of waiting
+  /// for a read that may never come, by reusing [takesFor]'s own freshness
+  /// check + physical purge for each skill [_inner] reports as having
+  /// something stored.
+  ///
+  /// A no-op if [_inner] doesn't support enumeration (not part of
+  /// [VoiceTakeStore] itself — see [SkillEnumerator]); callers should treat
+  /// this as best-effort, not a guarantee every expired take is gone by the
+  /// time it returns.
+  Future<void> sweepExpired() async {
+    final inner = _inner;
+    if (inner is! SkillEnumerator) return;
+    for (final skill in await (inner as SkillEnumerator).knownSkills()) {
+      await takesFor(skill);
+    }
+  }
+
   Uint8List _stamp(Uint8List bytes, DateTime at) {
     final out = Uint8List(_headerBytes + bytes.length);
     final millis = at.toUtc().millisecondsSinceEpoch;

@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// A raw in-memory [VoiceTakeStore] with NO timestamp semantics of its own —
 /// stands in for whichever real store (file/IndexedDB) [TtlVoiceTakeStore]
 /// wraps, so the wrapper's TTL logic is tested in isolation.
-class _RawStore implements VoiceTakeStore {
+class _RawStore implements VoiceTakeStore, SkillEnumerator {
   final Map<String, Uint8List> _baseline = {};
   final Map<String, Uint8List> _latest = {};
   int eraseAllCalls = 0;
@@ -53,6 +53,9 @@ class _RawStore implements VoiceTakeStore {
   /// baseline, bypassing any TTL stripping — lets a test confirm stamping
   /// happened without depending on the two-distinct-takes read rule.
   Uint8List? peekBaseline(String skill) => _baseline[skill];
+
+  @override
+  Future<Set<String>> knownSkills() async => {..._baseline.keys, ..._latest.keys};
 }
 
 void main() {
@@ -193,5 +196,72 @@ void main() {
       await store.deleteSkill('a');
       expect(raw.deleteSkillCalls, ['a']);
     });
+
+    group('sweepExpired (#321)', () {
+      test('purges an expired skill that was never re-read', () async {
+        // The exact gap #321 closes: nothing ever calls takesFor('a') again
+        // after it goes stale, so only a sweep — not the read-time purge —
+        // can free its bytes.
+        await store.saveTake('a', Uint8List.fromList([1]));
+        clock = clock.add(const Duration(days: 30) + const Duration(seconds: 1));
+        await store.saveTake('a', Uint8List.fromList([2]));
+
+        await store.sweepExpired();
+
+        expect(raw.deleteSkillCalls, ['a']);
+        expect(raw._baseline.containsKey('a'), isFalse);
+        expect(raw._latest.containsKey('a'), isFalse);
+      });
+
+      test('leaves a fresh skill untouched', () async {
+        await store.saveTake('a', Uint8List.fromList([1]));
+        await store.saveTake('a', Uint8List.fromList([2]));
+
+        await store.sweepExpired();
+
+        expect(raw.deleteSkillCalls, isEmpty);
+        expect((await store.takesFor('a'))!.baseline, [1]);
+      });
+
+      test('sweeps every expired skill independently, leaving fresh ones',
+          () async {
+        await store.saveTake('stale-one', Uint8List.fromList([1]));
+        await store.saveTake('stale-two', Uint8List.fromList([1]));
+        clock = clock.add(const Duration(days: 30) + const Duration(seconds: 1));
+        await store.saveTake('stale-one', Uint8List.fromList([2]));
+        await store.saveTake('stale-two', Uint8List.fromList([2]));
+        await store.saveTake('fresh', Uint8List.fromList([9]));
+        await store.saveTake('fresh', Uint8List.fromList([10]));
+
+        await store.sweepExpired();
+
+        expect(raw.deleteSkillCalls.toSet(), {'stale-one', 'stale-two'});
+        expect((await store.takesFor('fresh'))!.baseline, [9]);
+      });
+
+      test('is a no-op when the inner store cannot enumerate skills',
+          () async {
+        final noEnum = TtlVoiceTakeStore(
+          _NonEnumerableStore(),
+          ttl: const Duration(days: 30),
+          now: () => clock,
+        );
+        await noEnum.sweepExpired(); // must not throw
+      });
+    });
   });
+}
+
+/// A [VoiceTakeStore] that deliberately does NOT implement [SkillEnumerator]
+/// — stands in for a store [TtlVoiceTakeStore.sweepExpired] can't enumerate,
+/// confirming it degrades to a no-op rather than throwing.
+class _NonEnumerableStore implements VoiceTakeStore {
+  @override
+  Future<void> saveTake(String skill, Uint8List bytes) async {}
+  @override
+  Future<VoiceTakes?> takesFor(String skill) async => null;
+  @override
+  Future<void> eraseAll() async {}
+  @override
+  Future<void> deleteSkill(String skill) async {}
 }
