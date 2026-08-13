@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../../core/router/debounced_push.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../design_system/atoms/overline_text.dart';
@@ -31,7 +31,7 @@ class LearnScreen extends StatelessWidget {
             icon: Icons.psychology_outlined,
             title: 'Ce que je sais de toi',
             subtitle: 'Voir et éditer la mémoire de l’assistant',
-            onTap: () => context.push(Routes.memory),
+            onTap: () => context.debouncedPush(Routes.memory),
           ),
           const SizedBox(height: AppSpacing.sm),
           _LearnCard(
@@ -39,7 +39,7 @@ class LearnScreen extends StatelessWidget {
             icon: Icons.menu_book_outlined,
             title: 'Mon carnet',
             subtitle: 'Les mots vus en session, à réviser',
-            onTap: () => context.push(Routes.vocabulary),
+            onTap: () => context.debouncedPush(Routes.vocabulary),
           ),
           const SizedBox(height: AppSpacing.sm),
           _LearnCard(
@@ -47,7 +47,7 @@ class LearnScreen extends StatelessWidget {
             icon: Icons.repeat,
             title: 'À réviser',
             subtitle: 'Tes fautes récurrentes, au bon moment',
-            onTap: () => context.push(Routes.review),
+            onTap: () => context.debouncedPush(Routes.review),
           ),
         ],
       ),
