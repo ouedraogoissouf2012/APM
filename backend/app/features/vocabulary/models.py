@@ -24,7 +24,7 @@ class VocabularyEntry(Base):
     )
     # The session it was first captured in — powers the "VU EN SESSION #23" overline.
     session_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True
     )
     word: Mapped[str] = mapped_column(String(120), nullable=False)
     phonetic: Mapped[str] = mapped_column(String(200), default="", nullable=False)

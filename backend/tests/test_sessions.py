@@ -196,3 +196,32 @@ async def test_end_bills_the_last_turn_interval_only_once(_engine, _setup_db):
         billed = (await s.get(User, uid)).minutes_used_today
     # Total billed = 2 (turn) + 1 (residual) = 3. The stale-read bug gives 2 + 3 = 5.
     assert billed == pytest.approx(3.0, abs=0.05)
+
+
+@pytest.mark.asyncio
+async def test_sessions_has_composite_user_id_started_at_index(db_session):
+    """#359: (user_id, started_at) must stay index-covered — it serves
+    get_active_for_user's plain user_id filter as a leftmost-prefix match and
+    list_recent_for_user's ORDER BY started_at DESC. Checks the LIVE schema
+    (provisioned by Base.metadata.create_all, same as CI), mirroring #288's
+    review_items test. Also asserts the old single-column index is gone, since
+    the composite fully subsumes it (#359 consolidates rather than adds)."""
+    from sqlalchemy import text
+
+    result = await db_session.execute(
+        text(
+            "SELECT indexdef FROM pg_indexes WHERE tablename = 'sessions'"
+            " AND indexname = 'ix_sessions_user_id_started_at'"
+        )
+    )
+    indexdef = result.scalar_one_or_none()
+    assert indexdef is not None, "composite (user_id, started_at) index is missing"
+    assert indexdef.endswith("(user_id, started_at)"), indexdef
+
+    stale = await db_session.execute(
+        text(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'sessions'"
+            " AND indexname = 'ix_sessions_user_id'"
+        )
+    )
+    assert stale.scalar_one_or_none() is None, "old single-column index should be dropped"

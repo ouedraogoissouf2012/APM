@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -14,13 +14,21 @@ class VoiceConsent(Base):
     `updated_at` timestamps the record so a change is auditable/versioned."""
 
     __tablename__ = "voice_consents"
+    # Mirrors the live migration (d4e5f6a7b8c9) exactly: a named UniqueConstraint
+    # backing the one-consent-per-user invariant, PLUS a separate non-unique
+    # index on the same column — two distinct index objects in Postgres, not
+    # the single unique index `mapped_column(unique=True, index=True)` would
+    # produce (#360: that drift would make an autogenerate diff try to DROP one
+    # of the two and CREATE the other).
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_voice_consent_user"),
+        Index("ix_voice_consents_user_id", "user_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
-        unique=True,
-        index=True,
         nullable=False,
     )
     # Uploading audio to the server STT (Groq). ON by default; revoking it means

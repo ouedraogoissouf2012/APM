@@ -21,6 +21,9 @@ class _InMemoryReviewRepo:
     async def list_for_user(self, user_id):
         return [i for (u, _), i in self._rows.items() if u == user_id]
 
+    async def lock_for_user(self, user_id):
+        pass
+
     async def upsert(
         self, user_id, error_type, *, stage, clean_streak, status, next_review_at, latest_correction
     ):

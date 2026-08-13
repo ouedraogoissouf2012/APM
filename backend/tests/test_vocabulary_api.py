@@ -6,6 +6,7 @@ the HTTP list/patch behaviour.
 """
 
 import pytest
+from sqlalchemy import text
 
 from app.features.debrief.domain import VocabularyWord
 from app.features.vocabulary.repository import SqlAlchemyVocabularyRepository
@@ -125,3 +126,20 @@ async def test_list_rejects_oversized_limit(client):
     headers, _ = await _register(client)
     resp = await client.get("/vocabulary?limit=10000", headers=headers)
     assert resp.status_code == 422, resp.text  # le=MAX_PAGE_SIZE enforced at the boundary
+
+
+@pytest.mark.asyncio
+async def test_vocabulary_entries_has_session_id_index(db_session):
+    """#358: session_id (FK SET NULL to sessions.id) must stay index-covered so a
+    lookup/cascade by session never regresses to a sequential scan if the model
+    is edited later. Checks the LIVE schema (provisioned by
+    Base.metadata.create_all, same as CI), mirroring #288's review_items test."""
+    result = await db_session.execute(
+        text(
+            "SELECT indexdef FROM pg_indexes WHERE tablename = 'vocabulary_entries'"
+            " AND indexname = 'ix_vocabulary_entries_session_id'"
+        )
+    )
+    indexdef = result.scalar_one_or_none()
+    assert indexdef is not None, "session_id index is missing"
+    assert indexdef.endswith("(session_id)"), indexdef

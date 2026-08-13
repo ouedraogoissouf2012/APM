@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import DataError
+from sqlalchemy.exc import DataError, IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.domain.exceptions import (
@@ -105,6 +105,15 @@ async def _data_error_handler(request: Request, exc: Exception) -> JSONResponse:
     return _error_response(status.HTTP_422_UNPROCESSABLE_ENTITY, "DataError", "Invalid input")
 
 
+async def _integrity_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """SQLAlchemy IntegrityError — a unique/foreign-key/check constraint violation
+    that reached the DB uncaught (#362). Most get-or-create races are already
+    closed at the repository level with an ON CONFLICT clause, but this is the
+    safety net for any commit that isn't: mapped to 409 (the request conflicts
+    with the current state) rather than falling through to a raw 500."""
+    return _error_response(status.HTTP_409_CONFLICT, "IntegrityError", "Conflicting data")
+
+
 async def _http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """FastAPI/Starlette's built-in HTTPException, raised ad hoc across routers for
     one-off checks (e.g. a 403 consent gate, a 422 pre-check) — AND the one Starlette's
@@ -148,6 +157,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     for exc_type, http_status in _STATUS_BY_EXCEPTION:
         app.add_exception_handler(exc_type, _make_handler(http_status))
     app.add_exception_handler(DataError, _data_error_handler)
+    app.add_exception_handler(IntegrityError, _integrity_error_handler)
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_error_handler)
     # Catch-all for unmapped exceptions (bugs): logged + normalized 500.

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.engines import ENGINE_FAKE
@@ -9,10 +9,15 @@ from app.database import Base
 
 class ConversationSession(Base):
     __tablename__ = "sessions"
+    # Serves get_active_for_user's plain user_id filter as a leftmost-prefix
+    # match while also covering list_recent_for_user's ORDER BY started_at DESC
+    # (satisfiable via a backward index scan) — replaces the old single-column
+    # ix_sessions_user_id, on the model of #288 (#359).
+    __table_args__ = (Index("ix_sessions_user_id_started_at", "user_id", "started_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     mode: Mapped[str] = mapped_column(String(16), nullable=False)  # "scenario" | "free" | "mission"
     scenario_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

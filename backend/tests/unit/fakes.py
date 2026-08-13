@@ -133,8 +133,11 @@ class InMemoryProfileRepository:
     async def get_by_user_id(self, user_id: int) -> LearnerProfile | None:
         return self._by_user_id.get(user_id)
 
-    async def create(self, profile: LearnerProfile) -> LearnerProfile:
-        self._by_user_id[profile.user_id] = profile
+    async def get_or_create(self, user_id: int) -> LearnerProfile:
+        profile = self._by_user_id.get(user_id)
+        if profile is None:
+            profile = LearnerProfile(user_id=user_id)
+            self._by_user_id[user_id] = profile
         return profile
 
     async def save(self, profile: LearnerProfile) -> LearnerProfile:

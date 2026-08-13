@@ -5,11 +5,14 @@ lists what is due. We seed the schedule through the ReviewService on the shared
 db session, then assert the endpoint.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.features.review.models import ReviewItem
 from app.features.review.repository import SqlAlchemyReviewRepository
 from app.features.review.service import ReviewService
 
@@ -125,6 +128,43 @@ async def test_review_items_has_next_review_at_index(db_session):
     indexdef = result.scalar_one_or_none()
     assert indexdef is not None, "composite (user_id, next_review_at) index is missing"
     assert indexdef.endswith("(user_id, next_review_at)"), indexdef
+
+
+@pytest.mark.asyncio
+async def test_concurrent_record_session_same_user_does_not_duplicate_or_crash(
+    client, db_session, _engine
+):
+    """#361: two concurrent record_session calls for the SAME user (e.g. two
+    devices each finishing a different session around the same time) must not
+    crash on review_items' uq_review_user_error_type constraint, and must not
+    end up with two rows for the same error_type. Two independent DB sessions
+    reproduce genuinely concurrent transactions — mirrors
+    test_debrief_api.py's #302 concurrency test, at the service layer since
+    record_session has no dedicated HTTP endpoint of its own (it's a hook off
+    the debrief flow). The repository's advisory lock (lock_for_user)
+    serialises them: the loser blocks until the winner's commit releases it.
+    """
+    headers = await _auth(client)
+    me = await client.get("/auth/me", headers=headers)
+    user_id = me.json()["id"]
+
+    now = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+    maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as session_a, maker() as session_b:
+        service_a = ReviewService(SqlAlchemyReviewRepository(session_a))
+        service_b = ReviewService(SqlAlchemyReviewRepository(session_b))
+        await asyncio.gather(
+            service_a.record_session(user_id, {"verb_tense": "I go"}, now),
+            service_b.record_session(user_id, {"verb_tense": "I go"}, now),
+        )
+
+    db_session.expire_all()
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(ReviewItem)
+        .where(ReviewItem.user_id == user_id, ReviewItem.error_type == "verb_tense")
+    )
+    assert count == 1  # no duplicate row, no IntegrityError
 
 
 @pytest.mark.asyncio

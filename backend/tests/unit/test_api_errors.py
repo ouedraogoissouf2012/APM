@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 
 from app.api.errors import register_exception_handlers
 from app.domain.exceptions import LlmProviderError
@@ -83,6 +84,29 @@ def test_unmatched_route_returns_normalized_404_not_bare_detail():
 
     assert response.status_code == 404
     assert response.json() == {"error": {"code": "NotFound", "message": "Not Found"}}
+
+
+def test_integrity_error_returns_normalized_409():
+    """A commit that races past an application-level ON CONFLICT guard (or hits a
+    table with no such guard) can still raise a raw IntegrityError. This must
+    return 409 with the normalized envelope, not fall through to the generic
+    unhandled-exception 500 (#362)."""
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/boom")
+    async def boom():
+        raise IntegrityError("INSERT INTO t (id) VALUES (1)", {}, Exception("duplicate key"))
+
+    response = TestClient(app).get("/boom")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": {
+            "code": "IntegrityError",
+            "message": "Conflicting data",
+        }
+    }
 
 
 def test_wrong_method_returns_normalized_405_not_bare_detail():
