@@ -1,3 +1,4 @@
+import 'package:apm/src/core/router/debounced_push.dart';
 import 'package:apm/src/core/router/routes.dart';
 import 'package:apm/src/core/theme/app_theme.dart';
 import 'package:apm/src/data/models/debrief.dart';
@@ -61,6 +62,15 @@ Future<void> _pump(
 }
 
 void main() {
+  // The debounce guard (#331) is a single instance shared by the whole app, so
+  // its state otherwise leaks across test cases: two tests pushing the same
+  // route (several do, below — echo, review) within the cooldown of real
+  // wall-clock test time would spuriously debounce each other. A FIXED clock
+  // (not DateTime.now) also makes the double-tap tests below immune to a slow
+  // CI runner: two tester.tap() calls always land at the "same instant" from
+  // the guard's perspective, however long real elapsed time actually took.
+  setUp(() => debugResetDebouncedPushGuard(DebouncedPushGuard(clock: () => DateTime(2026))));
+
   testWidgets('renders on the app dark surface — one consistent theme, no inversion',
       (tester) async {
     await _pump(tester, _debrief());
@@ -218,5 +228,86 @@ void main() {
       (tester) async {
     await _pump(tester, _debrief()); // no scenarioId
     expect(find.byKey(const Key('debrief_next_proof')), findsNothing);
+  });
+
+  group('anti-double-tap on push navigation (#331)', () {
+    testWidgets('a rapid double-tap on "m\'entraîner à prononcer" pushes only '
+        'once — one pop returns straight to the debrief, not to a second '
+        'stacked Echo screen', (tester) async {
+      await _pump(tester, _debrief());
+      final button = find.byKey(const Key('debrief_next_echo'));
+      await tester.tap(button);
+      await tester.tap(button); // the accidental second tap
+      await tester.pumpAndSettle();
+      expect(find.text('Echo target'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('Echo target'))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Echo target'), findsNothing); // not still stacked
+      expect(find.byKey(const Key('cefr_estimate')), findsOneWidget); // back
+    });
+
+    testWidgets('a rapid double-tap on "réviser mes fautes" pushes only once',
+        (tester) async {
+      await _pump(tester, _debrief());
+      final button = find.byKey(const Key('debrief_next_review'));
+      await tester.tap(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      expect(find.text('Review target'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('Review target'))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Review target'), findsNothing);
+      expect(find.byKey(const Key('cefr_estimate')), findsOneWidget);
+    });
+
+    testWidgets('a rapid double-tap on "ta priorité" pushes only once',
+        (tester) async {
+      await _pump(
+        tester,
+        _debrief(),
+        due: const [
+          ReviewItem(
+            errorType: 'verb_tense',
+            latestCorrection: 'I went',
+            stage: 0,
+            cleanStreak: 0,
+            status: 'due',
+          ),
+        ],
+      );
+      final focus = find.byKey(const Key('debrief_priority_focus'));
+      await tester.ensureVisible(focus);
+      await tester.tap(focus);
+      await tester.tap(focus);
+      await tester.pumpAndSettle();
+      expect(find.text('Review target'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('Review target'))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Review target'), findsNothing);
+      expect(find.byKey(const Key('cefr_estimate')), findsOneWidget);
+    });
+
+    testWidgets('a rapid double-tap on "Ma preuve" pushes only once',
+        (tester) async {
+      await _pump(tester, _debrief(), scenarioId: 'job_interview');
+      final proof = find.byKey(const Key('debrief_next_proof'));
+      await tester.ensureVisible(proof);
+      await tester.tap(proof);
+      await tester.tap(proof);
+      await tester.pumpAndSettle();
+      expect(find.text('Proof target'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('Proof target'))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Proof target'), findsNothing);
+      expect(find.byKey(const Key('cefr_estimate')), findsOneWidget);
+    });
   });
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../../core/router/debounced_push.dart';
 import '../../../core/router/routes.dart';
 import '../../../data/models/profile.dart';
 import '../view_model/profile_view_model.dart';
@@ -146,7 +146,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 title: const Text('Ma voix & confidentialité'),
                 subtitle: const Text('Consentements, export, effacement'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push(Routes.voicePrivacy),
+                onTap: () => context.debouncedPush(Routes.voicePrivacy),
               ),
             ],
           );

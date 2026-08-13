@@ -1,3 +1,4 @@
+import 'package:apm/src/core/router/debounced_push.dart';
 import 'package:apm/src/core/router/routes.dart';
 import 'package:apm/src/core/theme/app_theme.dart';
 import 'package:apm/src/ui/learn/widgets/learn_screen.dart';
@@ -31,6 +32,13 @@ Future<void> _pump(WidgetTester tester) async {
 }
 
 void main() {
+  // Shared, single-instance guard (#331) — reset before every test so a
+  // route pushed by one test can't spuriously debounce the same route in
+  // another (see debounced_push.dart's own doc comment). A FIXED clock also
+  // makes the double-tap tests below immune to real elapsed time on a slow
+  // CI runner.
+  setUp(() => debugResetDebouncedPushGuard(DebouncedPushGuard(clock: () => DateTime(2026))));
+
   testWidgets('groups the three learning zones under one hub (#194)',
       (tester) async {
     await _pump(tester);
@@ -38,6 +46,13 @@ void main() {
     expect(find.byKey(const Key('learn_memory')), findsOneWidget);
     expect(find.byKey(const Key('learn_vocabulary')), findsOneWidget);
     expect(find.byKey(const Key('learn_review')), findsOneWidget);
+  });
+
+  testWidgets('the memory card opens "ce que je sais de toi"', (tester) async {
+    await _pump(tester);
+    await tester.tap(find.byKey(const Key('learn_memory')));
+    await tester.pumpAndSettle();
+    expect(find.text('Memory target'), findsOneWidget);
   });
 
   testWidgets('the notebook card opens the vocabulary screen', (tester) async {
@@ -52,5 +67,55 @@ void main() {
     await tester.tap(find.byKey(const Key('learn_review')));
     await tester.pumpAndSettle();
     expect(find.text('Review target'), findsOneWidget);
+  });
+
+  group('anti-double-tap on push navigation (#331)', () {
+    testWidgets('a rapid double-tap on "ce que je sais de toi" pushes only once',
+        (tester) async {
+      await _pump(tester);
+      final card = find.byKey(const Key('learn_memory'));
+      await tester.tap(card);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.text('Memory target'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('Memory target'))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Memory target'), findsNothing);
+      expect(find.text('Apprendre'), findsOneWidget);
+    });
+
+    testWidgets('a rapid double-tap on "mon carnet" pushes only once',
+        (tester) async {
+      await _pump(tester);
+      final card = find.byKey(const Key('learn_vocabulary'));
+      await tester.tap(card);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.text('Vocabulary target'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('Vocabulary target'))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Vocabulary target'), findsNothing);
+      expect(find.text('Apprendre'), findsOneWidget);
+    });
+
+    testWidgets('a rapid double-tap on "à réviser" pushes only once',
+        (tester) async {
+      await _pump(tester);
+      final card = find.byKey(const Key('learn_review'));
+      await tester.tap(card);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.text('Review target'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('Review target'))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Review target'), findsNothing);
+      expect(find.text('Apprendre'), findsOneWidget);
+    });
   });
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/debounced_push.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/debrief.dart';
@@ -9,7 +10,6 @@ import '../../../design_system/atoms/overline_text.dart';
 import '../../review/error_type_label.dart';
 import '../../review/view_model/review_view_model.dart';
 import '../view_model/debrief_view_model.dart';
-import 'pronunciation_map.dart';
 
 /// End-of-session debrief — DESIGN_SPEC §5.5 / §7. Rendered on the app's default
 /// **dark** surface, like every other screen: the learner asked for one
@@ -79,12 +79,6 @@ class _DebriefBody extends StatelessWidget {
           const SizedBox(height: AppSpacing.xl),
           _WhatWorked(summary: debrief.summary),
         ],
-        if (debrief.pronunciationScores.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.xl),
-          const OverlineText('prononciation'),
-          const SizedBox(height: AppSpacing.md),
-          PronunciationMap(scores: debrief.pronunciationScores),
-        ],
         const SizedBox(height: AppSpacing.xl),
         _ToReview(errors: debrief.errors),
         const SizedBox(height: AppSpacing.xxl),
@@ -122,7 +116,7 @@ class _NextSteps extends StatelessWidget {
             icon: Icons.timeline,
             title: 'Ma preuve',
             subtitle: 'Ton avant/après, et un défi pour prouver la maîtrise',
-            onTap: () => context.push(Routes.proof(scenarioId!)),
+            onTap: () => context.debouncedPush(Routes.proof(scenarioId!)),
           ),
           const SizedBox(height: AppSpacing.sm),
         ],
@@ -131,7 +125,7 @@ class _NextSteps extends StatelessWidget {
           icon: Icons.graphic_eq,
           title: "M'entraîner à prononcer",
           subtitle: 'Répète et écoute ta voix face au modèle',
-          onTap: () => context.push(Routes.echo),
+          onTap: () => context.debouncedPush(Routes.echo),
         ),
         const SizedBox(height: AppSpacing.sm),
         _NextStepButton(
@@ -139,7 +133,7 @@ class _NextSteps extends StatelessWidget {
           icon: Icons.repeat,
           title: 'Réviser mes fautes',
           subtitle: 'Tes erreurs récurrentes, au bon moment',
-          onTap: () => context.push(Routes.review),
+          onTap: () => context.debouncedPush(Routes.review),
         ),
       ],
     );
@@ -163,7 +157,7 @@ class _PriorityFocus extends ConsumerWidget {
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: InkWell(
         key: const Key('debrief_priority_focus'),
-        onTap: () => context.push(Routes.review),
+        onTap: () => context.debouncedPush(Routes.review),
         borderRadius: BorderRadius.circular(AppRadius.hero),
         child: _Panel(
           child: Column(

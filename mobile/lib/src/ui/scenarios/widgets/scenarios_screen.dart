@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/debounced_push.dart';
 import '../../../core/router/routes.dart';
 import '../../../data/models/scenarios.dart';
 import '../../../data/models/session_modes.dart';
@@ -50,7 +51,7 @@ class ScenariosScreen extends StatelessWidget {
                   key: Key('proof_${scenario.id}'),
                   icon: const Icon(Icons.timeline),
                   tooltip: 'Ma preuve',
-                  onPressed: () => context.push(Routes.proof(scenario.id)),
+                  onPressed: () => context.debouncedPush(Routes.proof(scenario.id)),
                 ),
                 onTap: () => context.go(
                   Routes.conversationWith(
