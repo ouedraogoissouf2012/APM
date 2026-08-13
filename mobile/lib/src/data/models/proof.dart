@@ -9,7 +9,10 @@ class Proof {
     required this.latestStartedAt,
     required this.baselineCefr,
     required this.latestCefr,
+    required this.baselineTurns,
+    required this.latestTurns,
     required this.resolved,
+    required this.improved,
     required this.newOrWorse,
   });
 
@@ -21,8 +24,16 @@ class Proof {
   final String baselineCefr;
   final String latestCefr;
 
+  /// Learner-turn counts at each end, so the comparison's basis is visible: a
+  /// shorter session isn't spun as progress (the deltas below are per-turn).
+  final int baselineTurns;
+  final int latestTurns;
+
   /// Error types the learner made at baseline and no longer makes.
   final List<String> resolved;
+
+  /// Error types still made, but less often per turn than at baseline.
+  final List<String> improved;
 
   /// Error types that appeared or got worse since baseline (honest regressions).
   final List<String> newOrWorse;
@@ -35,7 +46,12 @@ class Proof {
     latestStartedAt: DateTime.parse(json['latest_started_at'] as String),
     baselineCefr: json['baseline_cefr'] as String,
     latestCefr: json['latest_cefr'] as String,
+    baselineTurns: json['baseline_turns'] as int,
+    latestTurns: json['latest_turns'] as int,
     resolved: ((json['resolved'] as List?) ?? const [])
+        .map((e) => e as String)
+        .toList(),
+    improved: ((json['improved'] as List?) ?? const [])
         .map((e) => e as String)
         .toList(),
     newOrWorse: ((json['new_or_worse'] as List?) ?? const [])

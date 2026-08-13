@@ -25,7 +25,10 @@ class ProofScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
-          child: Text('Impossible de charger ta preuve.', key: Key('proof_error')),
+          child: Text(
+            'Impossible de charger ta preuve.',
+            key: Key('proof_error'),
+          ),
         ),
         data: (proof) => proof == null
             ? _NotEnoughYet(skill: skill)
@@ -132,12 +135,38 @@ class _ProofBody extends StatelessWidget {
           key: const Key('proof_cefr'),
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            child: Column(
               children: [
-                _Level(label: 'Avant', level: proof.baselineCefr),
-                const Icon(Icons.arrow_forward),
-                _Level(label: 'Maintenant', level: proof.latestCefr),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _Level(label: 'Avant', level: proof.baselineCefr),
+                    const Icon(Icons.arrow_forward),
+                    _Level(label: 'Maintenant', level: proof.latestCefr),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // Turn counts (#333): so a shorter session isn't read as progress —
+                // the comparison above is per-turn, and this shows its basis.
+                Text(
+                  "D'après ${_turnsPhrase(proof.baselineTurns)} avant, "
+                  '${_turnsPhrase(proof.latestTurns)} maintenant',
+                  key: const Key('proof_turns'),
+                  style: theme.textTheme.bodySmall,
+                ),
+                if (proof.baselineTurns > 0 &&
+                    proof.latestTurns > 0 &&
+                    proof.latestTurns < proof.baselineTurns) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Séance plus courte : comparaison ramenée au même rythme '
+                    '(par échange), pas au volume brut.',
+                    key: const Key('proof_shorter_session_note'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.tertiary,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -150,27 +179,40 @@ class _ProofBody extends StatelessWidget {
           Text('Tu as corrigé', style: theme.textTheme.titleMedium),
           const SizedBox(height: 6),
           for (final t in proof.resolved)
-            ListTile(
-              key: Key('resolved_$t'),
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.check_circle, color: theme.colorScheme.primary),
-              title: Text(errorTypeLabel(t)),
+            _ErrorTile(
+              errorType: t,
+              keyPrefix: 'resolved',
+              icon: Icons.check_circle,
+              color: theme.colorScheme.primary,
             ),
         ] else
           Text(
             'Pas encore de faute résolue sur cette compétence — continue !',
             style: theme.textTheme.bodyMedium,
           ),
+        if (proof.improved.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('En progrès', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 6),
+          for (final t in proof.improved)
+            _ErrorTile(
+              errorType: t,
+              keyPrefix: 'improved',
+              icon: Icons.trending_up,
+              color: theme.colorScheme.primary,
+              subtitle: 'Encore présente, mais moins souvent qu\'avant',
+            ),
+        ],
         if (proof.newOrWorse.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text('À surveiller', style: theme.textTheme.titleMedium),
           const SizedBox(height: 6),
           for (final t in proof.newOrWorse)
-            ListTile(
-              key: Key('worse_$t'),
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.warning_amber, color: theme.colorScheme.tertiary),
-              title: Text(errorTypeLabel(t)),
+            _ErrorTile(
+              errorType: t,
+              keyPrefix: 'worse',
+              icon: Icons.warning_amber,
+              color: theme.colorScheme.tertiary,
             ),
         ],
         const Divider(height: 32),
@@ -215,21 +257,61 @@ class _AudibleProof extends ConsumerWidget {
                   key: const Key('play_baseline'),
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Ta voix — avant'),
-                  onPressed: () =>
-                      ref.read(audioPlaybackProvider).playBytes(takes.baseline, 'audio/wav'),
+                  onPressed: () => ref
+                      .read(audioPlaybackProvider)
+                      .playBytes(takes.baseline, 'audio/wav'),
                 ),
                 OutlinedButton.icon(
                   key: const Key('play_latest'),
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Ta voix — maintenant'),
-                  onPressed: () =>
-                      ref.read(audioPlaybackProvider).playBytes(takes.latest, 'audio/wav'),
+                  onPressed: () => ref
+                      .read(audioPlaybackProvider)
+                      .playBytes(takes.latest, 'audio/wav'),
                 ),
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A learner-turn count for display. 0 means the count is unknown (no
+/// transcript row, e.g. a session predating turn tracking) rather than a
+/// genuinely empty session — the backend falls back to raw error counts in
+/// that case (proof/service.py `_rate`), so mobile must not read it as a
+/// literal zero either.
+String _turnsPhrase(int turns) => turns > 0
+    ? '$turns échange${turns > 1 ? 's' : ''}'
+    : "un nombre d'échanges non disponible";
+
+/// One error-type row, shared by the resolved/improved/regressed sections
+/// (#333) so their identical ListTile shape lives in one place.
+class _ErrorTile extends StatelessWidget {
+  const _ErrorTile({
+    required this.errorType,
+    required this.keyPrefix,
+    required this.icon,
+    required this.color,
+    this.subtitle,
+  });
+
+  final String errorType;
+  final String keyPrefix;
+  final IconData icon;
+  final Color color;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      key: Key('${keyPrefix}_$errorType'),
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: color),
+      title: Text(errorTypeLabel(errorType)),
+      subtitle: subtitle == null ? null : Text(subtitle!),
     );
   }
 }
