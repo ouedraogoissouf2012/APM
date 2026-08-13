@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 
@@ -125,3 +127,20 @@ async def test_update_profile_accepts_interests_at_the_bounds(client):
     )
     assert resp.status_code == 200, resp.text
     assert len(resp.json()["interests"]) == 20
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_profile_access_does_not_500(client):
+    """#362: two concurrent first-ever accesses to a brand-new user's profile
+    (e.g. two tabs/devices opening right after registration) must not race
+    learner_profiles' primary-key constraint into a raw 500. Each HTTP request
+    gets its own DB session (see conftest's client fixture), reproducing two
+    real concurrent connections. get_or_create's ON CONFLICT DO NOTHING makes
+    the loser's insert a no-op instead of an IntegrityError."""
+    headers = await _auth_header(client)
+    responses = await asyncio.gather(
+        client.get("/me/profile", headers=headers),
+        client.get("/me/profile", headers=headers),
+    )
+    for r in responses:
+        assert r.status_code == 200, r.text

@@ -34,6 +34,12 @@ class ReviewService:
         tracked type not present is treated as a clean session (streak grows); every
         present type is (re)scheduled at J+1. New types start their ladder.
         """
+        # Serialise concurrent record_session calls for the SAME learner (#361,
+        # mirrors #302): without this, two concurrent calls (e.g. two devices
+        # each finishing a different session around the same time) could both
+        # read the same pre-update schedule below and race to write the next
+        # SRS stage, silently losing an advance. See ReviewRepository.lock_for_user.
+        await self._repo.lock_for_user(user_id)
         existing = {item.error_type: item for item in await self._repo.list_for_user(user_id)}
 
         # Types to process: everything already tracked + everything seen now. Each

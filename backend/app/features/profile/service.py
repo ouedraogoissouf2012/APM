@@ -12,10 +12,7 @@ class ProfileService:
         self._profiles = profiles
 
     async def get_or_create(self, user_id: int) -> LearnerProfile:
-        profile = await self._profiles.get_by_user_id(user_id)
-        if profile is None:
-            profile = await self._profiles.create(LearnerProfile(user_id=user_id))
-        return profile
+        return await self._profiles.get_or_create(user_id)
 
     async def update(self, user_id: int, changes: dict[str, Any]) -> LearnerProfile:
         profile = await self.get_or_create(user_id)

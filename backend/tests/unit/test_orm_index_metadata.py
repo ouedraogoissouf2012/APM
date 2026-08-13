@@ -8,6 +8,15 @@ tests/conftest.py's `_setup_db` builds the whole test schema from
 `Base.metadata.create_all` (no alembic involved) — so this reflects the actual
 Postgres test database it produces and proves `create_all` now reproduces all
 three indexes with the EXACT names the migrations already use in production.
+
+The voice_consents test below (#360) is the same class of drift caught the
+other way around: the ORM previously declared a SINGLE unique index
+(`unique=True, index=True` on one column) where the migration
+(d4e5f6a7b8c9) actually creates TWO distinct index objects — a named unique
+constraint plus a separate non-unique index. An autogenerate diff would have
+tried to drop one and create the other. The model was aligned to the
+migration rather than the other way around, since the migration is what is
+live in production.
 """
 
 import pytest
@@ -53,3 +62,21 @@ async def test_create_all_reproduces_users_email_lower_functional_unique_index(_
     # be a plain index on the raw `email` column (that's the pre-existing
     # `ix_users_email`, a different index) — it must be the case-insensitive one.
     assert index["column_names"] == [None]
+
+
+@pytest.mark.asyncio
+async def test_create_all_reproduces_both_voice_consent_user_id_indexes(_engine, _setup_db):
+    async with _engine.connect() as conn:
+        indexes = await conn.run_sync(_reflect_indexes, "voice_consents")
+
+    # The named UniqueConstraint from the migration (backs uq-per-user)...
+    assert "uq_voice_consent_user" in indexes
+    assert indexes["uq_voice_consent_user"]["unique"] is True
+    assert indexes["uq_voice_consent_user"]["column_names"] == ["user_id"]
+    # ...AND the separate, non-unique index the migration also creates. Both
+    # must exist as distinct objects, matching what create_table produced in
+    # production — not collapsed into the single unique index that
+    # `mapped_column(unique=True, index=True)` would generate.
+    assert "ix_voice_consents_user_id" in indexes
+    assert indexes["ix_voice_consents_user_id"]["unique"] is False
+    assert indexes["ix_voice_consents_user_id"]["column_names"] == ["user_id"]
