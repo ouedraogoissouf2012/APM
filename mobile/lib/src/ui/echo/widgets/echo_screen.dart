@@ -104,12 +104,12 @@ class _RoundView extends ConsumerWidget {
   final EchoState state;
 
   static VoiceOrbState _orbFor(EchoPhase phase) => switch (phase) {
-        EchoPhase.idle => VoiceOrbState.idle,
-        EchoPhase.playingModel => VoiceOrbState.speaking,
-        EchoPhase.recording => VoiceOrbState.listening,
-        EchoPhase.scoring => VoiceOrbState.thinking,
-        EchoPhase.reviewing => VoiceOrbState.idle,
-      };
+    EchoPhase.idle => VoiceOrbState.idle,
+    EchoPhase.playingModel || EchoPhase.playingMine => VoiceOrbState.speaking,
+    EchoPhase.recording => VoiceOrbState.listening,
+    EchoPhase.scoring => VoiceOrbState.thinking,
+    EchoPhase.reviewing => VoiceOrbState.idle,
+  };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -139,14 +139,26 @@ class _RoundView extends ConsumerWidget {
         ],
         const Spacer(),
         Center(
-          child: GestureDetector(
-            key: const Key('echo_orb'),
-            onTap: orbTap,
-            child: VoiceOrb(state: _orbFor(state.phase)),
+          child: Semantics(
+            button: true,
+            enabled: orbTap != null,
+            label: _labelFor(state.phase),
+            onTapHint: _tapHintFor(state.phase),
+            child: GestureDetector(
+              key: const Key('echo_orb'),
+              onTap: orbTap,
+              child: VoiceOrb(state: _orbFor(state.phase)),
+            ),
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        Center(child: OverlineText(_labelFor(state.phase))),
+        // Excluded from the semantics tree: it repeats the orb's own
+        // Semantics.label verbatim (#329 reuses this exact text on purpose),
+        // so without this a screen reader would announce the same phrase
+        // twice in a row while swiping through.
+        Center(
+          child: ExcludeSemantics(child: OverlineText(_labelFor(state.phase))),
+        ),
         const Spacer(),
         if (state.error != null) ...[
           Text(
@@ -169,14 +181,29 @@ class _RoundView extends ConsumerWidget {
   }
 
   static String _labelFor(EchoPhase phase) => switch (phase) {
-        EchoPhase.idle => 'touche pour t’enregistrer',
-        EchoPhase.playingModel => 'écoute le modèle',
-        EchoPhase.recording => 'je t’écoute — touche pour arrêter',
-        // Scoring runs STT + the GOP acoustic model (~2-3 s on CPU); tell the
-        // learner their sounds are being analyzed so the wait is understood.
-        EchoPhase.scoring => 'analyse de tes sons…',
-        EchoPhase.reviewing => 'compare ta voix au modèle',
-      };
+    EchoPhase.idle => 'touche pour t’enregistrer',
+    EchoPhase.playingModel => 'écoute le modèle',
+    EchoPhase.playingMine => 'écoute ta voix',
+    EchoPhase.recording => 'je t’écoute — touche pour arrêter',
+    // Scoring runs STT + the GOP acoustic model (~2-3 s on CPU); tell the
+    // learner their sounds are being analyzed so the wait is understood.
+    EchoPhase.scoring => 'analyse de tes sons…',
+    EchoPhase.reviewing => 'compare ta voix au modèle',
+  };
+
+  /// #329: what a tap DOES right now, not how to perform it (Flutter's
+  /// SemanticsHintOverrides convention — "enregistrer", not "touche pour
+  /// t'enregistrer"). Null while the orb isn't tappable (playingModel/
+  /// playingMine/scoring) — a hint promising an action that won't happen
+  /// would mislead a screen-reader user, and Flutter only announces it
+  /// anyway when there's an actual tap action to attach it to.
+  static String? _tapHintFor(EchoPhase phase) => switch (phase) {
+    EchoPhase.idle || EchoPhase.reviewing => 'enregistrer',
+    EchoPhase.recording => 'arrêter',
+    EchoPhase.playingModel ||
+    EchoPhase.playingMine ||
+    EchoPhase.scoring => null,
+  };
 }
 
 /// The target phrase, with missed words highlighted once an attempt is scored.
@@ -209,12 +236,14 @@ class _PhraseText extends StatelessWidget {
       final out = <InlineSpan>[];
       for (var i = 0; i < targetWords.length; i++) {
         final color = result == null ? null : colorFor(i);
-        out.add(TextSpan(
-          text: targetWords[i],
-          style: color == null
-              ? null
-              : TextStyle(color: color, fontWeight: FontWeight.w600),
-        ));
+        out.add(
+          TextSpan(
+            text: targetWords[i],
+            style: color == null
+                ? null
+                : TextStyle(color: color, fontWeight: FontWeight.w600),
+          ),
+        );
         out.add(const TextSpan(text: ' '));
       }
       return out;
@@ -250,7 +279,25 @@ class _Feedback extends ConsumerWidget {
               child: AppButton.outlined(
                 label: 'Modèle',
                 icon: Icons.volume_up,
-                onPressed: vm.playModel,
+                // Gated on `reviewing` (#330 code review): the learner can
+                // re-record over a stale result (orbTap maps reviewing ->
+                // record(), which doesn't clear `result`), and this row stays
+                // mounted throughout since it's gated only on
+                // `state.result != null`. Without this, "Modèle" would play
+                // synthesized audio through the speaker while the mic is
+                // actively capturing the NEW attempt, bleeding into (and
+                // corrupting) the very recording about to be scored.
+                //
+                // The same `reviewing` gate also covers the "Ma voix" case
+                // below for free: playMine() leaves `reviewing` for its own
+                // EchoPhase.playingMine while it plays (#330 followup), so
+                // this button is correctly disabled then too — without that,
+                // tapping "Modèle" here would cut "Ma voix" off mid-clip
+                // through the shared player instead of being visibly (and
+                // truthfully, per #329's Semantics.enabled) disabled.
+                onPressed: state.phase == EchoPhase.reviewing
+                    ? vm.playModel
+                    : null,
               ),
             ),
             const SizedBox(width: AppSpacing.md),
@@ -258,7 +305,15 @@ class _Feedback extends ConsumerWidget {
               child: AppButton.outlined(
                 label: 'Ma voix',
                 icon: Icons.record_voice_over,
-                onPressed: state.canReplayMine ? vm.playMine : null,
+                // Same reasoning as "Modèle" above, symmetrically: replaying
+                // the PREVIOUS attempt's audio while a new one is being
+                // captured pollutes it the same way, and playModel() leaving
+                // `reviewing` for EchoPhase.playingModel while it plays
+                // correctly disables this button too.
+                onPressed:
+                    state.phase == EchoPhase.reviewing && state.canReplayMine
+                    ? vm.playMine
+                    : null,
               ),
             ),
           ],
@@ -288,10 +343,16 @@ class _Feedback extends ConsumerWidget {
               SizedBox(
                 width: 14,
                 height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2, color: colors.textMuted),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: colors.textMuted,
+                ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Text('conseil en préparation…', style: AppType.label(colors.textMuted)),
+              Text(
+                'conseil en préparation…',
+                style: AppType.label(colors.textMuted),
+              ),
             ],
           ),
         ] else if (result.isPerfect) ...[
@@ -394,7 +455,14 @@ class _Controls extends ConsumerWidget {
     return AppButton.primary(
       label: state.isLastRound ? 'Terminer' : 'Phrase suivante',
       icon: Icons.arrow_forward,
-      onPressed: state.isLastRound ? null : vm.nextRound,
+      // Gated on `reviewing` (final review sweep), not just `isLastRound`:
+      // while "Modèle"/"Ma voix" is playing, nextRound() would race
+      // loadPhrase() against the still-held busy guard (see the nextRound()
+      // doc comment in echo_view_model.dart) — the round counter would
+      // advance while the phrase/result silently stay the previous round's.
+      onPressed: state.isLastRound || state.phase != EchoPhase.reviewing
+          ? null
+          : vm.nextRound,
       fullWidth: true,
     );
   }

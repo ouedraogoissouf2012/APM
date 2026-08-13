@@ -18,9 +18,13 @@ enum EchoPhase {
 
   /// Showing the result: missed words, coaching, and A/B replay.
   reviewing,
+
+  /// Playing back the learner's own recording (A/B "Ma voix"), from reviewing.
+  playingMine,
 }
 
-const int kEchoTotalRounds = 5; // ~5 reps per phrase then a plateau (Shiki 2010)
+const int kEchoTotalRounds =
+    5; // ~5 reps per phrase then a plateau (Shiki 2010)
 
 class EchoState {
   const EchoState({

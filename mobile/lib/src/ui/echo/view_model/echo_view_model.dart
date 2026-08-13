@@ -12,9 +12,7 @@ final echoRepositoryProvider = Provider<EchoRepository>(
 );
 
 final echoViewModelProvider =
-    NotifierProvider.autoDispose<EchoViewModel, EchoState>(
-  EchoViewModel.new,
-);
+    NotifierProvider.autoDispose<EchoViewModel, EchoState>(EchoViewModel.new);
 
 /// Drives one shadowing round: load a target phrase (and synthesize the model
 /// voice), let the learner hear the model, record their attempt, score it, then
@@ -64,19 +62,56 @@ class EchoViewModel extends Notifier<EchoState> {
     }
   }
 
-  /// Plays the synthesized model voice (the phrase to imitate). Restores the
-  /// calling phase afterward rather than forcing `idle`, since this is also
-  /// callable while reviewing — re-listening must not re-arm the mic orb.
+  /// Plays the synthesized model voice (the phrase to imitate). Callable both
+  /// before recording (idle) and while reviewing a scored attempt
+  /// (reviewing, via the "Modèle" A/B button) — restores whichever phase was
+  /// active before playback (#330), instead of always forcing idle: forcing
+  /// idle from reviewing would re-arm the orb for a fresh recording while the
+  /// score/coaching panel is still on screen (a tap there would start a
+  /// stray recording over a frozen result).
+  ///
+  /// Guarded by [_busy] (#330 code review): without it, a second call landing
+  /// while the first is still awaiting playback would itself capture
+  /// `restore == EchoPhase.playingModel` (the first call's own transient
+  /// phase) — whichever call's restore then writes LAST permanently strands
+  /// the orb at playingModel (non-interactive, no self-recovery). [_busy] is
+  /// shared with [playMine] so the two can't play concurrently either — both
+  /// go through the same speaker, and without this "Ma voix" would stay
+  /// enabled (phase == reviewing the whole time it plays, pre-#330-followup)
+  /// and cut "Modèle" off mid-clip through the shared player, or vice versa.
+  ///
+  /// The `catch` (also #330 followup) matters as much as the guard: a
+  /// throwing [playClip] (unsupported/corrupt audio, a browser playback
+  /// rejection) must still restore the phase, or the orb and every A/B
+  /// control gated on `phase == reviewing` go permanently dead — and before
+  /// the learner's first listen (`result` still null), there is no "Phrase
+  /// suivante" button yet either, so that's a full soft-lock of the screen.
   Future<void> playModel() async {
+    if (_busy) return;
     final b64 = state.modelAudioB64;
-    if (b64 == null || b64.isEmpty || state.phase == EchoPhase.playingModel) {
-      return; // already playing — a re-entrant tap must not clobber restore
-    }
+    if (b64 == null || b64.isEmpty) return;
+    _busy = true;
     final restore = state.phase;
     state = state.copyWith(phase: EchoPhase.playingModel);
-    await ref.read(audioPlaybackProvider).playClip(b64, state.modelMime);
+    var failed = false;
+    try {
+      await ref.read(audioPlaybackProvider).playClip(b64, state.modelMime);
+    } catch (_) {
+      failed = true;
+    } finally {
+      _busy = false;
+    }
     if (!ref.mounted) return;
-    state = state.copyWith(phase: restore);
+    state = failed
+        ? state.copyWith(
+            phase: restore,
+            error: 'Could not play the model audio.',
+          )
+        // clearError (final review sweep): copyWith keeps `this.error` by
+        // default when no `error` is passed, so without this, a stale
+        // message from a PREVIOUS failed playback would keep showing next
+        // to A/B controls the learner just successfully replayed.
+        : state.copyWith(phase: restore, clearError: true);
   }
 
   /// Starts recording the learner reading the phrase aloud.
@@ -140,20 +175,62 @@ class EchoViewModel extends Notifier<EchoState> {
       state = state.copyWith(coaching: tip, coachingLoading: false);
     } catch (_) {
       if (!ref.mounted) return;
-      state = state.copyWith(coachingLoading: false); // score stands without a tip
+      state = state.copyWith(
+        coachingLoading: false,
+      ); // score stands without a tip
     }
   }
 
   /// A/B: replays the learner's own recording. Uses playBytes (a blob: URL on
   /// web) — a data: URL of recorded WebM/Opus fails to decode in Chrome.
+  ///
+  /// Mirrors [playModel]'s phase capture/restore + [_busy] guard (#330
+  /// followup): only callable from reviewing, so `restore` is always
+  /// `EchoPhase.reviewing`, but it still needs its own transient phase — the
+  /// "Modèle" button is gated on `phase == reviewing`, and without this call
+  /// leaving that phase during playback, "Modèle" would stay enabled (and
+  /// tappable) the whole time "Ma voix" is playing.
   Future<void> playMine() async {
+    if (_busy) return;
     final bytes = state.myRecording;
     if (bytes == null || bytes.isEmpty) return;
-    await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
+    _busy = true;
+    final restore = state.phase;
+    state = state.copyWith(phase: EchoPhase.playingMine);
+    var failed = false;
+    try {
+      await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
+    } catch (_) {
+      failed = true;
+    } finally {
+      _busy = false;
+    }
+    if (!ref.mounted) return;
+    state = failed
+        ? state.copyWith(
+            phase: restore,
+            error: 'Could not play your recording.',
+          )
+        // clearError: see the matching comment in playModel() above.
+        : state.copyWith(phase: restore, clearError: true);
   }
 
   /// Moves to the next round (up to [kEchoTotalRounds]) and loads a new phrase.
+  ///
+  /// Guarded by [_busy] (final review sweep): without it, tapping "Phrase
+  /// suivante" while "Modèle"/"Ma voix" is still playing would set
+  /// `phase: idle` here and then call [loadPhrase], which itself no-ops on
+  /// the same still-held guard — silently skipping the fetch (stale
+  /// phrase/result survive) while the in-flight play call's own restore
+  /// later overwrites this method's `idle` back to the `reviewing` it
+  /// captured before the tap. Net effect: the round counter advances but the
+  /// screen keeps showing the previous round's content under the new
+  /// number. The "Phrase suivante"/"Terminer" button is also gated on
+  /// `phase == reviewing` (echo_screen.dart) so this is a defensive
+  /// backstop, not the only guard — consistent with every other public
+  /// method on this class already checking [_busy] first.
   Future<void> nextRound() async {
+    if (_busy) return;
     final next = state.round + 1;
     state = state.copyWith(round: next, phase: EchoPhase.idle);
     await loadPhrase();
