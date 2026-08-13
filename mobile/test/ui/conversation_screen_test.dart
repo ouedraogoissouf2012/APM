@@ -105,6 +105,39 @@ void main() {
     expect(stub.listenCalled, isTrue);
   });
 
+  testWidgets('#329 (a11y): the orb is a labelled, enabled button for screen readers',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    await _pump(tester, activeIdle);
+
+    // The bare VoiceOrb had no semantics; the orb must now announce its role
+    // (button), its state (via the label) and that it is actionable (enabled).
+    expect(
+      tester.getSemantics(find.byKey(const Key('mic_button'))),
+      containsSemantics(
+        isButton: true,
+        isEnabled: true,
+        // Natural-case label (not the caption's display uppercase): a screen
+        // reader spells ALL-CAPS letter by letter, so the orb reads the human phrase.
+        label: "touche l'orbe pour parler",
+      ),
+    );
+    handle.dispose();
+  });
+
+  testWidgets('#329 (a11y): the orb button is disabled when no action is available',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    // Thinking: the orb is not tappable, so its button must announce disabled.
+    await _pump(tester, activeIdle.copyWith(status: ConversationStatus.thinking));
+
+    expect(
+      tester.getSemantics(find.byKey(const Key('mic_button'))),
+      containsSemantics(isButton: true, isEnabled: false),
+    );
+    handle.dispose();
+  });
+
   testWidgets('listening : orbe en écoute + overline JE T\'ÉCOUTE',
       (tester) async {
     await _pump(

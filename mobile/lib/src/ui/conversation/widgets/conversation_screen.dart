@@ -201,13 +201,25 @@ class _OrbZone extends ConsumerWidget {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        GestureDetector(
-          key: const Key('mic_button'),
-          onTap: onTap,
-          child: VoiceOrb(state: _orbStateFor(state.status)),
+        // #329: the orb is the app's central control but VoiceOrb is a bare
+        // CustomPaint with no semantics — a screen-reader user reached only an
+        // unlabelled tap target. Expose it as a proper button whose label
+        // carries the current state (idle/listening/thinking/speaking), and
+        // disable it in lockstep with onTap so its enabled state is announced.
+        Semantics(
+          button: true,
+          enabled: onTap != null,
+          label: _labelFor(state.status),
+          child: GestureDetector(
+            key: const Key('mic_button'),
+            onTap: onTap,
+            child: VoiceOrb(state: _orbStateFor(state.status)),
+          ),
         ),
         const SizedBox(height: AppSpacing.xl),
-        OverlineText(_labelFor(state.status)),
+        // The visible caption repeats the orb's label — hide it from semantics
+        // so the screen reader announces the state once, on the button itself.
+        ExcludeSemantics(child: OverlineText(_labelFor(state.status))),
       ],
     );
   }

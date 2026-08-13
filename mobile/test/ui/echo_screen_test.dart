@@ -79,6 +79,17 @@ void main() {
     expect(stub.recordCalled, isTrue);
   });
 
+  testWidgets('#329 (a11y): the record orb is a labelled, enabled button', (tester) async {
+    final handle = tester.ensureSemantics();
+    await _pump(tester, const EchoState(phrase: phrase, modelAudioB64: 'X'));
+
+    // VoiceOrb had no semantics; the orb must announce its role + state.
+    final node = tester.getSemantics(find.byKey(const Key('echo_orb')));
+    expect(node, containsSemantics(isButton: true, isEnabled: true));
+    expect(node.label, isNotEmpty);
+    handle.dispose();
+  });
+
   testWidgets('after scoring, shows A/B buttons and the coaching once it arrives',
       (tester) async {
     await _pump(

@@ -138,15 +138,25 @@ class _RoundView extends ConsumerWidget {
           Text(state.phrase!.tip, style: AppType.label(colors.textMuted)),
         ],
         const Spacer(),
+        // #329: expose the record orb as a labelled button (VoiceOrb itself has
+        // no semantics), so a screen-reader user knows it's the control to
+        // record and what state it's in; disabled in lockstep with orbTap.
         Center(
-          child: GestureDetector(
-            key: const Key('echo_orb'),
-            onTap: orbTap,
-            child: VoiceOrb(state: _orbFor(state.phase)),
+          child: Semantics(
+            button: true,
+            enabled: orbTap != null,
+            label: _labelFor(state.phase),
+            child: GestureDetector(
+              key: const Key('echo_orb'),
+              onTap: orbTap,
+              child: VoiceOrb(state: _orbFor(state.phase)),
+            ),
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        Center(child: OverlineText(_labelFor(state.phase))),
+        // Visible caption repeats the orb's label — excluded from semantics so
+        // the state is announced once, on the button.
+        Center(child: ExcludeSemantics(child: OverlineText(_labelFor(state.phase)))),
         const Spacer(),
         if (state.error != null) ...[
           Text(
