@@ -52,7 +52,7 @@ void main() {
 
   setUp(() {
     store = _InMemoryStore();
-    queue = SecureOfflineTurnQueue(store);
+    queue = SecureOfflineTurnQueue(store)..setCurrentUser(1);
   });
 
   test('enqueue then pending returns the turns in order', () async {
@@ -73,13 +73,16 @@ void main() {
     expect(pending.map((t) => t.idempotencyKey), ['b']);
   });
 
-  test('the queue is persisted (survives a new instance on same storage)', () async {
-    await queue.enqueue(_turn('a', text: 'I like sports'));
+  test(
+    'the queue is persisted (survives a new instance on same storage)',
+    () async {
+      await queue.enqueue(_turn('a', text: 'I like sports'));
 
-    final reopened = SecureOfflineTurnQueue(store);
-    final pending = await reopened.pending();
-    expect(pending.single.text, 'I like sports');
-  });
+      final reopened = SecureOfflineTurnQueue(store)..setCurrentUser(1);
+      final pending = await reopened.pending();
+      expect(pending.single.text, 'I like sports');
+    },
+  );
 
   test('an empty/absent queue reads as empty', () async {
     expect(await queue.pending(), isEmpty);
@@ -93,18 +96,74 @@ void main() {
     expect(back.idempotencyKey, 'k');
   });
 
-  test('concurrent enqueue and remove do not clobber each other (no lost turn)',
-      () async {
-    // A new turn failing (enqueue) can race a sync draining the queue (remove).
-    // With a yielding store, unserialised read-modify-write would lose one; the
-    // queue's internal lock must prevent that.
-    final q = SecureOfflineTurnQueue(_YieldingStore());
-    await q.enqueue(_turn('a'));
+  test(
+    'concurrent enqueue and remove do not clobber each other (no lost turn)',
+    () async {
+      // A new turn failing (enqueue) can race a sync draining the queue (remove).
+      // With a yielding store, unserialised read-modify-write would lose one; the
+      // queue's internal lock must prevent that.
+      final q = SecureOfflineTurnQueue(_YieldingStore())..setCurrentUser(1);
+      await q.enqueue(_turn('a'));
 
-    await Future.wait([q.enqueue(_turn('b')), q.remove('a')]);
+      await Future.wait([q.enqueue(_turn('b')), q.remove('a')]);
 
-    final pending = await q.pending();
-    // 'a' removed and 'b' added — neither operation lost.
-    expect(pending.map((t) => t.idempotencyKey), ['b']);
+      final pending = await q.pending();
+      // 'a' removed and 'b' added — neither operation lost.
+      expect(pending.map((t) => t.idempotencyKey), ['b']);
+    },
+  );
+
+  group('per-user key-scoping (#349)', () {
+    test('enqueue/pending/remove throw with no signed-in user', () async {
+      final q = SecureOfflineTurnQueue(_InMemoryStore());
+
+      expect(() => q.enqueue(_turn('a')), throwsStateError);
+      expect(() => q.pending(), throwsStateError);
+      expect(() => q.remove('a'), throwsStateError);
+    });
+
+    test('two users on the same store never see each other\'s turns', () async {
+      final shared = _InMemoryStore();
+      final userA = SecureOfflineTurnQueue(shared)..setCurrentUser(1);
+      final userB = SecureOfflineTurnQueue(shared)..setCurrentUser(2);
+
+      await userA.enqueue(_turn('a-turn', text: 'A secret'));
+
+      expect(await userB.pending(), isEmpty);
+      expect((await userA.pending()).single.text, 'A secret');
+    });
+
+    test('switching setCurrentUser on the same instance switches which '
+        'queue is read/written', () async {
+      final shared = _InMemoryStore();
+      final q = SecureOfflineTurnQueue(shared)..setCurrentUser(1);
+      await q.enqueue(_turn('a'));
+
+      q.setCurrentUser(2);
+      expect(await q.pending(), isEmpty); // user 2's own (empty) queue
+
+      q.setCurrentUser(1);
+      expect((await q.pending()).map((t) => t.idempotencyKey), ['a']);
+    });
+
+    test('purgeCurrentUser deletes only the active user\'s queue', () async {
+      final shared = _InMemoryStore();
+      final userA = SecureOfflineTurnQueue(shared)..setCurrentUser(1);
+      final userB = SecureOfflineTurnQueue(shared)..setCurrentUser(2);
+      await userA.enqueue(_turn('a'));
+      await userB.enqueue(_turn('b'));
+
+      await userA.purgeCurrentUser();
+
+      expect(await userA.pending(), isEmpty);
+      expect((await userB.pending()).map((t) => t.idempotencyKey), ['b']);
+    });
+
+    test('purgeCurrentUser with no signed-in user is a no-op (does not '
+        'throw)', () async {
+      final q = SecureOfflineTurnQueue(_InMemoryStore());
+
+      await q.purgeCurrentUser(); // must not throw
+    });
   });
 }
