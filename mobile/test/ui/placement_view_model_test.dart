@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:apm/src/core/audio/audio_recording_service.dart';
 import 'package:apm/src/core/audio/providers.dart';
+import 'package:apm/src/core/observability/crash_reporter.dart';
+import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
 import 'package:apm/src/data/repositories/onboarding_repository.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_providers.dart';
@@ -14,6 +16,8 @@ class _MockConversationRepository extends Mock
     implements ConversationRepository {}
 
 class _MockOnboardingRepository extends Mock implements OnboardingRepository {}
+
+class _MockCrashReporter extends Mock implements CrashReporter {}
 
 class _FakeRecorder implements AudioRecordingService {
   bool startResult = true;
@@ -32,12 +36,15 @@ ProviderContainer _container({
   required ConversationRepository conv,
   required OnboardingRepository onboarding,
   AudioRecordingService? recorder,
+  CrashReporter? crashReporter,
 }) {
   final c = ProviderContainer(
     overrides: [
       conversationRepositoryProvider.overrideWithValue(conv),
       onboardingRepositoryProvider.overrideWithValue(onboarding),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
+      if (crashReporter != null)
+        crashReporterProvider.overrideWithValue(crashReporter),
     ],
   );
   addTearDown(c.dispose);
@@ -47,6 +54,7 @@ ProviderContainer _container({
 void main() {
   setUpAll(() {
     registerFallbackValue(Uint8List(0));
+    registerFallbackValue(StackTrace.empty);
   });
 
   test('records and transcribes an answer, then advances the question', () async {
@@ -80,6 +88,30 @@ void main() {
     final state = c.read(placementViewModelProvider);
     expect(state.answers, ['']); // never traps the learner on a question
     expect(state.questionIndex, 1);
+  });
+
+  test('#351: a failed transcription is reported via CrashReporter, not '
+      'silently swallowed', () async {
+    final conv = _MockConversationRepository();
+    when(() => conv.transcribe(any())).thenThrow(Exception('stt down'));
+    final reporter = _MockCrashReporter();
+    final c = _container(
+      conv: conv,
+      onboarding: _MockOnboardingRepository(),
+      crashReporter: reporter,
+    );
+    final vm = c.read(placementViewModelProvider.notifier);
+
+    await vm.startRecording();
+    await vm.stopAndTranscribe();
+
+    verify(
+      () => reporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
+      ),
+    ).called(1);
   });
 
   test('the last question does not advance past the end', () async {
@@ -160,6 +192,39 @@ void main() {
         answers: any(named: 'answers'),
         interests: any(named: 'interests'),
         goal: any(named: 'goal'),
+      ),
+    ).called(1);
+  });
+
+  test('#351: a failed submit is reported via CrashReporter, not silently '
+      'swallowed', () async {
+    final conv = _MockConversationRepository();
+    when(() => conv.transcribe(any())).thenAnswer((_) async => 'answer');
+    final onboarding = _MockOnboardingRepository();
+    when(
+      () => onboarding.submitPlacement(
+        answers: any(named: 'answers'),
+        interests: any(named: 'interests'),
+        goal: any(named: 'goal'),
+      ),
+    ).thenThrow(Exception('network down'));
+    final reporter = _MockCrashReporter();
+    final c = _container(
+      conv: conv,
+      onboarding: onboarding,
+      crashReporter: reporter,
+    );
+    final vm = c.read(placementViewModelProvider.notifier);
+
+    await vm.startRecording();
+    await vm.stopAndTranscribe();
+    await vm.submit(interests: const [], goal: '');
+
+    verify(
+      () => reporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
       ),
     ).called(1);
   });

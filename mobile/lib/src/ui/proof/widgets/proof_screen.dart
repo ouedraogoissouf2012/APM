@@ -1,8 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/audio/providers.dart';
+import '../../../core/observability/providers.dart';
 import '../../../core/router/routes.dart';
 import '../../../data/models/proof.dart';
 import '../../review/error_type_label.dart';
@@ -60,8 +63,17 @@ class _TransferButtonState extends ConsumerState<_TransferButton> {
           .transferChallenge(widget.skill);
       if (!mounted) return;
       context.go(Routes.conversationMission(mission.id));
-    } catch (_) {
+    } catch (e, s) {
       if (!mounted) return;
+      // (#351) An unexpected failure here would otherwise vanish silently —
+      // report it so a recurring cause is visible instead of just a
+      // "réessaie" snackbar with no trail.
+      ref.read(crashReporterProvider).captureError(
+            e,
+            s,
+            context: '_TransferButtonState._start',
+            data: {'skill': widget.skill},
+          );
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Impossible de créer le défi — réessaie')),
@@ -236,6 +248,30 @@ class _AudibleProof extends ConsumerWidget {
 
   final String skill;
 
+  /// (#353) playBytes() was previously fire-and-forget: a decode/playback
+  /// failure vanished as an unhandled Future rejection, and the button just
+  /// looked dead. Lower priority than the network-backed cases elsewhere in
+  /// this ticket (these bytes are already on-device, so failures should be
+  /// rarer — decode errors, not network drops) but the same swallow-and-say-
+  /// nothing pattern, so still worth surfacing.
+  Future<void> _play(BuildContext context, WidgetRef ref, Uint8List bytes) async {
+    try {
+      await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
+    } catch (e, s) {
+      ref.read(crashReporterProvider).captureError(
+            e,
+            s,
+            context: '_AudibleProof._play',
+            data: {'skill': skill},
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossible de lire cet enregistrement')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final takes = ref.watch(voiceTakesProvider(skill)).value;
@@ -257,17 +293,13 @@ class _AudibleProof extends ConsumerWidget {
                   key: const Key('play_baseline'),
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Ta voix — avant'),
-                  onPressed: () => ref
-                      .read(audioPlaybackProvider)
-                      .playBytes(takes.baseline, 'audio/wav'),
+                  onPressed: () => _play(context, ref, takes.baseline),
                 ),
                 OutlinedButton.icon(
                   key: const Key('play_latest'),
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Ta voix — maintenant'),
-                  onPressed: () => ref
-                      .read(audioPlaybackProvider)
-                      .playBytes(takes.latest, 'audio/wav'),
+                  onPressed: () => _play(context, ref, takes.latest),
                 ),
               ],
             ),

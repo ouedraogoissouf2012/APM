@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
 import '../../../core/network/providers.dart';
+import '../../../core/observability/providers.dart';
 import '../../../data/repositories/onboarding_repository.dart';
 import '../../conversation/view_model/conversation_providers.dart';
 import '../../profile/view_model/profile_view_model.dart';
@@ -96,7 +97,16 @@ class PlacementViewModel extends Notifier<PlacementState> {
                 .read(conversationRepositoryProvider)
                 .transcribe(bytes))
             .trim();
-      } catch (_) {
+      } catch (e, s) {
+        // (#351) The placement must never trap the learner on a question
+        // (an empty answer just advances, honestly scored as "no speech"
+        // heard), but a silent STT failure would otherwise hide a
+        // recurring transcription outage from anyone.
+        ref.read(crashReporterProvider).captureError(
+              e,
+              s,
+              context: 'PlacementViewModel.stopAndTranscribe: transcription failed',
+            );
         heard = '';
       }
     }
@@ -144,7 +154,9 @@ class PlacementViewModel extends Notifier<PlacementState> {
         resultLevel: result.cefrLevel,
       );
       return true;
-    } catch (_) {
+    } catch (e, s) {
+      // (#351) see the matching comment in stopAndTranscribe() above.
+      ref.read(crashReporterProvider).captureError(e, s, context: 'PlacementViewModel.submit');
       state = state.copyWith(status: PlacementStatus.failed);
       return false;
     }

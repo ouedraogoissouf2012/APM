@@ -101,7 +101,20 @@ class _WordCard extends ConsumerWidget {
                   key: Key('vocab_audio_${entry.id}'),
                   icon: const Icon(Icons.volume_up),
                   tooltip: 'Écouter',
-                  onPressed: () => vm.speak(entry),
+                  // (#353) speak() now reports success/failure instead of
+                  // being fire-and-forget: without checking it, a
+                  // network/playback error left this button looking dead
+                  // (no feedback at all), especially offline.
+                  onPressed: () async {
+                    final ok = await vm.speak(entry);
+                    if (!ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Impossible de lire ce mot — réessaie'),
+                        ),
+                      );
+                    }
+                  },
                 ),
               ],
             ),

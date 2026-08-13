@@ -1,5 +1,7 @@
 import 'package:apm/src/data/models/vocabulary_entry.dart';
+import 'package:apm/src/data/repositories/echo_repository.dart';
 import 'package:apm/src/data/repositories/vocabulary_repository.dart';
+import 'package:apm/src/ui/echo/view_model/echo_view_model.dart';
 import 'package:apm/src/ui/vocabulary/view_model/vocabulary_view_model.dart';
 import 'package:apm/src/ui/vocabulary/widgets/vocabulary_screen.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockVocabRepo extends Mock implements VocabularyRepository {}
+
+class _MockEchoRepo extends Mock implements EchoRepository {}
 
 VocabularyEntry _entry() => const VocabularyEntry(
   id: 1,
@@ -74,4 +78,31 @@ void main() {
 
     expect(find.byKey(const Key('vocab_error')), findsOneWidget);
   });
+
+  testWidgets(
+    'a failed speak() shows an error snackbar instead of a dead button '
+    '(#353)',
+    (tester) async {
+      final repo = _MockVocabRepo();
+      when(repo.list).thenAnswer((_) async => [_entry()]);
+      final echo = _MockEchoRepo();
+      when(() => echo.synthesize(any())).thenThrow(Exception('offline'));
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            vocabularyRepositoryProvider.overrideWithValue(repo),
+            echoRepositoryProvider.overrideWithValue(echo),
+          ],
+          child: const MaterialApp(home: VocabularyScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('vocab_audio_1')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Impossible de lire ce mot — réessaie'), findsOneWidget);
+    },
+  );
 }

@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:apm/src/core/audio/audio_playback_service.dart';
 import 'package:apm/src/core/audio/audio_recording_service.dart';
 import 'package:apm/src/core/audio/providers.dart';
+import 'package:apm/src/core/observability/crash_reporter.dart';
+import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/data/models/echo.dart';
 import 'package:apm/src/data/repositories/echo_repository.dart';
 import 'package:apm/src/ui/echo/view_model/echo_state.dart';
@@ -13,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockEchoRepository extends Mock implements EchoRepository {}
+
+class _MockCrashReporter extends Mock implements CrashReporter {}
 
 /// Records what was played, so A/B can be asserted: model clips by their base64,
 /// the learner's own recording as the marker 'MINE'.
@@ -117,12 +121,15 @@ ProviderContainer _container({
   required EchoRepository repo,
   AudioPlaybackService? audio,
   _FakeRecorder? recorder,
+  CrashReporter? crashReporter,
 }) {
   final c = ProviderContainer(
     overrides: [
       echoRepositoryProvider.overrideWithValue(repo),
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
+      if (crashReporter != null)
+        crashReporterProvider.overrideWithValue(crashReporter),
     ],
   );
   addTearDown(c.dispose);
@@ -130,6 +137,8 @@ ProviderContainer _container({
 }
 
 void main() {
+  setUpAll(() => registerFallbackValue(StackTrace.empty));
+
   const phrase = ShadowingPhrase(
     text: 'The ship is sinking',
     focus: 'ship_sheep',
@@ -518,6 +527,55 @@ void main() {
       await _vm(c).loadPhrase();
 
       expect(_state(c).error, isNotNull);
+    },
+  );
+
+  test('#351: an unexpected (non-ApiException) loadPhrase failure is reported '
+      'via CrashReporter, not silently swallowed', () async {
+    final repo = _MockEchoRepository();
+    when(repo.nextPhrase).thenThrow(Exception('boom'));
+    final reporter = _MockCrashReporter();
+    final c = _container(repo: repo, crashReporter: reporter);
+
+    await _vm(c).loadPhrase();
+
+    verify(
+      () => reporter.captureError(any(), any(), context: any(named: 'context')),
+    ).called(1);
+  });
+
+  test(
+    '#351: a playMine playback failure is reported via CrashReporter',
+    () async {
+      final repo = _MockEchoRepository();
+      when(repo.nextPhrase).thenAnswer((_) async => phrase);
+      when(
+        () => repo.synthesize(any()),
+      ).thenAnswer((_) async => const AudioClip('MODELB64', 'audio/mpeg'));
+      when(
+        () => repo.scoreAttempt(
+          audioBytes: any(named: 'audioBytes'),
+          targetText: any(named: 'targetText'),
+        ),
+      ).thenAnswer(
+        (_) async => const AttemptResult(transcript: 'the ship is sinking'),
+      );
+      final reporter = _MockCrashReporter();
+      final c = _container(
+        repo: repo,
+        audio: _ThrowingAudio(),
+        crashReporter: reporter,
+      );
+      await _vm(c).loadPhrase();
+      await _vm(c).record();
+      await _vm(c).stopAndScore();
+
+      await _vm(c).playMine();
+
+      verify(
+        () =>
+            reporter.captureError(any(), any(), context: any(named: 'context')),
+      ).called(1);
     },
   );
 }
