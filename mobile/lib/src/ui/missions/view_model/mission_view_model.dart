@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
+import '../../../core/observability/providers.dart';
 import '../../../data/models/mission.dart';
 import '../../../data/repositories/mission_repository.dart';
 
@@ -66,7 +67,12 @@ class MissionViewModel extends Notifier<MissionState> {
           .compile(sourceType: state.sourceType, content: content.trim());
       state = state.copyWith(status: MissionStatus.ready, mission: mission);
       return true;
-    } catch (_) {
+    } catch (e, s) {
+      // (#351) An unexpected failure here would otherwise vanish silently —
+      // report it so a recurring cause (a new backend error shape, a
+      // compile-flow regression) is visible instead of just "failed" with
+      // no trail.
+      ref.read(crashReporterProvider).captureError(e, s, context: 'MissionViewModel.compile');
       state = state.copyWith(status: MissionStatus.failed);
       return false;
     }

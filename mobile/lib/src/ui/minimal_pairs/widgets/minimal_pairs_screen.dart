@@ -318,7 +318,16 @@ class _Result extends ConsumerWidget {
               child: AppButton.primary(
                 label: state.isLastRound ? 'Terminer' : 'Paire suivante',
                 icon: Icons.arrow_forward,
-                onPressed: state.isLastRound ? null : vm.nextRound,
+                // Gated on `reviewing` too (#350), not just `isLastRound`:
+                // a defensive backstop matching echo_screen.dart's
+                // "Phrase suivante" gate — the VM-level `_busy` guard is
+                // what actually prevents the soft-lock, but this keeps the
+                // button's enabled-ness honest with the same rule the VM
+                // enforces, instead of relying solely on this widget only
+                // ever being built while `state.phase == reviewing`.
+                onPressed: state.isLastRound || state.phase != PairPhase.reviewing
+                    ? null
+                    : vm.nextRound,
               ),
             ),
           ],

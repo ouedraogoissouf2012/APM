@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:apm/src/core/audio/audio_playback_service.dart';
 import 'package:apm/src/core/audio/providers.dart';
 import 'package:apm/src/core/audio/voice_take_store.dart';
+import 'package:apm/src/core/observability/crash_reporter.dart';
+import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/data/models/mission.dart';
 import 'package:apm/src/data/models/proof.dart';
 import 'package:apm/src/data/repositories/proof_repository.dart';
@@ -16,6 +18,8 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockRepo extends Mock implements ProofRepository {}
 
+class _MockCrashReporter extends Mock implements CrashReporter {}
+
 /// Records which take byte-lengths were played, so the A/B test can assert the
 /// baseline then the latest were played.
 class _FakePlayback implements AudioPlaybackService {
@@ -25,6 +29,18 @@ class _FakePlayback implements AudioPlaybackService {
   @override
   Future<void> playBytes(Uint8List bytes, String mime) async =>
       playedLengths.add(bytes.length);
+  @override
+  Future<void> stop() async {}
+}
+
+/// playBytes always throws — proves _AudibleProof surfaces a message
+/// instead of leaving an unhandled Future rejection (#353).
+class _ThrowingPlayback implements AudioPlaybackService {
+  @override
+  Future<void> playClip(String audioB64, String mime) async {}
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async =>
+      throw Exception('decode failed');
   @override
   Future<void> stop() async {}
 }
@@ -74,6 +90,8 @@ Future<void> _pump(WidgetTester tester, ProofRepository repo) async {
 }
 
 void main() {
+  setUpAll(() => registerFallbackValue(StackTrace.empty));
+
   testWidgets('shows the before/after CEFR and resolved errors', (
     tester,
   ) async {
@@ -309,6 +327,97 @@ void main() {
 
       verify(() => repo.transferChallenge('job_interview')).called(1);
       expect(find.text('Conversation target'), findsOneWidget); // launched
+    },
+  );
+
+  testWidgets(
+    '#351: a failed transfer challenge is reported via CrashReporter',
+    (tester) async {
+      final repo = _MockRepo();
+      when(
+        () => repo.forSkill('job_interview'),
+      ).thenAnswer((_) async => _proof());
+      when(
+        () => repo.transferChallenge('job_interview'),
+      ).thenThrow(Exception('down'));
+      final reporter = _MockCrashReporter();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            proofRepositoryProvider.overrideWithValue(repo),
+            crashReporterProvider.overrideWithValue(reporter),
+          ],
+          child: const MaterialApp(home: ProofScreen(skill: 'job_interview')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('transfer_button')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => reporter.captureError(
+          any(),
+          any(),
+          context: any(named: 'context'),
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+      expect(
+        find.text('Impossible de créer le défi — réessaie'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    '#353: a failed audible-proof playback shows a message instead of an '
+    'unhandled Future rejection',
+    (tester) async {
+      final repo = _MockRepo();
+      when(
+        () => repo.forSkill('job_interview'),
+      ).thenAnswer((_) async => _proof());
+      final store = InMemoryVoiceTakeStore();
+      await store.saveTake(
+        'job_interview',
+        Uint8List.fromList(const [1, 2, 3]),
+      );
+      await store.saveTake(
+        'job_interview',
+        Uint8List.fromList(const [4, 5, 6, 7]),
+      );
+      final reporter = _MockCrashReporter();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            proofRepositoryProvider.overrideWithValue(repo),
+            voiceTakeStoreProvider.overrideWithValue(store),
+            audioPlaybackProvider.overrideWithValue(_ThrowingPlayback()),
+            crashReporterProvider.overrideWithValue(reporter),
+          ],
+          child: const MaterialApp(home: ProofScreen(skill: 'job_interview')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('play_baseline')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Impossible de lire cet enregistrement'),
+        findsOneWidget,
+      );
+      verify(
+        () => reporter.captureError(
+          any(),
+          any(),
+          context: any(named: 'context'),
+          data: any(named: 'data'),
+        ),
+      ).called(1);
     },
   );
 }

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/audio/providers.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
+import '../../../core/observability/providers.dart';
 import '../../../data/models/minimal_pairs.dart';
 import '../../../data/repositories/minimal_pairs_repository.dart';
 import 'minimal_pairs_state.dart';
@@ -60,7 +61,11 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
       );
     } on ApiException catch (e) {
       _fail(e.message);
-    } catch (_) {
+    } catch (e, s) {
+      // (#351) An unexpected (non-ApiException) failure would otherwise
+      // vanish silently — report it so a recurring cause is visible instead
+      // of just "loading failed" reports with no trail.
+      _reportError(e, s, 'MinimalPairsViewModel.loadPair');
       _fail('Could not load a pair. Please try again.');
     } finally {
       _busy = false;
@@ -142,7 +147,9 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
       state = state.copyWith(attempt: attempt, phase: PairPhase.reviewing);
     } on ApiException catch (e) {
       _fail(e.message);
-    } catch (_) {
+    } catch (e, s) {
+      // (#351) see the matching comment in loadPair() above.
+      _reportError(e, s, 'MinimalPairsViewModel.stopAndScore');
       _fail('Could not score your attempt. Please try again.');
     } finally {
       _busy = false;
@@ -160,15 +167,29 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
     _busy = true;
     try {
       await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
-    } catch (_) {
-      if (ref.mounted) state = state.copyWith(error: 'Could not play your recording.');
+    } catch (e, s) {
+      // (#351) see the matching comment in loadPair() above.
+      _reportError(e, s, 'MinimalPairsViewModel.playMine');
+      if (ref.mounted) {
+        state = state.copyWith(error: 'Could not play your recording.');
+      }
     } finally {
       _busy = false;
     }
   }
 
   /// Advances to the next round (up to [kMinimalPairsTotalRounds]).
+  ///
+  /// Guarded by [_busy] (#350): without it, tapping "Paire suivante" while
+  /// [playMine] is still awaiting playback would overwrite state to `idle`
+  /// (round advanced, no clear flags) here, and then [loadPair] itself
+  /// no-ops on the still-held guard — the `idle` phase has no interactive
+  /// body (minimal_pairs_screen.dart's `_Body` switch), stranding the
+  /// learner on a blank screen with no self-recovery even after the
+  /// in-flight playback finishes. Mirrors echo_view_model.dart's
+  /// [EchoViewModel.nextRound] guard (#330 followup).
   Future<void> nextRound() async {
+    if (_busy) return;
     state = state.copyWith(round: state.round + 1, phase: PairPhase.idle);
     await loadPair();
   }
@@ -189,5 +210,13 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
   void _fail(String message) {
     if (!ref.mounted) return;
     state = state.copyWith(phase: PairPhase.idle, error: message);
+  }
+
+  /// Reports an unexpected exception (#351), guarding the read behind
+  /// [ref.mounted] — this is an autoDispose provider, so a `Ref` read after
+  /// disposal throws, and a crash report must never itself become the crash.
+  void _reportError(Object error, StackTrace stack, String context) {
+    if (!ref.mounted) return;
+    ref.read(crashReporterProvider).captureError(error, stack, context: context);
   }
 }

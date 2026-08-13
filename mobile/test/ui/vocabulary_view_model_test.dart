@@ -1,5 +1,7 @@
 import 'package:apm/src/core/audio/audio_playback_service.dart';
 import 'package:apm/src/core/audio/providers.dart';
+import 'package:apm/src/core/observability/crash_reporter.dart';
+import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/data/models/vocabulary_entry.dart';
 import 'package:apm/src/data/repositories/echo_repository.dart';
 import 'package:apm/src/data/repositories/vocabulary_repository.dart';
@@ -15,6 +17,8 @@ class _MockEchoRepo extends Mock implements EchoRepository {}
 
 class _MockPlayback extends Mock implements AudioPlaybackService {}
 
+class _MockCrashReporter extends Mock implements CrashReporter {}
+
 VocabularyEntry _entry({int id = 1, String status = 'review'}) => VocabularyEntry(
   id: id,
   sessionId: 23,
@@ -29,6 +33,7 @@ ProviderContainer _container({
   required VocabularyRepository vocab,
   EchoRepository? echo,
   AudioPlaybackService? playback,
+  CrashReporter? crashReporter,
 }) {
   final c = ProviderContainer(
     overrides: [
@@ -36,6 +41,8 @@ ProviderContainer _container({
       if (echo != null) echoRepositoryProvider.overrideWithValue(echo),
       if (playback != null)
         audioPlaybackProvider.overrideWithValue(playback),
+      if (crashReporter != null)
+        crashReporterProvider.overrideWithValue(crashReporter),
     ],
   );
   addTearDown(c.dispose);
@@ -43,6 +50,8 @@ ProviderContainer _container({
 }
 
 void main() {
+  setUpAll(() => registerFallbackValue(StackTrace.empty));
+
   test('loads the notebook on build', () async {
     final vocab = _MockVocabRepo();
     when(vocab.list).thenAnswer((_) async => [_entry()]);
@@ -98,9 +107,59 @@ void main() {
     final c = _container(vocab: vocab, echo: echo, playback: playback);
     await c.read(vocabularyViewModelProvider.future);
 
-    await c.read(vocabularyViewModelProvider.notifier).speak(_entry());
+    final ok = await c
+        .read(vocabularyViewModelProvider.notifier)
+        .speak(_entry());
 
+    expect(ok, isTrue);
     verify(() => echo.synthesize('deployment')).called(1);
     verify(() => playback.playClip('base64audio', 'audio/mpeg')).called(1);
+  });
+
+  test('#353: a failed speak() reports the failure instead of leaving an '
+      'unhandled Future rejection', () async {
+    final vocab = _MockVocabRepo();
+    when(vocab.list).thenAnswer((_) async => [_entry()]);
+    final echo = _MockEchoRepo();
+    when(() => echo.synthesize(any())).thenThrow(Exception('offline'));
+    final reporter = _MockCrashReporter();
+    final c = _container(vocab: vocab, echo: echo, crashReporter: reporter);
+    await c.read(vocabularyViewModelProvider.future);
+
+    final ok = await c
+        .read(vocabularyViewModelProvider.notifier)
+        .speak(_entry());
+
+    expect(ok, isFalse);
+    verify(
+      () => reporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
+        data: any(named: 'data'),
+      ),
+    ).called(1);
+  });
+
+  test('#351: a failed mark() is reported via CrashReporter', () async {
+    final vocab = _MockVocabRepo();
+    when(vocab.list).thenAnswer((_) async => [_entry(status: 'review')]);
+    when(() => vocab.setStatus(any(), any())).thenThrow(Exception('down'));
+    final reporter = _MockCrashReporter();
+    final c = _container(vocab: vocab, crashReporter: reporter);
+    await c.read(vocabularyViewModelProvider.future);
+
+    await c
+        .read(vocabularyViewModelProvider.notifier)
+        .mark(_entry(), known: true);
+
+    verify(
+      () => reporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
+        data: any(named: 'data'),
+      ),
+    ).called(1);
   });
 }

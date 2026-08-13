@@ -19,6 +19,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   String _accent = 'us';
   String _intensity = 'gentle';
   bool _initialized = false;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -36,6 +37,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _save() async {
+    setState(() => _saving = true);
     final saved = await ref
         .read(profileViewModelProvider.notifier)
         .save(
@@ -45,6 +47,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           accent: _accent,
         );
     if (!mounted) return;
+    setState(() => _saving = false);
     // Honest feedback: only claim success when the save actually succeeded.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -131,7 +134,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               const SizedBox(height: 24),
               FilledButton(
                 key: const Key('save_profile_button'),
-                onPressed: _save,
+                // Gated on _saving (#352), mirroring memory_screen.dart's
+                // _save button: without it, a rapid double-tap fires two
+                // concurrent save() calls — the slower response can land
+                // last and overwrite the faster one's result.
+                onPressed: _saving ? null : _save,
                 child: const Text('Enregistrer'),
               ),
               const SizedBox(height: 8),

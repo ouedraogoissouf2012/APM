@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:apm/src/core/router/debounced_push.dart';
 import 'package:apm/src/core/router/routes.dart';
 import 'package:apm/src/data/models/profile.dart';
@@ -74,5 +76,40 @@ void main() {
 
     expect(find.text('Voice privacy target'), findsNothing);
     expect(find.byKey(const Key('voice_privacy_link')), findsOneWidget);
+  });
+
+  testWidgets('a rapid double-tap on "Enregistrer" saves only once (#352)', (
+    tester,
+  ) async {
+    final saveGate = Completer<Profile>();
+    when(
+      () => repo.updateProfile(
+        interests: any(named: 'interests'),
+        goal: any(named: 'goal'),
+        correctionIntensity: any(named: 'correctionIntensity'),
+        accent: any(named: 'accent'),
+        memorySummary: any(named: 'memorySummary'),
+      ),
+    ).thenAnswer((_) => saveGate.future);
+    await _pump(tester, repo);
+
+    final button = find.byKey(const Key('save_profile_button'));
+    await tester.tap(button); // starts the save, _saving becomes true
+    await tester.pump();
+    await tester.tap(button); // guarded: onPressed is null while _saving
+    await tester.pump();
+
+    saveGate.complete(_profile());
+    await tester.pumpAndSettle();
+
+    verify(
+      () => repo.updateProfile(
+        interests: any(named: 'interests'),
+        goal: any(named: 'goal'),
+        correctionIntensity: any(named: 'correctionIntensity'),
+        accent: any(named: 'accent'),
+        memorySummary: any(named: 'memorySummary'),
+      ),
+    ).called(1);
   });
 }

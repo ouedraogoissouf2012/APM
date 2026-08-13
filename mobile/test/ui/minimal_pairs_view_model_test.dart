@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:apm/src/core/audio/audio_playback_service.dart';
 import 'package:apm/src/core/audio/audio_recording_service.dart';
 import 'package:apm/src/core/audio/providers.dart';
+import 'package:apm/src/core/observability/crash_reporter.dart';
+import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/data/repositories/echo_repository.dart';
 import 'package:apm/src/data/repositories/minimal_pairs_repository.dart';
 import 'package:apm/src/ui/minimal_pairs/view_model/minimal_pairs_state.dart';
@@ -13,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockRepo extends Mock implements MinimalPairsRepository {}
+
+class _MockCrashReporter extends Mock implements CrashReporter {}
 
 class _FakeAudio implements AudioPlaybackService {
   final List<String> played = [];
@@ -24,22 +28,35 @@ class _FakeAudio implements AudioPlaybackService {
   Future<void> stop() async {}
 }
 
-/// playClip always throws — to prove playWord still restores the phase (#343).
+/// playClip/playBytes both always throw — to prove playWord/playMine still
+/// restore/report on a genuine playback failure (#343, #351).
 class _ThrowingAudio extends _FakeAudio {
   @override
   Future<void> playClip(String audioB64, String mime) async =>
       throw Exception('playback failed');
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async =>
+      throw Exception('playback failed');
 }
 
-/// playClip blocks until [release], so a test can fire a second (guarded) call
-/// while the first is genuinely in flight (#343).
+/// playClip/playBytes both block until [release], so a test can fire a
+/// second (guarded) call — or a call to another VM method sharing the same
+/// [MinimalPairsViewModel._busy] guard, e.g. nextRound() (#350) — while the
+/// first is genuinely in flight (#343).
 class _GatedAudio extends _FakeAudio {
   final Completer<void> _gate = Completer<void>();
   int playClipCalls = 0;
+  int playBytesCalls = 0;
   void release() => _gate.complete();
   @override
   Future<void> playClip(String audioB64, String mime) async {
     playClipCalls++;
+    await _gate.future;
+  }
+
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async {
+    playBytesCalls++;
     await _gate.future;
   }
 }
@@ -64,12 +81,15 @@ ProviderContainer _container(
   MinimalPairsRepository repo, {
   _FakeAudio? audio,
   _FakeRecorder? recorder,
+  CrashReporter? crashReporter,
 }) {
   final c = ProviderContainer(
     overrides: [
       minimalPairsRepositoryProvider.overrideWithValue(repo),
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
+      if (crashReporter != null)
+        crashReporterProvider.overrideWithValue(crashReporter),
     ],
   );
   addTearDown(c.dispose);
@@ -77,6 +97,8 @@ ProviderContainer _container(
 }
 
 void main() {
+  setUpAll(() => registerFallbackValue(StackTrace.empty));
+
   test('loadPair draws a pair, a spoken word, and synthesizes it', () async {
     final repo = _MockRepo();
     when(() => repo.synthesize(any()))
@@ -212,6 +234,57 @@ void main() {
     expect(_state(c).phase, PairPhase.guessed); // resumable at the produce step
   });
 
+  test('#350: nextRound while playMine is still in flight is a no-op, not a '
+      'soft-lock', () async {
+    // Before the busy guard: nextRound() unconditionally set phase: idle
+    // (round advanced), then loadPair() itself no-op'd on the SAME _busy
+    // guard playMine() still holds mid-playback — the `idle` phase has no
+    // interactive body (minimal_pairs_screen.dart's `_Body` switch),
+    // stranding the learner on a blank screen even after playMine's
+    // playback eventually finished, with no self-recovery.
+    final repo = _MockRepo();
+    when(() => repo.synthesize(any()))
+        .thenAnswer((_) async => const AudioClip('WORDB64', 'audio/mpeg'));
+    when(() => repo.scoreAttempt(
+          audioBytes: any(named: 'audioBytes'),
+          target: any(named: 'target'),
+          other: any(named: 'other'),
+        )).thenAnswer((_) async => const PairAttempt(
+          transcript: 'ship',
+          saidTarget: true,
+          saidOther: false,
+          coaching: '',
+        ));
+    final audio = _GatedAudio();
+    final c = _container(repo, audio: audio);
+    await _vm(c).loadPair();
+    _vm(c).guess(_state(c).spokenWord!);
+    await _vm(c).record();
+    await _vm(c).stopAndScore();
+    final roundBefore = _state(c).round;
+    expect(_state(c).phase, PairPhase.reviewing); // sanity: mid-review
+
+    // playMine()'s synchronous prefix (up to its first real `await`, on the
+    // still-open gate) runs before the call even returns a Future.
+    final playing = _vm(c).playMine();
+    expect(audio.playBytesCalls, 1); // in flight, _busy is held
+
+    await _vm(c).nextRound(); // must be swallowed cleanly, not half-applied
+
+    expect(_state(c).round, roundBefore);
+    expect(_state(c).phase, PairPhase.reviewing);
+
+    audio.release();
+    await playing;
+
+    // Still healthy after playback resolves: nothing was left stranded.
+    expect(_state(c).phase, PairPhase.reviewing);
+
+    // And nextRound() now genuinely works once the guard is free.
+    await _vm(c).nextRound();
+    expect(_state(c).round, roundBefore + 1);
+  });
+
   test('a repository error surfaces as state.error', () async {
     final repo = _MockRepo();
     when(() => repo.synthesize(any())).thenThrow(Exception('boom'));
@@ -220,5 +293,59 @@ void main() {
     await _vm(c).loadPair();
 
     expect(_state(c).error, isNotNull);
+  });
+
+  test(
+    '#351: an unexpected loadPair failure is reported via CrashReporter, '
+    'not silently swallowed',
+    () async {
+      final repo = _MockRepo();
+      when(() => repo.synthesize(any())).thenThrow(Exception('boom'));
+      final reporter = _MockCrashReporter();
+      final c = _container(repo, crashReporter: reporter);
+
+      await _vm(c).loadPair();
+
+      verify(
+        () => reporter.captureError(
+          any(),
+          any(),
+          context: any(named: 'context'),
+        ),
+      ).called(1);
+    },
+  );
+
+  test('#351: a playMine playback failure is reported via CrashReporter',
+      () async {
+    final repo = _MockRepo();
+    when(() => repo.synthesize(any()))
+        .thenAnswer((_) async => const AudioClip('WORDB64', 'audio/mpeg'));
+    when(() => repo.scoreAttempt(
+          audioBytes: any(named: 'audioBytes'),
+          target: any(named: 'target'),
+          other: any(named: 'other'),
+        )).thenAnswer((_) async => const PairAttempt(
+          transcript: 'ship',
+          saidTarget: true,
+          saidOther: false,
+          coaching: '',
+        ));
+    final reporter = _MockCrashReporter();
+    final c = _container(repo, audio: _ThrowingAudio(), crashReporter: reporter);
+    await _vm(c).loadPair();
+    _vm(c).guess(_state(c).spokenWord!);
+    await _vm(c).record();
+    await _vm(c).stopAndScore();
+
+    await _vm(c).playMine();
+
+    verify(
+      () => reporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
+      ),
+    ).called(1);
   });
 }
