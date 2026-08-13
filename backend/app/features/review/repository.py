@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.persistence import advisory_xact_lock
 from app.features.review.models import STATUS_MASTERED, ReviewItem
 
 
@@ -63,12 +64,10 @@ class SqlAlchemyReviewRepository:
         return list(result)
 
     async def lock_for_user(self, user_id: int) -> None:
-        # A 2-key advisory lock, namespaced by a fixed hash of "review" so this
-        # can never collide with an unrelated advisory lock elsewhere keyed by a
-        # raw id (e.g. DebriefRepository's, namespaced by "debrief").
-        await self._session.execute(
-            select(func.pg_advisory_xact_lock(func.hashtext("review"), user_id))
-        )
+        # Namespaced by "review" (#371, core.persistence) so this can never
+        # collide with an unrelated advisory lock elsewhere keyed by a raw id
+        # (e.g. DebriefRepository's, namespaced by "debrief").
+        await advisory_xact_lock(self._session, "review", user_id)
 
     async def upsert(
         self,

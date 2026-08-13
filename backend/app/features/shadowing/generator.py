@@ -6,10 +6,9 @@ have a phrase to practise, so we fall back to a safe canned phrase per CEFR leve
 rather than 502-ing.
 """
 
-import json
 import logging
-from typing import Any
 
+from app.core.llm_json import clip, parse_json_object
 from app.features.conversation.providers.interfaces import TextCompletionProvider
 from app.features.shadowing.domain import PhoneticFocus, ShadowingPhrase
 
@@ -59,10 +58,10 @@ class PhraseGenerator:
             _logger.warning("Shadowing phrase generation LLM call failed", exc_info=True)
             return fallback
 
-        data = _loads(raw)
+        data = parse_json_object(raw)
         if data is None:
             return fallback
-        text = _clip(str(data.get("text", "")), _MAX_TEXT_CHARS)
+        text = clip(str(data.get("text", "")), _MAX_TEXT_CHARS)
         if not text:
             return fallback
         focus_raw = str(data.get("focus", "general"))
@@ -70,20 +69,5 @@ class PhraseGenerator:
         return ShadowingPhrase(
             text=text,
             focus=focus,
-            tip=_clip(str(data.get("tip", "")), _MAX_TIP_CHARS),
+            tip=clip(str(data.get("tip", "")), _MAX_TIP_CHARS),
         )
-
-
-def _loads(text: str) -> dict[str, Any] | None:
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        return None
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _clip(value: str, max_chars: int) -> str:
-    return value.strip()[:max_chars]

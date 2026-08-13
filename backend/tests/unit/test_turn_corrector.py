@@ -136,7 +136,7 @@ async def test_malformed_correction_response_is_logged(caplog, monkeypatch):
     def _boom(text):
         raise ValueError("simulated parse-stage failure")
 
-    monkeypatch.setattr(correction_module, "_loads", _boom)
+    monkeypatch.setattr(correction_module, "parse_json_object", _boom)
 
     with caplog.at_level("WARNING"):
         result = await TurnCorrector(_JsonLlm('{"has_error": true}')).correct(
