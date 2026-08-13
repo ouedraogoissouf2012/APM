@@ -7,6 +7,13 @@ enum EchoPhase {
   /// No phrase loaded yet, or between rounds.
   idle,
 
+  /// Fetching + synthesizing the next phrase (network in flight, e.g. after
+  /// "Phrase suivante"). Distinct from idle (#342) so the orb doesn't look
+  /// tappable while it is: record() no-ops until a phrase is ready, so an idle
+  /// (enabled) orb here is a silent dead tap — and worse, a screen reader would
+  /// announce "button, enabled, hint: enregistrer" for an action that won't run.
+  loadingPhrase,
+
   /// Playing the model voice (the phrase to imitate).
   playingModel,
 

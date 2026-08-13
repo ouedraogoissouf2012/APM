@@ -37,8 +37,12 @@ class EchoViewModel extends Notifier<EchoState> {
   Future<void> loadPhrase() async {
     if (_busy) return;
     _busy = true;
+    // loadingPhrase, not idle (#342): the previous round's phrase is still in
+    // state (so the orb, not the initial spinner, is on screen during a
+    // nextRound reload) — mark it loading so the orb reads as disabled instead
+    // of an enabled dead tap while the fetch/synthesize is in flight.
     state = state.copyWith(
-      phase: EchoPhase.idle,
+      phase: EchoPhase.loadingPhrase,
       clearError: true,
       clearResult: true,
       clearMyRecording: true,
