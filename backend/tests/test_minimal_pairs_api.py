@@ -128,3 +128,59 @@ class _SettingsWithCap:
         self.max_upload_bytes = max_upload_bytes
         self.trust_proxy_headers = False
         self.max_request_body_bytes = 12 * 1024 * 1024
+
+
+@pytest.mark.asyncio
+async def test_attempt_rejects_oversized_target(client):
+    # #328: target/other had no length bound — an oversized value would reach
+    # the sync word-normalize step and the coaching LLM prompt unbounded. A
+    # WORKING service is installed (like the accepted-at-bound test below) so
+    # a passing request would otherwise get a normal 200 — proving the 422
+    # comes from the new length check, not from the STT dependency being
+    # unconfigured (get_minimal_pairs_service's own 404 for that resolves
+    # BEFORE the route body runs at all, so an unguarded test here would 404
+    # regardless of whether the length check exists).
+    from app.features.minimal_pairs.schemas import MAX_WORD_CHARS
+
+    token = await _register(client, email="pair-longtarget@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_minimal_pairs_service] = _override_with("sheep")
+    try:
+        resp = await _attempt(client, headers, target="x" * (MAX_WORD_CHARS + 1), other="ship")
+        assert resp.status_code == 422, resp.text
+        assert "target" in resp.text
+    finally:
+        app.dependency_overrides.pop(get_minimal_pairs_service, None)
+
+
+@pytest.mark.asyncio
+async def test_attempt_rejects_oversized_other(client):
+    # Same bound, the OTHER field — proves the check isn't only wired for target.
+    from app.features.minimal_pairs.schemas import MAX_WORD_CHARS
+
+    token = await _register(client, email="pair-longother@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_minimal_pairs_service] = _override_with("sheep")
+    try:
+        resp = await _attempt(client, headers, target="sheep", other="x" * (MAX_WORD_CHARS + 1))
+        assert resp.status_code == 422, resp.text
+        assert "other" in resp.text
+    finally:
+        app.dependency_overrides.pop(get_minimal_pairs_service, None)
+
+
+@pytest.mark.asyncio
+async def test_attempt_accepts_target_and_other_at_the_exact_bound(client):
+    # Boundary check: exactly MAX_WORD_CHARS must still be accepted.
+    from app.features.minimal_pairs.schemas import MAX_WORD_CHARS
+
+    token = await _register(client, email="pair-exact@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_minimal_pairs_service] = _override_with("sheep")
+    try:
+        resp = await _attempt(
+            client, headers, target="x" * MAX_WORD_CHARS, other="y" * MAX_WORD_CHARS
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        app.dependency_overrides.pop(get_minimal_pairs_service, None)

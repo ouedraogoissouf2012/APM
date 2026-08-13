@@ -82,7 +82,12 @@ class MissionCompiler:
         """Compile untrusted learner `content` into a brief. `directive` is an
         OPTIONAL system-authored design instruction (trusted) that shapes the
         simulation — used by the transfer challenge to demand a novel context."""
-        safe_content = strip_persistent_instructions(content)[:_MAX_CONTENT_CHARS].strip()
+        # #334: strip_persistent_instructions defaults to the much shorter
+        # memory-summary bound — must pass _MAX_CONTENT_CHARS explicitly, or
+        # the mission content is silently clipped to 500 chars, not the 4000
+        # documented above (a trailing [:_MAX_CONTENT_CHARS] here would be a
+        # no-op once the input is already ≤500 chars).
+        safe_content = strip_persistent_instructions(content, max_chars=_MAX_CONTENT_CHARS).strip()
         if not safe_content:
             raise MissionCompileError("Mission content is empty")
 

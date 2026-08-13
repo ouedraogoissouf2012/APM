@@ -147,6 +147,56 @@ class _SettingsWithCap:
 
 
 @pytest.mark.asyncio
+async def test_attempt_rejects_oversized_target_text(client):
+    # #328: target_text had no length bound — an oversized value would reach
+    # the sync word-diff (target.split()), the GOP call, and the coaching LLM
+    # prompt unbounded. Must 422 BEFORE any of that. A WORKING service is
+    # installed (like the accepted-at-bound test below) so a passing request
+    # would otherwise get a normal 200 — proving the 422 comes from the new
+    # length check itself, not from the STT dependency being unconfigured
+    # (get_shadowing_service_with_stt's own 404 for that resolves BEFORE the
+    # route body runs at all, so an unguarded test here would 404 regardless
+    # of whether the length check exists).
+    from app.features.shadowing.schemas import MAX_TARGET_TEXT_CHARS
+
+    token = await _register(client, email="attempt-longtext@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_shadowing_service_with_stt] = _override_service_with("x")
+    try:
+        resp = await client.post(
+            "/shadowing/attempt",
+            headers=headers,
+            data={"target_text": "x" * (MAX_TARGET_TEXT_CHARS + 1)},
+            files={"audio": ("speech.webm", b"xxxx", "audio/webm")},
+        )
+        assert resp.status_code == 422, resp.text
+    finally:
+        app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
+    assert "target_text" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_attempt_accepts_target_text_at_the_exact_bound(client):
+    # Boundary check: exactly MAX_TARGET_TEXT_CHARS must still be accepted —
+    # the fix must reject what's OVER the bound, not the bound itself.
+    from app.features.shadowing.schemas import MAX_TARGET_TEXT_CHARS
+
+    token = await _register(client, email="attempt-exact@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_shadowing_service_with_stt] = _override_service_with("x")
+    try:
+        resp = await client.post(
+            "/shadowing/attempt",
+            headers=headers,
+            data={"target_text": "x" * MAX_TARGET_TEXT_CHARS},
+            files={"audio": ("speech.webm", b"xxxx", "audio/webm")},
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
+
+
+@pytest.mark.asyncio
 async def test_coach_endpoint_returns_advice_for_missed_words(client):
     token = await _register(client, email="coach@b.com")
     headers = {"Authorization": f"Bearer {token}"}

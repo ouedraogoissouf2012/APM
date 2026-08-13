@@ -126,6 +126,33 @@ async def test_persona_and_goal_are_length_clipped():
 
 
 @pytest.mark.asyncio
+async def test_content_up_to_4000_chars_is_compiled_in_full_not_clipped_to_500():
+    # #334: strip_persistent_instructions used to hard-clip to its OWN 500-char
+    # memory-summary bound regardless of what compiler.py asked for, silently
+    # truncating far below the documented 4000-char _MAX_CONTENT_CHARS. 2000
+    # plain characters (well under 4000, well over the old 500-char bug) must
+    # reach the LLM completely unchanged.
+    content = "a" * 2000
+    llm = _JsonLlm(_VALID_PAYLOAD)
+    await MissionCompiler(llm).compile(source_type="offer", content=content)
+
+    sent = llm.seen_history[0].content
+    assert sent == content
+    assert len(sent) == 2000
+
+
+@pytest.mark.asyncio
+async def test_content_beyond_4000_chars_is_still_clipped():
+    # The upper bound itself must still apply — #334 fixes WHERE it's enforced,
+    # it doesn't remove it.
+    llm = _JsonLlm(_VALID_PAYLOAD)
+    await MissionCompiler(llm).compile(source_type="offer", content="a" * 5000)
+
+    sent = llm.seen_history[0].content
+    assert len(sent) == 4000
+
+
+@pytest.mark.asyncio
 async def test_a_trusted_directive_reaches_the_compile_prompt_verbatim():
     # A system-authored directive must ride the TRUSTED prompt (so its intent binds),
     # not be stripped/wrapped like untrusted learner content.
