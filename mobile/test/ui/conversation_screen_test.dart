@@ -10,6 +10,7 @@ import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
 import 'package:apm/src/ui/conversation/view_model/conversation_view_model.dart';
 import 'package:apm/src/ui/conversation/widgets/conversation_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -93,8 +94,9 @@ void main() {
     turns: [ConversationTurn(kRoleAssistant, "Hi, let's practise English.")],
   );
 
-  testWidgets('idle : orbe en idle, invite à parler, tap → listenAndRespond',
-      (tester) async {
+  testWidgets('idle : orbe en idle, invite à parler, tap → listenAndRespond', (
+    tester,
+  ) async {
     final stub = await _pump(tester, activeIdle);
 
     final orb = tester.widget<VoiceOrb>(find.byType(VoiceOrb));
@@ -105,8 +107,126 @@ void main() {
     expect(stub.listenCalled, isTrue);
   });
 
-  testWidgets('listening : orbe en écoute + overline JE T\'ÉCOUTE',
-      (tester) async {
+  testWidgets(
+    'a11y (#329) : orbe idle expose un bouton nommé, activé, avec indice de tap',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(tester, activeIdle);
+
+      expect(
+        tester.getSemantics(find.byKey(const Key('mic_button'))),
+        matchesSemantics(
+          label: "touche l'orbe pour parler",
+          isButton: true,
+          isEnabled: true,
+          hasEnabledState: true,
+          hasTapAction: true,
+          onTapHint: 'parler',
+        ),
+      );
+      // The visible OverlineText caption repeats the SAME text on purpose (the
+      // issue asks to reuse it) — it must be excluded from the semantics tree,
+      // or a screen reader would announce the identical phrase twice in a row.
+      // Case-insensitive: OverlineText.toUpperCase()s its content by design
+      // (DESIGN_SPEC §3), so a naive exact-string search would miss the
+      // duplicate entirely and pass regardless of whether it's excluded.
+      expect(
+        find.bySemanticsLabel(
+          RegExp("touche l'orbe pour parler", caseSensitive: false),
+        ),
+        findsOneWidget,
+      );
+
+      handle.dispose();
+    },
+  );
+
+  testWidgets(
+    'a11y (#329) : orbe listening reste un bouton activé, label + indice '
+    'changent en conséquence',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        activeIdle.copyWith(status: ConversationStatus.listening),
+      );
+
+      expect(
+        tester.getSemantics(find.byKey(const Key('mic_button'))),
+        matchesSemantics(
+          label: "je t'écoute — touche pour arrêter",
+          isButton: true,
+          isEnabled: true,
+          hasEnabledState: true,
+          hasTapAction: true,
+          onTapHint: 'arrêter',
+        ),
+      );
+
+      handle.dispose();
+    },
+  );
+
+  testWidgets(
+    'a11y (#329) : orbe thinking (réponse en cours, non interruptible) '
+    'désactivé, sans indice de tap',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        activeIdle.copyWith(status: ConversationStatus.thinking),
+      );
+
+      expect(
+        tester.getSemantics(find.byKey(const Key('mic_button'))),
+        matchesSemantics(
+          label: 'je réfléchis',
+          isButton: true,
+          isEnabled: false,
+          hasEnabledState: true,
+          hasTapAction: false,
+          // onTapHint compiles to a custom semantics action (Flutter's
+          // matchesSemantics only checks it when a value is passed here) — an
+          // explicit empty list is what actually proves NO hint survived,
+          // matching this test's own title ("sans indice de tap").
+          customActions: const <CustomSemanticsAction>[],
+        ),
+      );
+
+      handle.dispose();
+    },
+  );
+
+  testWidgets(
+    'a11y (#329) : session inactive (pas de sessionId) → orbe idle désactivé, '
+    'label neutre (pas une invite à taper sur un contrôle désactivé)',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      // isActive == false (sessionId null) even though status is idle — the
+      // orb must not claim to be tappable before a session has started, NOR
+      // announce the idle "touche l'orbe pour parler" instruction (that would
+      // promise an action a screen-reader user can't actually trigger here).
+      await _pump(tester, const ConversationState());
+
+      expect(
+        tester.getSemantics(find.byKey(const Key('mic_button'))),
+        matchesSemantics(
+          label: 'session en préparation',
+          isButton: true,
+          isEnabled: false,
+          hasEnabledState: true,
+          hasTapAction: false,
+          customActions: const <CustomSemanticsAction>[],
+        ),
+      );
+
+      handle.dispose();
+    },
+  );
+
+  testWidgets('listening : orbe en écoute + overline JE T\'ÉCOUTE', (
+    tester,
+  ) async {
     await _pump(
       tester,
       activeIdle.copyWith(status: ConversationStatus.listening),
@@ -118,8 +238,9 @@ void main() {
     expect(find.textContaining("JE T'ÉCOUTE"), findsOneWidget);
   });
 
-  testWidgets('tapping the orb while listening stops the conversation',
-      (tester) async {
+  testWidgets('tapping the orb while listening stops the conversation', (
+    tester,
+  ) async {
     final stub = await _pump(
       tester,
       activeIdle.copyWith(status: ConversationStatus.listening),
@@ -130,8 +251,9 @@ void main() {
     expect(stub.listenCalled, isFalse);
   });
 
-  testWidgets('shows the live partial transcript while listening',
-      (tester) async {
+  testWidgets('shows the live partial transcript while listening', (
+    tester,
+  ) async {
     await _pump(
       tester,
       activeIdle.copyWith(
@@ -143,8 +265,9 @@ void main() {
     expect(find.textContaining('i would like to'), findsOneWidget);
   });
 
-  testWidgets('thinking/speaking : états mappés + réponse IA en sous-titre',
-      (tester) async {
+  testWidgets('thinking/speaking : états mappés + réponse IA en sous-titre', (
+    tester,
+  ) async {
     const withReply = ConversationState(
       sessionId: 7,
       status: ConversationStatus.speaking,
@@ -162,8 +285,9 @@ void main() {
     expect(find.text('Nice! What did you buy?'), findsOneWidget);
   });
 
-  testWidgets('la dernière phrase de l\'apprenant s\'affiche en transcript',
-      (tester) async {
+  testWidgets('la dernière phrase de l\'apprenant s\'affiche en transcript', (
+    tester,
+  ) async {
     const spoke = ConversationState(
       sessionId: 7,
       turns: [
@@ -174,10 +298,7 @@ void main() {
     await _pump(tester, spoke);
 
     expect(find.byType(TranscriptText), findsOneWidget);
-    expect(
-      find.textContaining('« I have been busy today »'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('« I have been busy today »'), findsOneWidget);
   });
 
   testWidgets('pill de statut : sujet du scénario affiché', (tester) async {
@@ -190,24 +311,22 @@ void main() {
     expect(find.text('Job interview'), findsOneWidget);
   });
 
-  testWidgets('pill de statut : conversation libre par défaut',
-      (tester) async {
+  testWidgets('pill de statut : conversation libre par défaut', (tester) async {
     await _pump(tester, activeIdle);
     expect(find.text('Conversation libre'), findsOneWidget);
   });
 
-  testWidgets('erreur affichée sans rouge (clé conversation_error)',
-      (tester) async {
-    await _pump(
-      tester,
-      activeIdle.copyWith(error: 'Could not get a reply'),
-    );
+  testWidgets('erreur affichée sans rouge (clé conversation_error)', (
+    tester,
+  ) async {
+    await _pump(tester, activeIdle.copyWith(error: 'Could not get a reply'));
     expect(find.byKey(const Key('conversation_error')), findsOneWidget);
     expect(find.text('Could not get a reply'), findsOneWidget);
   });
 
-  testWidgets('fin de session : end() appelé puis navigation vers le bilan',
-      (tester) async {
+  testWidgets('fin de session : end() appelé puis navigation vers le bilan', (
+    tester,
+  ) async {
     final stub = await _pump(tester, activeIdle);
 
     await tester.tap(find.byKey(const Key('end_button')));
@@ -218,42 +337,45 @@ void main() {
     expect(find.text('Debrief target'), findsOneWidget);
   });
 
-  testWidgets('correction : chip doré sous la bulle apprenant, tap → grammaire',
-      (tester) async {
-    const withCorrection = ConversationState(
-      sessionId: 7,
-      turns: [
-        ConversationTurn(kRoleAssistant, 'Good.'),
-        ConversationTurn(
-          kRoleUser,
-          'i is happy',
-          correction: TurnCorrection(
-            original: 'i is happy',
-            correction: 'I am happy',
-            rule: "Use 'am' with 'I'.",
-            alternatives: ["I'm happy"],
+  testWidgets(
+    'correction : chip doré sous la bulle apprenant, tap → grammaire',
+    (tester) async {
+      const withCorrection = ConversationState(
+        sessionId: 7,
+        turns: [
+          ConversationTurn(kRoleAssistant, 'Good.'),
+          ConversationTurn(
+            kRoleUser,
+            'i is happy',
+            correction: TurnCorrection(
+              original: 'i is happy',
+              correction: 'I am happy',
+              rule: "Use 'am' with 'I'.",
+              alternatives: ["I'm happy"],
+            ),
           ),
-        ),
-      ],
-    );
-    await _pump(tester, withCorrection);
-    // Let the chip's 400ms non-interruption delay elapse.
-    await tester.pump(const Duration(milliseconds: 500));
+        ],
+      );
+      await _pump(tester, withCorrection);
+      // Let the chip's 400ms non-interruption delay elapse.
+      await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.byType(CorrectionChip), findsOneWidget);
-    expect(find.byKey(const Key('turn_correction_chip')), findsOneWidget);
+      expect(find.byType(CorrectionChip), findsOneWidget);
+      expect(find.byKey(const Key('turn_correction_chip')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('turn_correction_tap')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('turn_correction_tap')));
+      await tester.pumpAndSettle();
 
-    // The grammar sheet shows the rule and the alternative phrasing.
-    expect(find.byKey(const Key('grammar_sheet')), findsOneWidget);
-    expect(find.text("Use 'am' with 'I'."), findsOneWidget);
-    expect(find.textContaining("I'm happy"), findsWidgets);
-  });
+      // The grammar sheet shows the rule and the alternative phrasing.
+      expect(find.byKey(const Key('grammar_sheet')), findsOneWidget);
+      expect(find.text("Use 'am' with 'I'."), findsOneWidget);
+      expect(find.textContaining("I'm happy"), findsWidgets);
+    },
+  );
 
-  testWidgets('correction : pas de chip pendant que l\'apprenant parle',
-      (tester) async {
+  testWidgets('correction : pas de chip pendant que l\'apprenant parle', (
+    tester,
+  ) async {
     const listeningWithCorrection = ConversationState(
       sessionId: 7,
       status: ConversationStatus.listening,
@@ -277,26 +399,25 @@ void main() {
     expect(find.byType(CorrectionChip), findsNothing);
   });
 
-  testWidgets('mode démo : bandeau affiché quand le backend est en fake',
-      (tester) async {
+  testWidgets('mode démo : bandeau affiché quand le backend est en fake', (
+    tester,
+  ) async {
     await _pump(tester, activeIdle, demoMode: true);
     await tester.pump();
     expect(find.byKey(const Key('demo_banner')), findsOneWidget);
     expect(find.textContaining('Mode démo'), findsOneWidget);
   });
 
-  testWidgets('mode démo : aucun bandeau quand un vrai moteur est configuré',
-      (tester) async {
+  testWidgets('mode démo : aucun bandeau quand un vrai moteur est configuré', (
+    tester,
+  ) async {
     await _pump(tester, activeIdle, demoMode: false);
     await tester.pump();
     expect(find.byKey(const Key('demo_banner')), findsNothing);
   });
 
   testWidgets('quota épuisé : affiche le paywall, pas l\'orbe', (tester) async {
-    await _pump(
-      tester,
-      const ConversationState(quotaExhausted: true),
-    );
+    await _pump(tester, const ConversationState(quotaExhausted: true));
 
     expect(find.byKey(const Key('quota_exhausted')), findsOneWidget);
     // No conversation UI when the session could not start.
@@ -306,10 +427,7 @@ void main() {
   });
 
   testWidgets('quota épuisé : le bouton ramène à l\'accueil', (tester) async {
-    await _pump(
-      tester,
-      const ConversationState(quotaExhausted: true),
-    );
+    await _pump(tester, const ConversationState(quotaExhausted: true));
 
     await tester.tap(find.byKey(const Key('quota_home_button')));
     await tester.pumpAndSettle();

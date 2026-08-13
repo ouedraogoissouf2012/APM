@@ -73,7 +73,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen>
     await ref.read(conversationViewModelProvider.notifier).end();
     if (!mounted) return;
     context.go(
-      sessionId != null ? Routes.debrief(sessionId, scenarioId: scenarioId) : Routes.home,
+      sessionId != null
+          ? Routes.debrief(sessionId, scenarioId: scenarioId)
+          : Routes.home,
     );
   }
 
@@ -178,11 +180,35 @@ class _OrbZone extends ConsumerWidget {
       };
 
   static String _labelFor(ConversationStatus status) => switch (status) {
-        ConversationStatus.idle => "touche l'orbe pour parler",
-        ConversationStatus.listening => "je t'écoute — touche pour arrêter",
-        ConversationStatus.thinking => 'je réfléchis',
-        ConversationStatus.speaking => 'je te réponds',
-      };
+    ConversationStatus.idle => "touche l'orbe pour parler",
+    ConversationStatus.listening => "je t'écoute — touche pour arrêter",
+    ConversationStatus.thinking => 'je réfléchis',
+    ConversationStatus.speaking => 'je te réponds',
+  };
+
+  /// #329: what a tap DOES right now, not how to perform it (Flutter's
+  /// SemanticsHintOverrides convention — "parler", not "touche pour parler").
+  /// Null while the orb isn't tappable (thinking/speaking, or the session
+  /// isn't active) — a hint promising an action that won't happen would
+  /// mislead a screen-reader user, and Flutter only announces it anyway when
+  /// there's an actual tap action to attach it to.
+  static String? _tapHintFor(ConversationStatus status) => switch (status) {
+    ConversationStatus.idle => 'parler',
+    ConversationStatus.listening => 'arrêter',
+    ConversationStatus.thinking || ConversationStatus.speaking => null,
+  };
+
+  /// #329: the accessibility label must stay accurate even before a session
+  /// is active (no sessionId yet — the brief window while start() is still
+  /// resolving). [_labelFor]'s idle text ("touche l'orbe pour parler") is an
+  /// instruction to tap; announcing that on a node [enabled] simultaneously
+  /// marks non-interactive would mislead a screen-reader user, who has no
+  /// other signal that the orb isn't ready yet. The visible OverlineText
+  /// keeps [_labelFor] as-is — a purely visual flicker during a normally
+  /// sub-second window is a separate, lower-stakes concern than what
+  /// assistive tech announces.
+  static String _semanticsLabelFor(ConversationState state) =>
+      state.isActive ? _labelFor(state.status) : 'session en préparation';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -193,21 +219,31 @@ class _OrbZone extends ConsumerWidget {
     final VoidCallback? onTap = !state.isActive
         ? null
         : idle
-            ? vm.listenAndRespond
-            : state.status == ConversationStatus.listening
-                ? vm.stopConversation
-                : null;
+        ? vm.listenAndRespond
+        : state.status == ConversationStatus.listening
+        ? vm.stopConversation
+        : null;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        GestureDetector(
-          key: const Key('mic_button'),
-          onTap: onTap,
-          child: VoiceOrb(state: _orbStateFor(state.status)),
+        Semantics(
+          button: true,
+          enabled: onTap != null,
+          label: _semanticsLabelFor(state),
+          onTapHint: state.isActive ? _tapHintFor(state.status) : null,
+          child: GestureDetector(
+            key: const Key('mic_button'),
+            onTap: onTap,
+            child: VoiceOrb(state: _orbStateFor(state.status)),
+          ),
         ),
         const SizedBox(height: AppSpacing.xl),
-        OverlineText(_labelFor(state.status)),
+        // Excluded from the semantics tree: it repeats the orb's own
+        // Semantics.label verbatim (#329 reuses this exact text on purpose),
+        // so without this a screen reader would announce the same phrase
+        // twice in a row while swiping through.
+        ExcludeSemantics(child: OverlineText(_labelFor(state.status))),
       ],
     );
   }
@@ -244,8 +280,7 @@ class _TranscriptZone extends StatelessWidget {
 
     return Column(
       children: [
-        if (userText.isNotEmpty)
-          TranscriptText(userText, listening: listening),
+        if (userText.isNotEmpty) TranscriptText(userText, listening: listening),
         if (correction != null)
           Padding(
             padding: const EdgeInsets.only(top: AppSpacing.md),
