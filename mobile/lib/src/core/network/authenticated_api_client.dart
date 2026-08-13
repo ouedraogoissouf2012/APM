@@ -5,16 +5,16 @@ import 'api_exception.dart';
 import 'token_refresher.dart';
 
 class AuthenticatedApiClient {
-  AuthenticatedApiClient(this._api, this._storage, [TokenRefresher? refresher])
-    : _refresher = refresher ?? sharedTokenRefresher(_api, _storage);
+  AuthenticatedApiClient(this._api, this._storage, this._refresher);
 
   final ApiClient _api;
   final TokenStorage _storage;
 
-  /// Every 401-triggered refresh goes through this — shared with
-  /// [AuthRepository] by default (see [sharedTokenRefresher]) so the two
-  /// classes collapse onto ONE single-flight `/auth/refresh` and honour the
-  /// same logout coordination (#316).
+  /// Every 401-triggered refresh goes through this — the SAME instance
+  /// [AuthRepository] gets, via `tokenRefresherProvider`
+  /// (core/network/providers.dart), so the two classes collapse onto ONE
+  /// single-flight `/auth/refresh` and honour the same logout coordination
+  /// (#316).
   final TokenRefresher _refresher;
 
   Future<Map<String, dynamic>> postJson(

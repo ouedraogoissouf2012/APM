@@ -6,6 +6,7 @@ import '../config/app_config.dart';
 import '../storage/token_storage.dart';
 import 'api_client.dart';
 import 'authenticated_api_client.dart';
+import 'token_refresher.dart';
 
 /// Core infrastructure providers (HTTP clients, token storage).
 ///
@@ -20,10 +21,20 @@ final tokenStorageProvider = Provider<TokenStorage>(
   (ref) => SecureTokenStorage(),
 );
 
+/// The app-wide [TokenRefresher] — watched by both [authenticatedApiClientProvider]
+/// and `authRepositoryProvider` (auth_view_model.dart) so the two collapse onto
+/// ONE single-flight `/auth/refresh` and honour the same logout coordination
+/// (#316), the same as any other `Provider` singleton in this container (#327).
+final tokenRefresherProvider = Provider<TokenRefresher>(
+  (ref) =>
+      TokenRefresher(ref.watch(apiClientProvider), ref.watch(tokenStorageProvider)),
+);
+
 final authenticatedApiClientProvider = Provider<AuthenticatedApiClient>(
   (ref) => AuthenticatedApiClient(
     ref.watch(apiClientProvider),
     ref.watch(tokenStorageProvider),
+    ref.watch(tokenRefresherProvider),
   ),
 );
 

@@ -43,9 +43,8 @@ void main() {
   setUp(() {
     api = _MockApiClient();
     storage = _InMemoryTokenStorage();
-    // A fresh TokenRefresher per test — never the implicit shared/global one
-    // (sharedTokenRefresher), which would leak generation/in-flight state
-    // across test cases.
+    // A fresh TokenRefresher per test — sharing one across test cases would
+    // leak generation/in-flight state between them.
     refresher = TokenRefresher(api, storage);
     repo = AuthRepository(api, storage, refresher);
   });

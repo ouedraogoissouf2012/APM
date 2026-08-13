@@ -7,16 +7,16 @@ import '../models/app_user.dart';
 import '../models/auth_tokens.dart';
 
 class AuthRepository {
-  AuthRepository(this._api, this._storage, [TokenRefresher? refresher])
-    : _refresher = refresher ?? sharedTokenRefresher(_api, _storage);
+  AuthRepository(this._api, this._storage, this._refresher);
 
   final ApiClient _api;
   final TokenStorage _storage;
 
-  /// Shared with [AuthenticatedApiClient] by default (see
-  /// [sharedTokenRefresher]) so an explicit refresh() here and a 401-triggered
-  /// refresh over there collapse onto ONE single-flight `/auth/refresh` and
-  /// honour the same logout coordination (#316).
+  /// Shared with [AuthenticatedApiClient] — the SAME instance, via
+  /// `tokenRefresherProvider` (core/network/providers.dart) — so an explicit
+  /// refresh() here and a 401-triggered refresh over there collapse onto ONE
+  /// single-flight `/auth/refresh` and honour the same logout coordination
+  /// (#316).
   final TokenRefresher _refresher;
 
   Future<AppUser> register({
