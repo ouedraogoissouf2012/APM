@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:apm/src/core/audio/encrypted_voice_take_store.dart';
 import 'package:apm/src/core/audio/voice_take_store.dart';
 import 'package:apm/src/core/storage/key_value_store.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A raw in-memory [VoiceTakeStore] with no encryption of its own — stands in
@@ -54,6 +56,14 @@ class _RawStore implements VoiceTakeStore {
     _baseline[skill] = baseline;
     _latest[skill] = latest;
   }
+}
+
+/// A [_RawStore] variant that ALSO supports enumeration — stands in for a
+/// real inner store (file/IndexedDB), which does, to test
+/// [EncryptedVoiceTakeStore.knownSkills]'s pass-through.
+class _EnumerableRawStore extends _RawStore implements SkillEnumerator {
+  @override
+  Future<Set<String>> knownSkills() async => {..._baseline.keys, ..._latest.keys};
 }
 
 class _InMemoryKeyValueStore implements KeyValueStore {
@@ -183,6 +193,60 @@ void main() {
 
       expect((await store.takesFor('restaurant'))!.latest, _b([2]));
       expect((await store.takesFor('travel'))!.latest, _b([4]));
+    });
+
+    group('AAD binding (#320)', () {
+      test('a ciphertext copied from a DIFFERENT skill fails to decrypt '
+          'instead of being silently replayed', () async {
+        // The exact attack #320 describes: a raw storage-level write copies
+        // one skill's ciphertext into another's slot; the GCM tag alone
+        // would still verify (same key), so only the AAD binding catches it.
+        await store.saveTake('restaurant', _b([1]));
+        await store.saveTake('restaurant', _b([2]));
+        final stolenBaseline = raw.peekBaseline('restaurant')!;
+
+        raw.seedRaw('job_interview', stolenBaseline, stolenBaseline);
+
+        // Not restaurant's [1] replayed as job_interview's proof — absent.
+        expect(await store.takesFor('job_interview'), isNull);
+        expect(raw.deleteSkillCalls, contains('job_interview'));
+      });
+
+      test('a ciphertext saved WITHOUT the aad binding (pre-#320) is cleanly '
+          'invalidated, not a crash', () async {
+        // Simulates a take encrypted by the app version before this fix —
+        // same key, same algorithm, but no associated data at all.
+        final legacyKey = await keyStorage.read('voice_take_encryption_key_v1');
+        expect(legacyKey, isNull); // nothing generated yet
+        final algorithm = AesGcm.with256bits();
+        final key = await algorithm.newSecretKey();
+        await keyStorage.write(
+          'voice_take_encryption_key_v1',
+          base64Encode(await key.extractBytes()),
+        );
+        final box = await algorithm.encrypt(_b([7, 7, 7]), secretKey: key);
+        raw.seedRaw('a', box.concatenation(), box.concatenation());
+
+        expect(await store.takesFor('a'), isNull);
+        expect(raw.deleteSkillCalls, ['a']);
+      });
+    });
+
+    group('knownSkills (#321)', () {
+      test('forwards to the inner store when it supports enumeration',
+          () async {
+        final enumerableRaw = _EnumerableRawStore();
+        final s = EncryptedVoiceTakeStore(enumerableRaw, keyStorage: keyStorage);
+        await s.saveTake('restaurant', _b([1]));
+
+        expect(await s.knownSkills(), {'restaurant'});
+      });
+
+      test('returns empty, not a crash, when the inner store cannot '
+          'enumerate', () async {
+        // `raw` (_RawStore) deliberately does not implement SkillEnumerator.
+        expect(await store.knownSkills(), isEmpty);
+      });
     });
   });
 }

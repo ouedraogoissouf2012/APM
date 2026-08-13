@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:apm/src/core/audio/providers.dart';
+import 'package:apm/src/core/audio/user_scoped_voice_take_store.dart';
 import 'package:apm/src/core/audio/voice_take_store.dart';
 import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/observability/providers.dart';
@@ -15,11 +16,14 @@ class _MockAuthRepository extends Mock implements AuthRepository {}
 
 class _MockCrashReporter extends Mock implements CrashReporter {}
 
-/// Records whether/how many times eraseAll() ran, so a test can assert the
-/// logout->purge wiring (#226) without touching a real file/IndexedDB store.
-class _SpyVoiceTakeStore implements VoiceTakeStore {
+/// Records whether/how many times eraseAll() ran, and every
+/// setCurrentUser() call (#319), so a test can assert the logout->purge
+/// wiring (#226) AND the session-sync wiring without touching a real
+/// file/IndexedDB store.
+class _SpyVoiceTakeStore implements VoiceTakeStore, VoiceTakeUserSession {
   int eraseAllCalls = 0;
   Object? throwOnErase;
+  final List<int?> setCurrentUserCalls = [];
 
   @override
   Future<void> saveTake(String skill, Uint8List bytes) async {}
@@ -36,6 +40,9 @@ class _SpyVoiceTakeStore implements VoiceTakeStore {
 
   @override
   Future<void> deleteSkill(String skill) async {}
+
+  @override
+  void setCurrentUser(int? userId) => setCurrentUserCalls.add(userId);
 }
 
 const _user = AppUser(
@@ -153,5 +160,79 @@ void main() {
     verify(
       () => reporter.captureError(any(), any(), context: any(named: 'context')),
     ).called(1);
+  });
+
+  group('voice-take store session sync (#319)', () {
+    test('build() syncs a restored session to the store', () async {
+      final repo = _MockAuthRepository();
+      when(repo.currentUser).thenAnswer((_) async => _user);
+      final takeStore = _SpyVoiceTakeStore();
+      final c = _containerWith(repo, takeStore: takeStore);
+
+      await c.read(authViewModelProvider.future);
+
+      expect(takeStore.setCurrentUserCalls, [_user.id]);
+    });
+
+    test('build() syncs null when signed out', () async {
+      final repo = _MockAuthRepository();
+      when(repo.currentUser).thenAnswer((_) async => null);
+      final takeStore = _SpyVoiceTakeStore();
+      final c = _containerWith(repo, takeStore: takeStore);
+
+      await c.read(authViewModelProvider.future);
+
+      expect(takeStore.setCurrentUserCalls, [null]);
+    });
+
+    test('login() syncs the newly authenticated user', () async {
+      final repo = _MockAuthRepository();
+      when(repo.currentUser).thenAnswer((_) async => null);
+      when(
+        () => repo.login(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+        ),
+      ).thenAnswer((_) async => _user);
+      final takeStore = _SpyVoiceTakeStore();
+      final c = _containerWith(repo, takeStore: takeStore);
+
+      await c.read(authViewModelProvider.future); // build() -> signed out
+      await c
+          .read(authViewModelProvider.notifier)
+          .login(email: 'a@b.com', password: 's3cret!');
+
+      expect(takeStore.setCurrentUserCalls, [null, _user.id]);
+    });
+
+    test('logout() syncs back to null AFTER attempting the purge under the '
+        'departing user\'s identity — a failed purge must still be tagged '
+        'to THEM, not to no-one', () async {
+      final repo = _MockAuthRepository();
+      when(repo.currentUser).thenAnswer((_) async => _user);
+      when(repo.logout).thenAnswer((_) async {});
+      final takeStore = _SpyVoiceTakeStore();
+      final c = _containerWith(repo, takeStore: takeStore);
+
+      await c.read(authViewModelProvider.future); // build() -> _user.id
+      await c.read(authViewModelProvider.notifier).logout();
+
+      expect(takeStore.setCurrentUserCalls, [_user.id, null]);
+    });
+
+    test('logout() syncs back to null even when the purge itself failed',
+        () async {
+      final repo = _MockAuthRepository();
+      when(repo.currentUser).thenAnswer((_) async => _user);
+      when(repo.logout).thenAnswer((_) async {});
+      final takeStore = _SpyVoiceTakeStore()
+        ..throwOnErase = StateError('disk error');
+      final c = _containerWith(repo, takeStore: takeStore);
+
+      await c.read(authViewModelProvider.future);
+      await c.read(authViewModelProvider.notifier).logout();
+
+      expect(takeStore.setCurrentUserCalls, [_user.id, null]);
+    });
   });
 }

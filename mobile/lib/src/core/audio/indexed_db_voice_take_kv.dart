@@ -74,6 +74,19 @@ class IndexedDbVoiceTakeKv implements VoiceTakeKvStore {
     await _await(store.clear());
   }
 
+  @override
+  Future<Set<String>> keys() async {
+    final db = await _open();
+    final store =
+        db.transaction(_storeName.toJS, 'readonly').objectStore(_storeName);
+    final request = store.getAllKeys();
+    await _await(request);
+    final result = request.result;
+    if (result.isUndefinedOrNull) return const {};
+    final array = result! as JSArray<JSAny?>;
+    return {for (final item in array.toDart) (item! as JSString).toDart};
+  }
+
   /// Bridges an [web.IDBRequest]'s success/error events to a Future.
   static Future<void> _await(web.IDBRequest request) {
     final done = Completer<void>();

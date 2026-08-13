@@ -91,4 +91,22 @@ void main() {
 
     expect((await s.takesFor('skill'))!.baseline, [9]); // NOT the old [1]
   });
+
+  test('knownSkills reports every skill with something stored (#321)',
+      () async {
+    final s = FileVoiceTakeStore(() async => dir);
+    await s.saveTake('restaurant', _b([1]));
+    await s.saveTake('restaurant', _b([2]));
+    await s.saveTake('job_interview', _b([3]));
+
+    expect(await s.knownSkills(), {'restaurant', 'job_interview'});
+  });
+
+  test('knownSkills is empty when the directory has never been created',
+      () async {
+    final emptyDir = Directory('${dir.path}/never-created');
+    final s = FileVoiceTakeStore(() async => emptyDir);
+
+    expect(await s.knownSkills(), isEmpty);
+  });
 }

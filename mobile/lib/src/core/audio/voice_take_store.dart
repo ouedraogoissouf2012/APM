@@ -40,10 +40,45 @@ abstract class VoiceTakeStore {
   Future<void> deleteSkill(String skill);
 }
 
+/// Normalises a skill/storage key to the SAFE form [FileVoiceTakeStore] and
+/// [KvVoiceTakeStore] use for filenames/KV keys — idempotent, so applying it
+/// to an already-safe string is a no-op.
+///
+/// Shared (#320) so [EncryptedVoiceTakeStore] can derive its AES-GCM
+/// associated data from a form that's IDENTICAL regardless of which of two
+/// different strings a caller hands it for the SAME underlying take:
+/// - A normal saveTake/takesFor is handed the raw key (e.g. `'7:job_interview'`
+///   once #319's user-scoping prefixes it).
+/// - [TtlVoiceTakeStore.sweepExpired] (#321) is handed the ALREADY-safe stem
+///   [SkillEnumerator.knownSkills] returns (e.g. `'7_job_interview'` — the
+///   file system only ever exposes the post-transform name back).
+///
+/// Without normalising the AAD input the same way in both cases, the two
+/// paths would compute DIFFERENT associated data for the same physical take
+/// whenever the raw key contains a character [safeStorageKey] rewrites —
+/// which, since #319 always prefixes every key with `'$userId:'`, is now
+/// EVERY key. GCM authentication would then fail on every sweep-triggered
+/// read, and the (perfectly fresh) take would be wrongly treated as
+/// undecryptable and physically purged — on every app restart.
+String safeStorageKey(String raw) => raw.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+
+/// Optional capability some [VoiceTakeStore]s expose: enumerating every
+/// skill that currently has something stored. Kept OUT of [VoiceTakeStore]
+/// itself — [VoiceTakeStore] is deliberately skill-keyed, not iterable, and
+/// a couple of tests outside the audio-storage module implement it directly
+/// as a plain interface (e.g. voice_privacy_screen_test.dart,
+/// conversation_view_model_test.dart); adding a required method there would
+/// break them. [TtlVoiceTakeStore.sweepExpired] (#321) uses this, when its
+/// inner store happens to support it, to find takes to check without
+/// needing them to be read first.
+abstract class SkillEnumerator {
+  Future<Set<String>> knownSkills();
+}
+
 /// In-memory store — takes live for the app run. A persistent on-device
 /// implementation (so the before/after survives across days) is a follow-up
 /// increment; kept behind [VoiceTakeStore] so that swap touches no caller.
-class InMemoryVoiceTakeStore implements VoiceTakeStore {
+class InMemoryVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
   final Map<String, Uint8List> _baseline = {};
   final Map<String, Uint8List> _latest = {};
 
@@ -76,4 +111,7 @@ class InMemoryVoiceTakeStore implements VoiceTakeStore {
     _baseline.remove(skill);
     _latest.remove(skill);
   }
+
+  @override
+  Future<Set<String>> knownSkills() async => {..._baseline.keys, ..._latest.keys};
 }
