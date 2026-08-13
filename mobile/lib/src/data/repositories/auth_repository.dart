@@ -1,15 +1,23 @@
 import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../../core/network/token_refresher.dart';
 import '../../core/storage/token_storage.dart';
 import '../models/app_user.dart';
 import '../models/auth_tokens.dart';
 
 class AuthRepository {
-  AuthRepository(this._api, this._storage);
+  AuthRepository(this._api, this._storage, [TokenRefresher? refresher])
+    : _refresher = refresher ?? sharedTokenRefresher(_api, _storage);
 
   final ApiClient _api;
   final TokenStorage _storage;
+
+  /// Shared with [AuthenticatedApiClient] by default (see
+  /// [sharedTokenRefresher]) so an explicit refresh() here and a 401-triggered
+  /// refresh over there collapse onto ONE single-flight `/auth/refresh` and
+  /// honour the same logout coordination (#316).
+  final TokenRefresher _refresher;
 
   Future<AppUser> register({
     required String email,
@@ -55,36 +63,26 @@ class AuthRepository {
   }
 
   Future<AppUser> refresh() async {
-    final refresh = await _storage.readRefreshToken();
-    if (refresh == null) {
-      await _storage.clear();
-      throw const ApiException(
-        statusCode: 401,
-        code: 'AuthenticationError',
-        message: 'Not authenticated',
-      );
-    }
-
-    try {
-      final json = await _api.postJson(
-        '/auth/refresh',
-        body: {'refresh_token': refresh},
-      );
-      return _persistAndExtractUser(json);
-    } catch (_) {
-      await _storage.clear();
-      rethrow;
-    }
+    final json = await _refresher.refresh();
+    return AppUser.fromJson(json['user'] as Map<String, dynamic>);
   }
 
   Future<void> logout() async {
-    final refresh = await _storage.readRefreshToken();
+    final refreshToken = await _storage.readRefreshToken();
     try {
-      if (refresh != null) {
-        await _api.postJson('/auth/logout', body: {'refresh_token': refresh});
+      if (refreshToken != null) {
+        await _api.postJson(
+          '/auth/logout',
+          body: {'refresh_token': refreshToken},
+        );
       }
     } finally {
-      await _storage.clear();
+      // #316: invalidates + clears as ONE step the shared TokenRefresher
+      // treats as uninterruptible relative to any refresh's own save (see
+      // TokenRefresher.invalidateAndClear) — so a refresh racing this call,
+      // wherever it happens to be, can never resurrect the session logout()
+      // just ended.
+      await _refresher.invalidateAndClear();
     }
   }
 

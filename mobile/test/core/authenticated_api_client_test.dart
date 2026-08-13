@@ -1,6 +1,7 @@
 import 'package:apm/src/core/network/api_client.dart';
 import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/network/authenticated_api_client.dart';
+import 'package:apm/src/core/network/token_refresher.dart';
 import 'package:apm/src/core/storage/token_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -34,12 +35,19 @@ class _InMemoryTokenStorage implements TokenStorage {
 }
 
 void main() {
+  // Every test below constructs its OWN TokenRefresher (never the implicit
+  // shared/global one, sharedTokenRefresher) — that global would leak
+  // generation/in-flight state across test cases.
   test(
     'refreshes tokens and retries once after an authenticated 401',
     () async {
       final api = _MockApiClient();
       final storage = _InMemoryTokenStorage();
-      final client = AuthenticatedApiClient(api, storage);
+      final client = AuthenticatedApiClient(
+        api,
+        storage,
+        TokenRefresher(api, storage),
+      );
 
       when(() => api.getJson('/me/profile', bearer: 'old-access')).thenThrow(
         const ApiException(
@@ -78,41 +86,97 @@ void main() {
     },
   );
 
-  test('clears tokens when refresh fails', () async {
-    final api = _MockApiClient();
-    final storage = _InMemoryTokenStorage();
-    final client = AuthenticatedApiClient(api, storage);
+  test(
+    'clears tokens when the backend rejects the refresh token (401)',
+    () async {
+      final api = _MockApiClient();
+      final storage = _InMemoryTokenStorage();
+      final client = AuthenticatedApiClient(
+        api,
+        storage,
+        TokenRefresher(api, storage),
+      );
 
-    when(() => api.getJson('/me/profile', bearer: 'old-access')).thenThrow(
-      const ApiException(
-        statusCode: 401,
-        code: 'AuthenticationError',
-        message: 'expired',
-      ),
-    );
-    when(
-      () =>
-          api.postJson('/auth/refresh', body: {'refresh_token': 'old-refresh'}),
-    ).thenThrow(
-      const ApiException(
-        statusCode: 401,
-        code: 'InvalidRefreshTokenError',
-        message: 'invalid',
-      ),
-    );
+      when(() => api.getJson('/me/profile', bearer: 'old-access')).thenThrow(
+        const ApiException(
+          statusCode: 401,
+          code: 'AuthenticationError',
+          message: 'expired',
+        ),
+      );
+      when(
+        () => api.postJson(
+          '/auth/refresh',
+          body: {'refresh_token': 'old-refresh'},
+        ),
+      ).thenThrow(
+        const ApiException(
+          statusCode: 401,
+          code: 'InvalidRefreshTokenError',
+          message: 'invalid',
+        ),
+      );
 
-    await expectLater(
-      client.getJson('/me/profile'),
-      throwsA(isA<ApiException>()),
-    );
-    expect(storage.access, isNull);
-    expect(storage.refresh, isNull);
-  });
+      await expectLater(
+        client.getJson('/me/profile'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(storage.access, isNull);
+      expect(storage.refresh, isNull);
+    },
+  );
+
+  test(
+    '#315 — keeps tokens intact when the refresh call fails with a network error',
+    () async {
+      final api = _MockApiClient();
+      final storage = _InMemoryTokenStorage();
+      final client = AuthenticatedApiClient(
+        api,
+        storage,
+        TokenRefresher(api, storage),
+      );
+
+      when(() => api.getJson('/me/profile', bearer: 'old-access')).thenThrow(
+        const ApiException(
+          statusCode: 401,
+          code: 'AuthenticationError',
+          message: 'expired',
+        ),
+      );
+      when(
+        () => api.postJson(
+          '/auth/refresh',
+          body: {'refresh_token': 'old-refresh'},
+        ),
+      ).thenThrow(
+        const ApiException(
+          statusCode: 0,
+          code: 'network',
+          message: 'Network error',
+        ),
+      );
+
+      await expectLater(
+        client.getJson('/me/profile'),
+        throwsA(isA<ApiException>()),
+      );
+      // The original 401 was real, but the offline blip that hit the refresh
+      // call must not wipe tokens the learner may still be able to use once
+      // connectivity returns.
+      expect(storage.access, 'old-access');
+      expect(storage.refresh, 'old-refresh');
+    },
+  );
 
   test('refreshes the token and retries the stream once after a 401', () async {
     final api = _MockApiClient();
     final storage = _InMemoryTokenStorage();
-    final client = AuthenticatedApiClient(api, storage);
+    final client = AuthenticatedApiClient(
+      api,
+      storage,
+      TokenRefresher(api, storage),
+    );
 
     // A stale access token is rejected before any SSE byte (this is how the
     // auth dependency rejects an expired token), so retrying the whole request
@@ -145,9 +209,7 @@ void main() {
         body: any(named: 'body'),
         bearer: 'new-access',
       ),
-    ).thenAnswer(
-      (_) => Stream.fromIterable(['event: done', 'data: {}', '']),
-    );
+    ).thenAnswer((_) => Stream.fromIterable(['event: done', 'data: {}', '']));
 
     final lines = await client
         .postLineStream('/sessions/1/turn/stream', body: {'text': 'hi'})
@@ -176,7 +238,11 @@ void main() {
     () async {
       final api = _MockApiClient();
       final storage = _InMemoryTokenStorage();
-      final client = AuthenticatedApiClient(api, storage);
+      final client = AuthenticatedApiClient(
+        api,
+        storage,
+        TokenRefresher(api, storage),
+      );
 
       // Two independent calls both hit a 401 on the same stale access token.
       when(() => api.getJson('/a', bearer: 'old-access')).thenThrow(
@@ -199,18 +265,22 @@ void main() {
       // race that used to rotate the single-use refresh token twice.
       var refreshCalls = 0;
       when(
-        () =>
-            api.postJson('/auth/refresh', body: {'refresh_token': 'old-refresh'}),
+        () => api.postJson(
+          '/auth/refresh',
+          body: {'refresh_token': 'old-refresh'},
+        ),
       ).thenAnswer((_) async {
         refreshCalls++;
         await Future<void>.delayed(Duration.zero);
         return {'access_token': 'new-access', 'refresh_token': 'new-refresh'};
       });
 
-      when(() => api.getJson('/a', bearer: 'new-access'))
-          .thenAnswer((_) async => {'ok': 'a'});
-      when(() => api.getJson('/b', bearer: 'new-access'))
-          .thenAnswer((_) async => {'ok': 'b'});
+      when(
+        () => api.getJson('/a', bearer: 'new-access'),
+      ).thenAnswer((_) async => {'ok': 'a'});
+      when(
+        () => api.getJson('/b', bearer: 'new-access'),
+      ).thenAnswer((_) async => {'ok': 'b'});
 
       final results = await Future.wait([
         client.getJson('/a'),
@@ -222,8 +292,10 @@ void main() {
       // The crux: two 401s, but the refresh token is spent exactly once.
       expect(refreshCalls, 1);
       verify(
-        () =>
-            api.postJson('/auth/refresh', body: {'refresh_token': 'old-refresh'}),
+        () => api.postJson(
+          '/auth/refresh',
+          body: {'refresh_token': 'old-refresh'},
+        ),
       ).called(1);
       expect(storage.access, 'new-access');
       expect(storage.refresh, 'new-refresh');
@@ -235,7 +307,11 @@ void main() {
     () async {
       final api = _MockApiClient();
       final storage = _InMemoryTokenStorage();
-      final client = AuthenticatedApiClient(api, storage);
+      final client = AuthenticatedApiClient(
+        api,
+        storage,
+        TokenRefresher(api, storage),
+      );
 
       when(() => api.getJson('/a', bearer: 'old-access')).thenThrow(
         const ApiException(
@@ -245,13 +321,19 @@ void main() {
         ),
       );
       when(
-        () =>
-            api.postJson('/auth/refresh', body: {'refresh_token': 'old-refresh'}),
+        () => api.postJson(
+          '/auth/refresh',
+          body: {'refresh_token': 'old-refresh'},
+        ),
       ).thenAnswer(
-        (_) async => {'access_token': 'new-access', 'refresh_token': 'new-refresh'},
+        (_) async => {
+          'access_token': 'new-access',
+          'refresh_token': 'new-refresh',
+        },
       );
-      when(() => api.getJson('/a', bearer: 'new-access'))
-          .thenAnswer((_) async => {'ok': 'a'});
+      when(
+        () => api.getJson('/a', bearer: 'new-access'),
+      ).thenAnswer((_) async => {'ok': 'a'});
 
       await client.getJson('/a');
       expect(storage.refresh, 'new-refresh');
@@ -266,14 +348,19 @@ void main() {
         ),
       );
       when(
-        () =>
-            api.postJson('/auth/refresh', body: {'refresh_token': 'new-refresh'}),
+        () => api.postJson(
+          '/auth/refresh',
+          body: {'refresh_token': 'new-refresh'},
+        ),
       ).thenAnswer(
-        (_) async =>
-            {'access_token': 'newer-access', 'refresh_token': 'newer-refresh'},
+        (_) async => {
+          'access_token': 'newer-access',
+          'refresh_token': 'newer-refresh',
+        },
       );
-      when(() => api.getJson('/b', bearer: 'newer-access'))
-          .thenAnswer((_) async => {'ok': 'b'});
+      when(
+        () => api.getJson('/b', bearer: 'newer-access'),
+      ).thenAnswer((_) async => {'ok': 'b'});
 
       final json = await client.getJson('/b');
       expect(json['ok'], 'b');
@@ -285,7 +372,11 @@ void main() {
   test('propagates a non-401 stream error without refreshing', () async {
     final api = _MockApiClient();
     final storage = _InMemoryTokenStorage();
-    final client = AuthenticatedApiClient(api, storage);
+    final client = AuthenticatedApiClient(
+      api,
+      storage,
+      TokenRefresher(api, storage),
+    );
 
     when(
       () => api.postLineStream(
