@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:apm/src/core/audio/audio_playback_service.dart';
@@ -25,6 +26,27 @@ class _FakeAudio implements AudioPlaybackService {
   Future<void> stop() async {}
 }
 
+/// Like [_FakeAudio], but `playClip` stays pending until [completeNext] is
+/// called — lets a test hold a playback open to simulate a re-entrant tap.
+class _ControllableAudio implements AudioPlaybackService {
+  final List<String> played = [];
+  final List<Completer<void>> _pending = [];
+  @override
+  Future<void> playClip(String audioB64, String mime) {
+    played.add(audioB64);
+    final completer = Completer<void>();
+    _pending.add(completer);
+    return completer.future;
+  }
+
+  @override
+  Future<void> playBytes(Uint8List bytes, String mime) async => played.add('MINE');
+  @override
+  Future<void> stop() async {}
+
+  void completeNext() => _pending.removeAt(0).complete();
+}
+
 class _FakeRecorder implements AudioRecordingService {
   bool started = false;
   bool cancelled = false;
@@ -47,7 +69,7 @@ EchoState _state(ProviderContainer c) => c.read(echoViewModelProvider);
 
 ProviderContainer _container({
   required EchoRepository repo,
-  _FakeAudio? audio,
+  AudioPlaybackService? audio,
   _FakeRecorder? recorder,
 }) {
   final c = ProviderContainer(
@@ -77,18 +99,77 @@ void main() {
     expect(_state(c).phase, EchoPhase.idle);
   });
 
-  test('playModel plays the synthesized model clip', () async {
+  test('playModel plays the synthesized model clip and restores the idle phase', () async {
     final repo = _MockEchoRepository();
     when(repo.nextPhrase).thenAnswer((_) async => phrase);
     when(() => repo.synthesize(any())).thenAnswer((_) async => const AudioClip('MODELB64', 'audio/mpeg'));
     final audio = _FakeAudio();
     final c = _container(repo: repo, audio: audio);
     await _vm(c).loadPhrase();
+    expect(_state(c).phase, EchoPhase.idle);
 
     await _vm(c).playModel();
 
     expect(audio.played, contains('MODELB64'));
+    expect(_state(c).phase, EchoPhase.idle);
   });
+
+  test(
+    'playModel called from the results panel restores reviewing, not idle (#330)',
+    () async {
+      final repo = _MockEchoRepository();
+      when(repo.nextPhrase).thenAnswer((_) async => phrase);
+      when(() => repo.synthesize(any()))
+          .thenAnswer((_) async => const AudioClip('MODELB64', 'audio/mpeg'));
+      when(
+        () => repo.scoreAttempt(
+          audioBytes: any(named: 'audioBytes'),
+          targetText: any(named: 'targetText'),
+        ),
+      ).thenAnswer((_) async => const AttemptResult(transcript: 'the ship is sinking'));
+      final audio = _FakeAudio();
+      final c = _container(repo: repo, audio: audio);
+      await _vm(c).loadPhrase();
+      await _vm(c).record();
+      await _vm(c).stopAndScore();
+      expect(_state(c).phase, EchoPhase.reviewing); // bilan affiché
+      audio.played.clear();
+
+      await _vm(c).playModel(); // "Modèle" re-listen depuis le bilan
+
+      expect(audio.played, contains('MODELB64'));
+      // The results panel must stay up — the mic orb must not re-arm for a
+      // new recording while the learner is still reviewing their score.
+      expect(_state(c).phase, EchoPhase.reviewing);
+    },
+  );
+
+  test(
+    'a re-entrant playModel tap while already playing is a no-op, not a stuck phase',
+    () async {
+      final repo = _MockEchoRepository();
+      when(repo.nextPhrase).thenAnswer((_) async => phrase);
+      when(() => repo.synthesize(any()))
+          .thenAnswer((_) async => const AudioClip('MODELB64', 'audio/mpeg'));
+      final audio = _ControllableAudio();
+      final c = _container(repo: repo, audio: audio);
+      await _vm(c).loadPhrase();
+
+      // playModel runs synchronously up to its first await (playClip, held open
+      // by the fake), so the phase flip is already visible once the call returns
+      // — no need to pump the event loop (which would race autoDispose).
+      final first = _vm(c).playModel();
+      expect(_state(c).phase, EchoPhase.playingModel);
+
+      await _vm(c).playModel(); // re-entrant tap: must not start a 2nd playback
+      expect(audio.played.length, 1);
+
+      audio.completeNext();
+      await first;
+
+      expect(_state(c).phase, EchoPhase.idle); // settles back, never stuck
+    },
+  );
 
   test('record then stopAndScore uploads the attempt and stores the result', () async {
     final repo = _MockEchoRepository();

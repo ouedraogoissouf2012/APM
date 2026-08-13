@@ -64,14 +64,19 @@ class EchoViewModel extends Notifier<EchoState> {
     }
   }
 
-  /// Plays the synthesized model voice (the phrase to imitate).
+  /// Plays the synthesized model voice (the phrase to imitate). Restores the
+  /// calling phase afterward rather than forcing `idle`, since this is also
+  /// callable while reviewing — re-listening must not re-arm the mic orb.
   Future<void> playModel() async {
     final b64 = state.modelAudioB64;
-    if (b64 == null || b64.isEmpty) return;
+    if (b64 == null || b64.isEmpty || state.phase == EchoPhase.playingModel) {
+      return; // already playing — a re-entrant tap must not clobber restore
+    }
+    final restore = state.phase;
     state = state.copyWith(phase: EchoPhase.playingModel);
     await ref.read(audioPlaybackProvider).playClip(b64, state.modelMime);
     if (!ref.mounted) return;
-    state = state.copyWith(phase: EchoPhase.idle);
+    state = state.copyWith(phase: restore);
   }
 
   /// Starts recording the learner reading the phrase aloud.
