@@ -53,6 +53,28 @@ _refresh_rate_limiter = build_rate_limiter(
     max_keys=_settings.rate_limit_max_keys,
     fail_open=False,
 )
+# Second limiter, keyed by IP alone (#355): closes the gap where the (ip, email)
+# limiters above are bypassed by rotating the email on every attempt from the
+# same IP — each new email gets its own untouched bucket in the fine-grained
+# limiter. This one has no email component, so an attacker cannot outrun it by
+# varying the email. fail_open=False for the same reason as the three above: an
+# unverifiable limiter must not hand out unlimited attempts during a Redis outage.
+_register_ip_rate_limiter = build_rate_limiter(
+    namespace="register-ip",
+    max_hits=_settings.register_ip_rate_limit_max,
+    window_seconds=_settings.register_ip_rate_limit_window_seconds,
+    redis_url=_settings.redis_url,
+    max_keys=_settings.rate_limit_max_keys,
+    fail_open=False,
+)
+_login_ip_rate_limiter = build_rate_limiter(
+    namespace="login-ip",
+    max_hits=_settings.login_ip_rate_limit_max,
+    window_seconds=_settings.login_ip_rate_limit_window_seconds,
+    redis_url=_settings.redis_url,
+    max_keys=_settings.rate_limit_max_keys,
+    fail_open=False,
+)
 # Guards change_password (#300): the caller is already authenticated, so this is
 # keyed by user_id (not IP) by the router — a stolen access token must not be able
 # to brute-force old_password unthrottled. fail_open=False for the same reason as
@@ -72,8 +94,16 @@ def get_register_rate_limiter() -> RateLimiter:
     return _register_rate_limiter
 
 
+def get_register_ip_rate_limiter() -> RateLimiter:
+    return _register_ip_rate_limiter
+
+
 def get_login_rate_limiter() -> RateLimiter:
     return _login_rate_limiter
+
+
+def get_login_ip_rate_limiter() -> RateLimiter:
+    return _login_ip_rate_limiter
 
 
 def get_refresh_rate_limiter() -> RateLimiter:

@@ -136,6 +136,47 @@ async def test_generate_debrief_is_rate_limited_per_user(client, db_session):
         app.dependency_overrides.pop(get_debrief_service, None)
 
 
+@pytest.mark.asyncio
+async def test_generate_debrief_rate_limit_is_not_bypassed_by_ip_rotation(client, db_session):
+    """#356: the limiter key must be user_id-only. Before the fix, the IP was
+    part of the key, so a free account rotating its apparent IP (VPN, or
+    X-Forwarded-For under trust_proxy_headers) got a fresh bucket per IP on
+    this paid (LLM-backed) endpoint — a denial-of-wallet."""
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_debrief_rate_limiter] = lambda: limiter
+    token = await _register(client, email="ip-debrief@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+    await SqlAlchemyTranscriptRepository(db_session).save(
+        session_id, [{"role": "user", "content": "i is happy"}]
+    )
+
+    def _override():
+        return DebriefService(
+            sessions=SqlAlchemySessionRepository(db_session),
+            transcripts=SqlAlchemyTranscriptRepository(db_session),
+            debriefs=SqlAlchemyDebriefRepository(db_session),
+            analyzer=DebriefAnalyzer(_CannedLlm()),
+        )
+
+    app.dependency_overrides[get_debrief_service] = _override
+    try:
+        first = await client.post(
+            f"/sessions/{session_id}/debrief",
+            headers={**headers, "X-Forwarded-For": "1.1.1.1"},
+        )
+        assert first.status_code == 201, first.text
+        blocked = await client.post(
+            f"/sessions/{session_id}/debrief",
+            headers={**headers, "X-Forwarded-For": "2.2.2.2"},
+        )
+        assert blocked.status_code == 429
+    finally:
+        app.dependency_overrides.pop(get_debrief_service, None)
+        app.dependency_overrides.pop(get_debrief_rate_limiter, None)
+
+
 class _CountingLlm:
     """Counts real analyses and adds a small delay so two concurrent requests
     are genuinely both in flight when they'd reach the analyzer — widening the

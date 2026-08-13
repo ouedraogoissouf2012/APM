@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, Request, status
 
-from app.api.client_ip import client_ip
-from app.config import get_settings
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.missions.dependencies import (
@@ -23,8 +21,7 @@ async def create_mission(
     limiter: RateLimiter = Depends(get_mission_rate_limiter),
     service: MissionService = Depends(get_mission_service),
 ) -> MissionOut:
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"mission:{client_host}:user:{current_user.id}")
+    await limiter.check(user_rate_limit_key("mission", current_user.id))
     mission = await service.create(current_user, payload.source_type, payload.content)
     return MissionOut.model_validate(mission)
 

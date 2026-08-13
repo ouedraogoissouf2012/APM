@@ -7,9 +7,13 @@ the service with a fake STT.
 
 import pytest
 
+from app.core.rate_limit import InMemoryRateLimiter
 from app.features.conversation.providers.interfaces import TranscriptWord, VerboseTranscript
 from app.features.minimal_pairs.coach import PairCoach
-from app.features.minimal_pairs.dependencies import get_minimal_pairs_service
+from app.features.minimal_pairs.dependencies import (
+    get_minimal_pairs_rate_limiter,
+    get_minimal_pairs_service,
+)
 from app.features.minimal_pairs.service import MinimalPairsService
 from app.main import app
 
@@ -167,6 +171,37 @@ async def test_attempt_rejects_oversized_other(client):
         assert "other" in resp.text
     finally:
         app.dependency_overrides.pop(get_minimal_pairs_service, None)
+
+
+@pytest.mark.asyncio
+async def test_attempt_rate_limit_is_not_bypassed_by_ip_rotation(client):
+    """#356: the limiter key must be user_id-only. Before the fix, the IP was
+    part of the key, so a free account rotating its apparent IP (VPN, or
+    X-Forwarded-For under trust_proxy_headers) got a fresh bucket per IP on
+    this paid (STT-backed) endpoint — a denial-of-wallet."""
+    token = await _register(client, email="pair-ip@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_minimal_pairs_rate_limiter] = lambda: limiter
+    app.dependency_overrides[get_minimal_pairs_service] = _override_with("sheep")
+    try:
+        first = await client.post(
+            "/minimal-pairs/attempt",
+            headers={**headers, "X-Forwarded-For": "1.1.1.1"},
+            data={"target": "sheep", "other": "ship"},
+            files={"audio": ("speech.wav", b"xxxx", "audio/wav")},
+        )
+        assert first.status_code == 200, first.text
+        second = await client.post(
+            "/minimal-pairs/attempt",
+            headers={**headers, "X-Forwarded-For": "2.2.2.2"},
+            data={"target": "sheep", "other": "ship"},
+            files={"audio": ("speech.wav", b"xxxx", "audio/wav")},
+        )
+        assert second.status_code == 429, second.text
+    finally:
+        app.dependency_overrides.pop(get_minimal_pairs_service, None)
+        app.dependency_overrides.pop(get_minimal_pairs_rate_limiter, None)
 
 
 @pytest.mark.asyncio

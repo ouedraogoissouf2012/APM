@@ -5,8 +5,10 @@ import pytest
 from app.core.rate_limit import InMemoryRateLimiter
 from app.features.auth.dependencies import (
     get_change_password_rate_limiter,
+    get_login_ip_rate_limiter,
     get_login_rate_limiter,
     get_refresh_rate_limiter,
+    get_register_ip_rate_limiter,
     get_register_rate_limiter,
 )
 from app.main import app
@@ -187,6 +189,49 @@ async def test_login_rate_limit_keys_are_independent_by_email(client):
         "/auth/login", json={"email": "one@b.com", "password": "s3cret!pass"}
     )
     assert blocked.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_register_ip_rate_limit_blocks_across_different_emails_same_ip(client):
+    # #355: the (ip, email) limiter alone is bypassed by varying the email on
+    # every attempt — a fresh email always gets a fresh bucket there. This
+    # second, IP-only limiter has no email component, so N distinct emails
+    # from the same IP still hit one shared per-IP ceiling.
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_register_ip_rate_limiter] = lambda: limiter
+
+    first = await client.post(
+        "/auth/register", json={"email": "regipone@b.com", "password": "s3cret!pass"}
+    )
+    assert first.status_code == 201, first.text
+
+    second = await client.post(
+        "/auth/register", json={"email": "regiptwo@b.com", "password": "s3cret!pass"}
+    )
+    assert second.status_code == 429, second.text
+
+
+@pytest.mark.asyncio
+async def test_login_ip_rate_limit_blocks_across_different_emails_same_ip(client):
+    # #355: same bypass as register, closed the same way — an attacker rotating
+    # the email on every login attempt from one IP must still hit a per-IP cap.
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_login_ip_rate_limiter] = lambda: limiter
+    await client.post("/auth/register", json={"email": "ipone@b.com", "password": "s3cret!pass"})
+    await client.post("/auth/register", json={"email": "iptwo@b.com", "password": "s3cret!pass"})
+
+    first = await client.post(
+        "/auth/login", json={"email": "ipone@b.com", "password": "s3cret!pass"}
+    )
+    assert first.status_code == 200, first.text
+
+    # A DIFFERENT email, same test-client IP: the (ip, email) limiter alone
+    # would treat this as a fresh bucket and allow it — the IP-only limiter
+    # must still block it.
+    second = await client.post(
+        "/auth/login", json={"email": "iptwo@b.com", "password": "s3cret!pass"}
+    )
+    assert second.status_code == 429, second.text
 
 
 @pytest.mark.asyncio

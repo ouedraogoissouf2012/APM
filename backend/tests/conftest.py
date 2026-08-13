@@ -27,8 +27,10 @@ from app.core.rate_limit import NoOpRateLimiter  # noqa: E402
 from app.database import Base, get_db  # noqa: E402
 from app.features.auth.dependencies import (  # noqa: E402
     get_change_password_rate_limiter,
+    get_login_ip_rate_limiter,
     get_login_rate_limiter,
     get_refresh_rate_limiter,
+    get_register_ip_rate_limiter,
     get_register_rate_limiter,
 )
 from app.features.conversation.dependencies import get_conversation_rate_limiter  # noqa: E402
@@ -72,7 +74,9 @@ async def client(_engine, _setup_db) -> AsyncClient:
     # Disable rate limiting by default so it doesn't leak across tests;
     # dedicated rate-limit tests override these with real limiters.
     app.dependency_overrides[get_register_rate_limiter] = lambda: NoOpRateLimiter()
+    app.dependency_overrides[get_register_ip_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_login_rate_limiter] = lambda: NoOpRateLimiter()
+    app.dependency_overrides[get_login_ip_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_refresh_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_change_password_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_conversation_rate_limiter] = lambda: NoOpRateLimiter()

@@ -9,8 +9,10 @@ from app.features.auth.dependencies import (
     get_change_password_rate_limiter,
     get_current_admin,
     get_current_user,
+    get_login_ip_rate_limiter,
     get_login_rate_limiter,
     get_refresh_rate_limiter,
+    get_register_ip_rate_limiter,
     get_register_rate_limiter,
 )
 from app.features.auth.models import User
@@ -47,8 +49,13 @@ async def register(
     request: Request,
     service: AuthService = Depends(get_auth_service),
     limiter: RateLimiter = Depends(get_register_rate_limiter),
+    ip_limiter: RateLimiter = Depends(get_register_ip_rate_limiter),
 ) -> TokenOut:
-    await limiter.check(f"register:{_client_host(request)}:{str(payload.email).lower()}")
+    client_host = _client_host(request)
+    # #355: the (ip, email) limiter below is bypassed by varying the email on
+    # every attempt from the same IP — checked first as a coarse per-IP backstop.
+    await ip_limiter.check(f"register-ip:{client_host}")
+    await limiter.check(f"register:{client_host}:{str(payload.email).lower()}")
     result = await service.register(payload.email, payload.password, payload.native_language)
     return _to_token_out(result)
 
@@ -59,8 +66,13 @@ async def login(
     request: Request,
     service: AuthService = Depends(get_auth_service),
     limiter: RateLimiter = Depends(get_login_rate_limiter),
+    ip_limiter: RateLimiter = Depends(get_login_ip_rate_limiter),
 ) -> TokenOut:
-    await limiter.check(f"login:{_client_host(request)}:{str(payload.email).lower()}")
+    client_host = _client_host(request)
+    # #355: the (ip, email) limiter below is bypassed by varying the email on
+    # every attempt from the same IP — checked first as a coarse per-IP backstop.
+    await ip_limiter.check(f"login-ip:{client_host}")
+    await limiter.check(f"login:{client_host}:{str(payload.email).lower()}")
     result = await service.login(payload.email, payload.password)
     return _to_token_out(result)
 

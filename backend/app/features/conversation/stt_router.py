@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from app.api.client_ip import client_ip
 from app.config import get_settings
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.conversation.audio_upload import read_bounded_audio
@@ -40,8 +39,7 @@ async def transcribe(
     precedes the consent 403: when the feature does not exist for this deployment,
     'not found' is the honest answer regardless of the caller's consent."""
     settings = get_settings()
-    client_host = client_ip(request, settings.trust_proxy_headers)
-    await limiter.check(f"transcribe:{client_host}:user:{current_user.id}")
+    await limiter.check(user_rate_limit_key("transcribe", current_user.id))
 
     # Voice-consent gate (#128): a learner who revoked transcription consent gets a
     # 403 so the client falls back to on-device recognition. Checked BEFORE the

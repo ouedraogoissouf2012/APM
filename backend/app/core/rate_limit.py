@@ -24,6 +24,19 @@ class RateLimiter(Protocol):
         ...
 
 
+def user_rate_limit_key(namespace: str, user_id: int) -> str:
+    """Build a per-user rate-limit key with NO IP component (#356).
+
+    An IP-keyed bucket lets an account rotate its apparent IP (VPN, or
+    X-Forwarded-For under trust_proxy_headers) to reset a per-user quota on a
+    paid provider — a denial-of-wallet. Every authenticated, paid-provider
+    endpoint keys its limiter through this one function instead of a
+    hand-rolled f-string, so that invariant lives in a single place rather
+    than being copy-pasted (and potentially re-broken) at each call site.
+    """
+    return f"{namespace}:user:{user_id}"
+
+
 class InMemoryRateLimiter:
     """Fixed-window in-memory limiter (dev/test only, not for production).
 

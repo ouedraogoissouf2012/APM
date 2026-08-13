@@ -5,8 +5,16 @@ import time
 import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from app.core.rate_limit import InMemoryRateLimiter, RedisRateLimiter
+from app.core.rate_limit import InMemoryRateLimiter, RedisRateLimiter, user_rate_limit_key
 from app.domain.exceptions import RateLimitedError
+
+
+def test_user_rate_limit_key_has_no_ip_component():
+    """#356: every paid-provider endpoint builds its limiter key through this
+    function so the key is user_id-only — no caller can slip an IP back in."""
+    assert user_rate_limit_key("tts", 42) == "tts:user:42"
+    # Same user, different namespace -> different bucket (no cross-endpoint bleed).
+    assert user_rate_limit_key("mission", 42) != user_rate_limit_key("tts", 42)
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, Request
 
-from app.api.client_ip import client_ip
-from app.config import get_settings
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.onboarding.dependencies import (
@@ -26,8 +24,7 @@ async def submit_placement(
     """Estimate the learner's starting CEFR from their spoken placement answers and
     pre-fill interests/goal. Idempotent enough to retry: it re-runs the estimate
     and overwrites the level/profile from the submitted answers."""
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"placement:{client_host}:user:{current_user.id}")
+    await limiter.check(user_rate_limit_key("placement", current_user.id))
     result = await service.place(current_user, payload.answers, payload.interests, payload.goal)
     return PlacementOut(
         cefr_level=result.cefr_level,

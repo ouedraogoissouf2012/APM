@@ -2,9 +2,8 @@ import base64
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.api.client_ip import client_ip
 from app.config import get_settings
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.conversation.audio_upload import parse_bounded_multipart
@@ -41,8 +40,7 @@ async def synthesize(
 ) -> TtsOut:
     """Synthesize a single phrase to neural audio (the shadowing model voice).
     404 when TTS_ENGINE=device (the client uses its on-device voice instead)."""
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"tts:{client_host}:user:{current_user.id}")
+    await limiter.check(user_rate_limit_key("tts", current_user.id))
     audio = await tts.synthesize(payload.text)
     return TtsOut(audio=base64.b64encode(audio).decode("ascii"), mime="audio/mpeg")
 
@@ -54,8 +52,7 @@ async def generate_phrase(
     limiter: RateLimiter = Depends(get_shadowing_rate_limiter),
     service: ShadowingService = Depends(get_shadowing_service),
 ) -> PhraseOut:
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"shadowing-phrase:{client_host}:user:{current_user.id}")
+    await limiter.check(user_rate_limit_key("shadowing-phrase", current_user.id))
     phrase = await service.generate_phrase(current_user.cefr_level)
     return PhraseOut(text=phrase.text, focus=phrase.focus, tip=phrase.tip)
 
@@ -69,8 +66,7 @@ async def score_attempt(
 ) -> AttemptOut:
     """Transcribe the learner's recording, diff it against the target phrase, and
     coach the missed words. The audio is used then discarded (never stored)."""
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"shadowing-attempt:{client_host}:user:{current_user.id}")
+    await limiter.check(user_rate_limit_key("shadowing-attempt", current_user.id))
     settings = get_settings()
     # Bounded, in-memory upload (#230): a plain `UploadFile` parameter goes
     # through Starlette's default parser, which spools past 1 MB and enforces no
@@ -119,8 +115,7 @@ async def coach_attempt(
     """Coaching tip on a scored attempt's missed words. Called AFTER /shadowing/attempt
     so the slow coaching LLM never blocks the reactive score display. Does not need
     STT (uses the phrase-only service)."""
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"shadowing-coach:{client_host}:user:{current_user.id}")
+    await limiter.check(user_rate_limit_key("shadowing-coach", current_user.id))
     text = await service.coach_attempt(
         target=payload.target_text,
         missed_words=payload.missed_words,
