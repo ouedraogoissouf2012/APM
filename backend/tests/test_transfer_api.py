@@ -7,8 +7,11 @@ so the transfer endpoint yields a launchable mission.
 import pytest
 from sqlalchemy import select
 
+from app.core.rate_limit import InMemoryRateLimiter
 from app.features.analytics.domain import EVENT_TRANSFER_STARTED
 from app.features.analytics.models import AnalyticsEventRow
+from app.features.missions.dependencies import get_mission_rate_limiter
+from app.main import app
 
 
 async def _auth(client):
@@ -77,3 +80,25 @@ async def test_transfer_rejects_a_blank_skill(client):
 async def test_transfer_requires_auth(client):
     resp = await client.post("/me/transfer/job_interview")
     assert resp.status_code == 401, resp.text
+
+
+@pytest.mark.asyncio
+async def test_transfer_rate_limit_is_not_bypassed_by_ip_rotation(client):
+    """#356: the limiter key must be user_id-only. Before the fix, the IP was
+    part of the key, so a free account rotating its apparent IP (VPN, or
+    X-Forwarded-For under trust_proxy_headers) got a fresh bucket per IP on
+    this paid (LLM-compiled) endpoint — a denial-of-wallet."""
+    headers = await _auth(client)
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_mission_rate_limiter] = lambda: limiter
+    try:
+        first = await client.post(
+            "/me/transfer/job_interview", headers={**headers, "X-Forwarded-For": "1.1.1.1"}
+        )
+        assert first.status_code == 200, first.text
+        second = await client.post(
+            "/me/transfer/restaurant", headers={**headers, "X-Forwarded-For": "2.2.2.2"}
+        )
+        assert second.status_code == 429, second.text
+    finally:
+        app.dependency_overrides.pop(get_mission_rate_limiter, None)

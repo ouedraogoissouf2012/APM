@@ -2,7 +2,8 @@
 
 import pytest
 
-from app.features.conversation.dependencies import get_stt_provider
+from app.core.rate_limit import InMemoryRateLimiter
+from app.features.conversation.dependencies import get_conversation_rate_limiter, get_stt_provider
 from app.main import app
 
 
@@ -124,6 +125,34 @@ async def test_transcribe_missing_audio_part_returns_422(client):
 async def test_transcribe_requires_auth(client):
     resp = await client.post("/transcribe", files={"audio": ("speech.webm", b"x", "audio/webm")})
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_transcribe_rate_limit_is_not_bypassed_by_ip_rotation(client):
+    """#356: the limiter key must be user_id-only. Before the fix, the IP was
+    part of the key, so a free account rotating its apparent IP (VPN, or
+    X-Forwarded-For under trust_proxy_headers) got a fresh bucket per IP on
+    this paid (STT-backed) endpoint — a denial-of-wallet."""
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_conversation_rate_limiter] = lambda: limiter
+    app.dependency_overrides[get_stt_provider] = lambda: _FakeStt()
+    try:
+        headers = await _auth_header(client, email="transcribe-ip@b.com")
+        first = await client.post(
+            "/transcribe",
+            headers={**headers, "X-Forwarded-For": "1.1.1.1"},
+            files={"audio": ("speech.webm", b"xxxxx", "audio/webm")},
+        )
+        assert first.status_code == 200, first.text
+        second = await client.post(
+            "/transcribe",
+            headers={**headers, "X-Forwarded-For": "2.2.2.2"},
+            files={"audio": ("speech.webm", b"xxxxx", "audio/webm")},
+        )
+        assert second.status_code == 429, second.text
+    finally:
+        app.dependency_overrides.pop(get_stt_provider, None)
+        app.dependency_overrides.pop(get_conversation_rate_limiter, None)
 
 
 @pytest.mark.asyncio

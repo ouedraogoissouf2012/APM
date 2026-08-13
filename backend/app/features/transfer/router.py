@@ -2,9 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
-from app.api.client_ip import client_ip
-from app.config import get_settings
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.features.analytics.dependencies import get_analytics_service
 from app.features.analytics.service import AnalyticsService
 from app.features.auth.dependencies import get_current_user
@@ -39,8 +37,7 @@ async def create_transfer_challenge(
     skill = skill.strip()
     if not skill:
         raise HTTPException(status_code=422, detail="skill must not be blank")
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"transfer:{client_host}:user:{current_user.id}")
+    await limiter.check(user_rate_limit_key("transfer", current_user.id))
     mission = await TransferService(missions).challenge(current_user, skill)
     # Product analytics (#129): a transfer challenge was started. Best-effort.
     await analytics.transfer_started(current_user.id, skill)

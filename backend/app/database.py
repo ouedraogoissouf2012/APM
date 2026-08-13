@@ -11,7 +11,20 @@ class Base(DeclarativeBase):
 
 
 _settings = get_settings()
-engine = create_async_engine(_settings.database_url, echo=False, future=True)
+engine = create_async_engine(
+    _settings.database_url,
+    echo=False,
+    future=True,
+    # Explicit pool (#354): get_current_user -> get_db holds this connection for
+    # the whole request, including external LLM/STT/TTS calls (~seconds) — an
+    # implicit default pool silently caps concurrency with no visibility into why.
+    # pool_pre_ping avoids handing out a connection the server/network already
+    # dropped; pool_recycle (config.py) bounds how long one can go unverified.
+    pool_size=_settings.db_pool_size,
+    max_overflow=_settings.db_max_overflow,
+    pool_pre_ping=True,
+    pool_recycle=_settings.db_pool_recycle_seconds,
+)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

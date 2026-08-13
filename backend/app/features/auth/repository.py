@@ -4,6 +4,7 @@ Repositories are Protocols (interfaces) with SQLAlchemy implementations, so
 services depend on the interface and any substitutable fake works in unit tests.
 """
 
+import logging
 from datetime import datetime
 from typing import Protocol
 
@@ -13,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.exceptions import EmailAlreadyExistsError
 from app.features.auth.models import RefreshToken, User
+
+_logger = logging.getLogger(__name__)
 
 
 class UserRepository(Protocol):
@@ -179,7 +182,11 @@ class SqlAlchemyRefreshTokenRepository:
                 await self._session.flush()
             return rowcount
         except Exception:
-            # Silently ignore purge failures; it's a best-effort background operation.
+            # Best-effort background operation (#357): swallowed so the purge loop
+            # keeps running on its next tick, but logged so a persistent failure
+            # (e.g. the DB rejecting every purge) is actually visible instead of
+            # silently leaving the table to grow unbounded again (#239/#271).
+            _logger.warning("purge_expired failed, skipping this cycle", exc_info=True)
             return 0
 
     async def commit(self) -> None:

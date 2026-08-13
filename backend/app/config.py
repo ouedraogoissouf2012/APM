@@ -29,6 +29,18 @@ class Settings(BaseSettings):
 
     database_url: str
     database_url_test: str = ""
+    # Explicit pool sizing (#354): create_async_engine's SQLAlchemy defaults
+    # (pool_size=5, max_overflow=10 -> 15 conn/worker) were implicit and
+    # undocumented. 10+10 = 20 conn/worker stays well under Postgres's default
+    # max_connections=100 for a handful of workers on a single instance; tune
+    # both to the actual deployment's worker count and Postgres max_connections.
+    db_pool_size: int = 10
+    db_max_overflow: int = 10
+    # Proactively replace a connection after this many seconds, before a
+    # network intermediary (LB, managed-Postgres proxy) or the server itself
+    # can silently drop it out from under the pool. Paired with pool_pre_ping
+    # (always on, see database.py) which catches what recycling misses.
+    db_pool_recycle_seconds: int = 1800  # 30 minutes
 
     jwt_secret: str
     jwt_algorithm: str = "HS256"
@@ -49,6 +61,17 @@ class Settings(BaseSettings):
     login_rate_limit_window_seconds: int = 60
     register_rate_limit_max: int = 5
     register_rate_limit_window_seconds: int = 60
+    # Second, coarser limiter keyed by IP ALONE (#355): the (ip, email) limiters
+    # above are trivially bypassed by varying the email on every attempt from the
+    # same IP, since each new email gets a fresh bucket. This one closes that gap
+    # without replacing the fine-grained limiter (which still isolates one email
+    # under credential-stuffing from penalizing every other tenant on a shared/NAT
+    # IP). Higher ceiling than the per-email limit — it's a coarse abuse backstop,
+    # not the primary brute-force guard.
+    login_ip_rate_limit_max: int = 30
+    login_ip_rate_limit_window_seconds: int = 60
+    register_ip_rate_limit_max: int = 30
+    register_ip_rate_limit_window_seconds: int = 60
     refresh_rate_limit_max: int = 10
     refresh_rate_limit_window_seconds: int = 60
     # A stolen access token (15 min TTL) but not the password could otherwise

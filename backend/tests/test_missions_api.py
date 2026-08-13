@@ -99,6 +99,33 @@ async def test_create_mission_is_rate_limited(client):
         app.dependency_overrides.pop(get_mission_rate_limiter, None)
 
 
+@pytest.mark.asyncio
+async def test_create_mission_rate_limit_is_not_bypassed_by_ip_rotation(client):
+    """#356: the limiter key must be user_id-only. Before the fix, the IP was
+    part of the key, so a free account rotating its apparent IP (VPN, or
+    X-Forwarded-For under trust_proxy_headers) got a fresh bucket per IP on
+    this paid (LLM-compiled) endpoint — a denial-of-wallet."""
+    token = await _register(client, email="rl-ip@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_mission_rate_limiter] = lambda: limiter
+    try:
+        first = await client.post(
+            "/missions",
+            headers={**headers, "X-Forwarded-For": "1.1.1.1"},
+            json={"source_type": "offer", "content": "a"},
+        )
+        assert first.status_code == 201, first.text
+        second = await client.post(
+            "/missions",
+            headers={**headers, "X-Forwarded-For": "2.2.2.2"},
+            json={"source_type": "offer", "content": "b"},
+        )
+        assert second.status_code == 429, second.text
+    finally:
+        app.dependency_overrides.pop(get_mission_rate_limiter, None)
+
+
 class _BrokenLlm:
     async def complete(self, system_prompt, history):
         return "sorry, I cannot help"  # non-JSON -> compile error
