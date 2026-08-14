@@ -238,7 +238,9 @@ async def test_record_turn_activity_and_end_do_not_deadlock(_engine, _setup_db):
 
     async with maker() as s:
         user = User(
-            email="deadlock-race@b.com", hashed_password=hash_password("x"), native_language="fr"
+            email="deadlock-race@b.com",
+            hashed_password=await hash_password("x"),
+            native_language="fr",
         )
         s.add(user)
         await s.commit()

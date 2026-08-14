@@ -72,11 +72,16 @@ async def test_update_weekly_goal(client):
 
 
 @pytest.mark.asyncio
-async def test_weekly_goal_is_clamped(client):
+async def test_weekly_goal_out_of_range_is_rejected(client):
+    # #391: out-of-range is a real 422 at the edge, not a silent clamp.
     headers = await _auth(client)
-    resp = await client.put("/me/streak/goal", headers=headers, json={"weekly_goal_minutes": 1})
-    # 1 is below MIN (5) -> clamped up.
-    assert resp.json()["weekly_goal_minutes"] == 5
+    below = await client.put("/me/streak/goal", headers=headers, json={"weekly_goal_minutes": 1})
+    assert below.status_code == 422, below.text
+    above = await client.put("/me/streak/goal", headers=headers, json={"weekly_goal_minutes": 5000})
+    assert above.status_code == 422, above.text
+    # Nothing was persisted — the goal is still the untouched default.
+    again = await client.get("/me/streak", headers=headers)
+    assert again.json()["weekly_goal_minutes"] == 30
 
 
 @pytest.mark.asyncio
