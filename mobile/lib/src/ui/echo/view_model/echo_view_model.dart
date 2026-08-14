@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/audio/providers.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
-import '../../../core/observability/providers.dart';
+import '../../../core/observability/ref_report_error.dart';
 import '../../../data/models/echo.dart';
 import '../../../data/repositories/echo_repository.dart';
 import 'echo_state.dart';
@@ -65,7 +65,7 @@ class EchoViewModel extends Notifier<EchoState> {
       // vanish silently — report it so a recurring cause (a new backend
       // error shape, a parsing bug) is visible instead of just "loading
       // failed" reports with no trail.
-      _reportError(e, s, 'EchoViewModel.loadPhrase');
+      ref.reportError(e, s, context: 'EchoViewModel.loadPhrase');
       _fail('Could not load a phrase. Please try again.');
     } finally {
       _busy = false;
@@ -165,7 +165,7 @@ class EchoViewModel extends Notifier<EchoState> {
       _fail(e.message);
     } catch (e, s) {
       // (#351) see the matching comment in loadPhrase() above.
-      _reportError(e, s, 'EchoViewModel.stopAndScore');
+      ref.reportError(e, s, context: 'EchoViewModel.stopAndScore');
       _fail('Could not score your attempt. Please try again.');
     } finally {
       _busy = false;
@@ -190,7 +190,7 @@ class EchoViewModel extends Notifier<EchoState> {
       // (#351) The score already stands, so this stays silent to the
       // learner — but a failure here would otherwise vanish with zero
       // trace, hiding a recurring coaching-LLM outage from anyone.
-      _reportError(e, s, 'EchoViewModel._fetchCoaching');
+      ref.reportError(e, s, context: 'EchoViewModel._fetchCoaching');
       state = state.copyWith(
         coachingLoading: false,
       ); // score stands without a tip
@@ -219,7 +219,7 @@ class EchoViewModel extends Notifier<EchoState> {
     } catch (e, s) {
       failed = true;
       // (#351) see the matching comment in loadPhrase() above.
-      _reportError(e, s, 'EchoViewModel.playMine');
+      ref.reportError(e, s, context: 'EchoViewModel.playMine');
     } finally {
       _busy = false;
     }
@@ -269,13 +269,5 @@ class EchoViewModel extends Notifier<EchoState> {
   void _fail(String message) {
     if (!ref.mounted) return;
     state = state.copyWith(phase: EchoPhase.idle, error: message);
-  }
-
-  /// Reports an unexpected exception (#351), guarding the read behind
-  /// [ref.mounted] — this is an autoDispose provider, so a `Ref` read after
-  /// disposal throws, and a crash report must never itself become the crash.
-  void _reportError(Object error, StackTrace stack, String context) {
-    if (!ref.mounted) return;
-    ref.read(crashReporterProvider).captureError(error, stack, context: context);
   }
 }
