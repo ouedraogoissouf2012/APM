@@ -88,6 +88,23 @@ def _log_server_side(request: Request, exc: Exception) -> None:
     )
 
 
+def _log_db_constraint_error(request: Request, exc: Exception) -> None:
+    # A surprising DataError/IntegrityError is worth a WARNING (the upstream Pydantic
+    # validation or ON CONFLICT that should have caught it didn't) — but log it WITHOUT
+    # exc_info/str(exc). A SQLAlchemy DB error renders the driver's DETAIL, which for a
+    # unique violation carries the CONFLICTING VALUE (e.g. "Key (email)=(alice@x.com)
+    # already exists"); that is NOT hidden by the engine's hide_parameters (which only
+    # suppresses the bound-parameters section) and must never land in logs. The class
+    # name + method + path + request_id pinpoint the surprise without leaking learner data.
+    _logger.warning(
+        "DB constraint error (%s): %s %s",
+        exc.__class__.__name__,
+        request.method,
+        request.url.path,
+        extra={"request_id": request.scope.get("apm_request_id", "-")},
+    )
+
+
 async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Anything not a mapped DomainError is a bug, not an expected 4xx: log it with
     the stack + the request's correlation id, and return the SAME normalized
@@ -119,8 +136,8 @@ async def _data_error_handler(request: Request, exc: Exception) -> JSONResponse:
     Mapped to 422 since it indicates invalid input — likely a client sending data
     that bypassed Pydantic validation or a pre-check. Despite the 4xx response,
     reaching this net is itself a surprise (validation that should have caught it
-    upstream didn't), so it's logged like a 5xx (#402)."""
-    _log_server_side(request, exc)
+    upstream didn't), so it's logged (value-free) as a surprising conflict (#402)."""
+    _log_db_constraint_error(request, exc)
     return _error_response(status.HTTP_422_UNPROCESSABLE_ENTITY, "DataError", "Invalid input")
 
 
@@ -131,8 +148,8 @@ async def _integrity_error_handler(request: Request, exc: Exception) -> JSONResp
     safety net for any commit that isn't: mapped to 409 (the request conflicts
     with the current state) rather than falling through to a raw 500. That
     safety net firing is by definition a surprise disguised as a routine
-    conflict, so it's logged like a 5xx (#402)."""
-    _log_server_side(request, exc)
+    conflict, so it's logged (value-free) as a surprising conflict (#402)."""
+    _log_db_constraint_error(request, exc)
     return _error_response(status.HTTP_409_CONFLICT, "IntegrityError", "Conflicting data")
 
 

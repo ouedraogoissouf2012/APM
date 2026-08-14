@@ -166,7 +166,13 @@ def test_integrity_error_is_logged_despite_its_409_status(caplog):
 
     assert response.status_code == 409
     assert len(caplog.records) == 1
-    assert caplog.records[0].exc_info is not None
+    record = caplog.records[0]
+    # Logged value-free (#402 hardening): no exc_info, so the driver DETAIL / SQL /
+    # bound parameters (which can carry the conflicting value or credentials) never
+    # reach the log — only the error class + method + path do.
+    assert record.exc_info is None
+    assert "IntegrityError" in record.getMessage()
+    assert "duplicate key" not in caplog.text
 
 
 def test_data_error_is_logged_despite_its_422_status(caplog):
@@ -182,7 +188,10 @@ def test_data_error_is_logged_despite_its_422_status(caplog):
 
     assert response.status_code == 422
     assert len(caplog.records) == 1
-    assert caplog.records[0].exc_info is not None
+    record = caplog.records[0]
+    assert record.exc_info is None
+    assert "DataError" in record.getMessage()
+    assert "out of range" not in caplog.text
 
 
 def test_wrong_method_returns_normalized_405_not_bare_detail():
