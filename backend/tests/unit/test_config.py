@@ -225,3 +225,65 @@ def test_dev_still_allows_the_example_jwt_secret():
     # Dev must stay frictionless: only staging/production enforce these checks.
     settings = _settings(app_env="dev", jwt_secret=EXAMPLE_JWT_SECRET)
     assert settings.jwt_secret == EXAMPLE_JWT_SECRET
+
+
+# --- TRUSTED_PROXY_COUNT must be sane when TRUST_PROXY_HEADERS is on (#383) ---
+# 0 (or negative) would make client_ip()'s `hops[-trusted_proxy_count]` pick the
+# LEFT-MOST (attacker-controlled) hop again, via Python's `list[-0] == list[0]` —
+# silently reopening the exact spoofing bug #383 fixes. Fail fast at startup.
+
+
+def test_production_rejects_trusted_proxy_count_of_zero_when_trust_proxy_is_on():
+    with pytest.raises(ValidationError, match="TRUSTED_PROXY_COUNT must be >= 1"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            redis_url="redis://prod-redis:6379/0",
+            trust_proxy_headers=True,
+            trusted_proxy_count=0,
+        )
+
+
+def test_production_rejects_negative_trusted_proxy_count_when_trust_proxy_is_on():
+    with pytest.raises(ValidationError, match="TRUSTED_PROXY_COUNT must be >= 1"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            redis_url="redis://prod-redis:6379/0",
+            trust_proxy_headers=True,
+            trusted_proxy_count=-1,
+        )
+
+
+def test_production_allows_trusted_proxy_count_of_zero_when_trust_proxy_is_off():
+    # The count is irrelevant (and harmless) when TRUST_PROXY_HEADERS is False —
+    # client_ip() never reads it in that case.
+    settings = _settings(
+        app_env="production",
+        jwt_secret="a-secure-production-secret-32-bytes",
+        cors_allow_origins="https://app.example.com",
+        redis_url="redis://prod-redis:6379/0",
+        trust_proxy_headers=False,
+        trusted_proxy_count=0,
+    )
+    assert settings.trusted_proxy_count == 0
+
+
+def test_production_allows_a_positive_trusted_proxy_count():
+    settings = _settings(
+        app_env="production",
+        jwt_secret="a-secure-production-secret-32-bytes",
+        cors_allow_origins="https://app.example.com",
+        redis_url="redis://prod-redis:6379/0",
+        trust_proxy_headers=True,
+        trusted_proxy_count=2,
+    )
+    assert settings.trusted_proxy_count == 2
+
+
+def test_dev_allows_trusted_proxy_count_of_zero():
+    # Dev stays frictionless: only staging/production enforce this.
+    settings = _settings(app_env="dev", trust_proxy_headers=True, trusted_proxy_count=0)
+    assert settings.trusted_proxy_count == 0
