@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:apm/src/core/audio/providers.dart';
 import 'package:apm/src/core/audio/user_scoped_voice_take_store.dart';
 import 'package:apm/src/core/audio/voice_take_store.dart';
+import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/core/offline/offline_turn_queue.dart';
@@ -21,10 +22,13 @@ import 'package:apm/src/data/repositories/debrief_repository.dart';
 import 'package:apm/src/data/repositories/progress_repository.dart';
 import 'package:apm/src/data/repositories/proof_repository.dart';
 import 'package:apm/src/data/repositories/review_repository.dart';
+import 'package:apm/src/data/repositories/runtime_config_repository.dart';
 import 'package:apm/src/data/repositories/streak_repository.dart';
 import 'package:apm/src/data/repositories/vocabulary_repository.dart';
 import 'package:apm/src/data/repositories/voice_privacy_repository.dart';
 import 'package:apm/src/ui/auth/view_model/auth_view_model.dart';
+import 'package:apm/src/ui/conversation/view_model/conversation_state.dart';
+import 'package:apm/src/ui/conversation/view_model/conversation_view_model.dart';
 import 'package:apm/src/ui/debrief/view_model/debrief_view_model.dart';
 import 'package:apm/src/ui/history/view_model/progress_view_model.dart';
 import 'package:apm/src/ui/home/view_model/streak_view_model.dart';
@@ -91,6 +95,7 @@ class _SpyOfflineTurnQueue
 /// file/IndexedDB store.
 class _SpyVoiceTakeStore implements VoiceTakeStore, VoiceTakeUserSession {
   int eraseAllCalls = 0;
+  int takesForCalls = 0;
   Object? throwOnErase;
   final List<int?> setCurrentUserCalls = [];
 
@@ -98,7 +103,10 @@ class _SpyVoiceTakeStore implements VoiceTakeStore, VoiceTakeUserSession {
   Future<void> saveTake(String skill, Uint8List bytes) async {}
 
   @override
-  Future<VoiceTakes?> takesFor(String skill) async => null;
+  Future<VoiceTakes?> takesFor(String skill) async {
+    takesForCalls++;
+    return null;
+  }
 
   @override
   Future<void> eraseAll() async {
@@ -478,6 +486,128 @@ void main() {
           MissionSourceType.offer, // back to the default: build() reran
           reason: 'missionViewModelProvider not invalidated',
         );
+      },
+    );
+
+    test(
+      'the cached decrypted voice takes are invalidated too (#382) — the '
+      'next account cannot replay a previous learner\'s "Ma preuve" audio',
+      () async {
+        final repo = _MockAuthRepository();
+        when(repo.currentUser).thenAnswer((_) async => _user);
+        when(repo.logout).thenAnswer((_) async {});
+        final takeStore = _SpyVoiceTakeStore();
+        final c = _containerWith(repo, takeStore: takeStore);
+
+        await c.read(authViewModelProvider.future);
+        await c.read(voiceTakesProvider('reading').future);
+        expect(takeStore.takesForCalls, 1);
+
+        await c.read(authViewModelProvider.notifier).logout();
+
+        await c.read(voiceTakesProvider('reading').future);
+        expect(
+          takeStore.takesForCalls,
+          2,
+          reason: 'voiceTakesProvider was left off the old hand-written '
+              'invalidate list — a stale decrypted-audio cache would '
+              'otherwise survive logout',
+        );
+      },
+    );
+
+    test(
+      'the conversation transcript is reset too (#388) — the next account '
+      'does not briefly see a previous learner\'s turns',
+      () async {
+        final repo = _MockAuthRepository();
+        when(repo.currentUser).thenAnswer((_) async => _user);
+        when(repo.logout).thenAnswer((_) async {});
+        final c = _containerWith(repo);
+
+        await c.read(authViewModelProvider.future);
+        // Seed a transcript, as if the departing account had a conversation
+        // going (cancel() on leaving the screen keeps sessionId+turns, so
+        // this state can genuinely still be live at logout time).
+        c.read(conversationViewModelProvider.notifier).state =
+            const ConversationState(
+              sessionId: 7,
+              turns: [ConversationTurn(kRoleUser, 'my private story')],
+            );
+        expect(c.read(conversationViewModelProvider).turns, isNotEmpty);
+
+        await c.read(authViewModelProvider.notifier).logout();
+
+        expect(
+          c.read(conversationViewModelProvider),
+          const ConversationState(),
+          reason: 'conversationViewModelProvider was left off the old '
+              'hand-written invalidate list — build() must rerun to the '
+              'default empty state',
+        );
+      },
+    );
+
+    test(
+      'anti-regression (#373): a ROOT provider that reads a per-user '
+      'provider is reset too — effectiveServerSttProvider (core/network, '
+      'root-scoped) watches voiceConsentProvider (per-user). This is the '
+      'exact scenario #378\'s nested-ProviderScope attempt got wrong: that '
+      'design gave a root reader like this one its OWN copy of the '
+      'per-user provider, which the nested scope\'s teardown never reached '
+      '— so it kept serving the departing account\'s consent forever. A '
+      'flat container + ref.invalidate does not have that problem: '
+      'invalidating voiceConsentProvider here also invalidates anything '
+      'that watched it, in the SAME container.',
+      () async {
+        final repo = _MockAuthRepository();
+        when(repo.currentUser).thenAnswer((_) async => _user);
+        when(repo.logout).thenAnswer((_) async {});
+
+        var consentCalls = 0;
+        final c = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(repo),
+            // Server STT is available; only consent should gate it, so a
+            // stale consent value is the only way this could stay wrong.
+            runtimeConfigProvider.overrideWith(
+              (ref) async => const RuntimeConfig(
+                demoMode: false,
+                serverTts: false,
+                serverStt: true,
+              ),
+            ),
+            // A REAL provider (not overrideWithValue) so effectiveServerSttProvider
+            // genuinely re-invokes it on invalidate, rather than reusing a
+            // fixed value regardless of invalidation.
+            voiceConsentProvider.overrideWith((ref) async {
+              consentCalls++;
+              return VoiceConsent(
+                transcription: consentCalls == 1, // account A: granted
+                scoring: false,
+                b2bShare: false,
+                modelTraining: false,
+              );
+            }),
+          ],
+        );
+        addTearDown(c.dispose);
+
+        await c.read(authViewModelProvider.future);
+
+        expect(await c.read(effectiveServerSttProvider.future), isTrue);
+        expect(consentCalls, 1);
+
+        await c.read(authViewModelProvider.notifier).logout();
+
+        expect(
+          await c.read(effectiveServerSttProvider.future),
+          isFalse,
+          reason: 'a stale ROOT copy of voiceConsentProvider (the #378 '
+              'bug) would keep returning the departing account\'s granted '
+              'consent forever, regardless of logout',
+        );
+        expect(consentCalls, 2);
       },
     );
   });

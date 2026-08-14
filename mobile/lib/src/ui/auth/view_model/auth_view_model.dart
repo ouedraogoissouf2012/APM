@@ -1,4 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+// ProviderOrFamily (userScopedProviders' element type, #373) is kept out of
+// the main flutter_riverpod barrel and only re-exported here.
+import 'package:flutter_riverpod/misc.dart';
 
 import '../../../core/audio/providers.dart';
 import '../../../core/audio/user_scoped_voice_take_store.dart';
@@ -9,6 +12,7 @@ import '../../../core/offline/offline_turn_queue.dart';
 import '../../../core/offline/providers.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/repositories/auth_repository.dart';
+import '../../conversation/view_model/conversation_view_model.dart';
 import '../../debrief/view_model/debrief_view_model.dart';
 import '../../history/view_model/progress_view_model.dart';
 import '../../home/view_model/streak_view_model.dart';
@@ -35,6 +39,36 @@ final authRepositoryProvider = Provider<AuthRepository>(
 final authViewModelProvider = AsyncNotifierProvider<AuthViewModel, AppUser?>(
   AuthViewModel.new,
 );
+
+/// Every per-user provider that must be reset when the signed-in user
+/// changes (#373 rework, after #378's nested-`ProviderScope` attempt was
+/// found to leak: a ROOT-scoped provider that reads a per-user provider —
+/// e.g. `effectiveServerSttProvider` watching `voiceConsentProvider` — gets
+/// its own instance in the root container, which the nested scope's
+/// teardown never reaches). Back to a single flat container, with
+/// `ref.invalidate` for each entry — but driven by THIS list instead of a
+/// hand-written sequence of calls, so a new per-user provider only needs to
+/// be added HERE. `voiceTakesProvider` and `conversationViewModelProvider`
+/// (#382, #388) were both silently missing from the old hand-written list;
+/// that is exactly the class of omission a single registry closes.
+///
+/// `.family` providers (`proofProvider`, `debriefProvider`,
+/// `voiceTakesProvider`) invalidate their WHOLE family — every cached id,
+/// not just one — the right thing here since logout doesn't know which ids
+/// were viewed.
+final List<ProviderOrFamily> userScopedProviders = [
+  profileViewModelProvider,
+  streakProvider,
+  progressProvider,
+  reviewProvider,
+  voiceConsentProvider,
+  vocabularyViewModelProvider,
+  proofProvider,
+  debriefProvider,
+  missionViewModelProvider,
+  voiceTakesProvider,
+  conversationViewModelProvider,
+];
 
 class AuthViewModel extends AsyncNotifier<AppUser?> {
   @override
@@ -92,26 +126,17 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
     // race the pending-purge bookkeeping below.
     state = const AsyncLoading();
     await ref.read(authRepositoryProvider).logout();
-    // Drop every per-user cache (#348): every one of these is a plain (non-
-    // autoDispose) provider, so without this the next account on this
-    // shared device would inherit the previous learner's cached
-    // profile/streak/progress/review/voice-consent/vocabulary/proof/
-    // debrief/mission state instead of loading their own. invalidate() on
-    // a .family provider (proofProvider, debriefProvider) drops every
-    // cached instance of that family, not just one id — the right thing
-    // here since logout doesn't know which ids were viewed. debriefProvider
+    // Drop every per-user cache (#348, #373): every one of these is a plain
+    // (non-autoDispose) provider, so without this the next account on this
+    // shared device would inherit the previous learner's cached state
+    // instead of loading their own. Iterates userScopedProviders (declared
+    // above) instead of a hand-written sequence of calls — debriefProvider
     // also calls ref.keepAlive() internally; invalidate() still forces a
     // rebuild on next read regardless — keepAlive only blocks disposal from
     // losing listeners, not an explicit invalidation.
-    ref.invalidate(profileViewModelProvider);
-    ref.invalidate(streakProvider);
-    ref.invalidate(progressProvider);
-    ref.invalidate(reviewProvider);
-    ref.invalidate(voiceConsentProvider);
-    ref.invalidate(vocabularyViewModelProvider);
-    ref.invalidate(proofProvider);
-    ref.invalidate(debriefProvider);
-    ref.invalidate(missionViewModelProvider);
+    for (final provider in userScopedProviders) {
+      ref.invalidate(provider);
+    }
     // Purge the raw voice takes (#226): they must not outlive THIS user's
     // session on a shared device — the next account logging in here must not
     // be able to hear a previous learner's spoken audio. Still signed in as

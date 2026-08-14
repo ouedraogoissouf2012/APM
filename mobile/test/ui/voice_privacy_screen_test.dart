@@ -14,15 +14,21 @@ import 'package:mocktail/mocktail.dart';
 class _MockRepo extends Mock implements VoicePrivacyRepository {}
 
 /// Spy for the on-device take store: records whether the local raw audio was
-/// actually wiped by the erase action (#219).
+/// actually wiped by the erase action (#219), and how many times its
+/// decrypted takes were actually re-fetched (#382).
 class _SpyVoiceTakeStore implements VoiceTakeStore {
   bool erased = false;
+  int takesForCalls = 0;
   @override
   Future<void> eraseAll() async => erased = true;
   @override
   Future<void> saveTake(String skill, Uint8List bytes) async {}
   @override
-  Future<VoiceTakes?> takesFor(String skill) async => null;
+  Future<VoiceTakes?> takesFor(String skill) async {
+    takesForCalls++;
+    return null;
+  }
+
   @override
   Future<void> deleteSkill(String skill) async {}
 }
@@ -120,6 +126,42 @@ void main() {
     // ...and only then does the UI claim success (no longer a lie).
     expect(find.text('Tes données voix ont été effacées'), findsOneWidget);
   });
+
+  testWidgets(
+    'erase invalidates the cached decrypted voice takes (#382) — "Ma '
+    'preuve" cannot replay them afterwards',
+    (tester) async {
+      final repo = _MockRepo();
+      when(repo.getConsent).thenAnswer((_) async => _consent());
+      when(repo.eraseData).thenAnswer((_) async => {'transcripts': 1});
+      final store = _SpyVoiceTakeStore();
+
+      await _pump(tester, repo, store: store);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(VoicePrivacyScreen)),
+      );
+      // Prime the cache, as "Ma preuve" would have before the learner came
+      // here to erase their data.
+      await container.read(voiceTakesProvider('reading').future);
+      expect(store.takesForCalls, 1);
+
+      await tester.tap(find.byKey(const Key('erase_voice_data')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Effacer').last);
+      await tester.pumpAndSettle();
+
+      // Re-reading must hit the (now-erased) store again, not the stale
+      // decrypted-bytes cache — otherwise "Ma preuve" would still be able
+      // to replay the supposedly-erased recording, making the success
+      // message above a lie.
+      await container.read(voiceTakesProvider('reading').future);
+      expect(
+        store.takesForCalls,
+        2,
+        reason: 'voiceTakesProvider must be invalidated by the erase',
+      );
+    },
+  );
 
   testWidgets('error state shows a message', (tester) async {
     final repo = _MockRepo();
