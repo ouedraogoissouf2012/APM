@@ -1485,6 +1485,80 @@ void main() {
       },
     );
 
+    test(
+      'a #312 refresh preserves the client-only opening bubble AND the '
+      'correction chips when the server transcript omits the opening (#400)',
+      () async {
+        final queue = _InMemoryOfflineQueue();
+        final repo = _MockConversationRepository();
+        when(
+          () => repo.startSession(
+            mode: any(named: 'mode'),
+            scenarioId: any(named: 'scenarioId'),
+          ),
+        ).thenAnswer((_) async => 1);
+        // Realistic server transcript: the opening bubble is synthesized
+        // client-side and never persisted, so getActiveSession starts at the
+        // first USER turn — NOT at the opening.
+        when(() => repo.getActiveSession()).thenAnswer(
+          (_) async => const ActiveSessionData(
+            sessionId: 1,
+            mode: 'free',
+            scenarioId: null,
+            turns: [
+              (role: 'user', content: 'i is happy'),
+              (role: 'assistant', content: 'Good.'),
+            ],
+          ),
+        );
+        final c = _container(repo, _FakeSpeech(''), offlineQueue: queue);
+        final vm = c.read(conversationViewModelProvider.notifier);
+        await vm.start();
+
+        // Local state: the client-synthesized opening at index 0, then a user
+        // turn that already carries a correction chip.
+        const correction = TurnCorrection(
+          original: 'i is happy',
+          correction: 'I am happy',
+          rule: "Use 'am' with 'I'.",
+          alternatives: ["I'm happy"],
+        );
+        vm.state = const ConversationState(
+          sessionId: 1,
+          turns: [
+            ConversationTurn(
+              kRoleAssistant,
+              'Welcome! What shall we talk about?',
+            ),
+            ConversationTurn(kRoleUser, 'i is happy', correction: correction),
+            ConversationTurn(kRoleAssistant, 'Good.'),
+          ],
+        );
+
+        await queue.enqueue(
+          const PendingTurn(sessionId: 1, text: 'x', idempotencyKey: 'other'),
+        );
+        await c.read(connectivityControllerProvider.notifier).refresh();
+        await queue.remove('other');
+        await c.read(connectivityControllerProvider.notifier).refresh();
+        await pumpEventQueue();
+
+        final turns = c.read(conversationViewModelProvider).turns;
+        // The opening bubble survives at the head — the server never has it.
+        expect(turns.first.role, kRoleAssistant);
+        expect(turns.first.content, 'Welcome! What shall we talk about?');
+        // The correction stays on its own user turn (not shifted off by the
+        // one-position opening offset, which the old left-index code dropped).
+        final userTurn = turns.firstWhere((t) => t.role == kRoleUser);
+        expect(
+          userTurn.correction?.correction,
+          'I am happy',
+          reason: 'the opening offset must not drop the correction (#400)',
+        );
+        expect(turns, hasLength(3), reason: 'no turn duplicated or lost');
+      },
+    );
+
     test('a turn that fails on the network is queued under the SAME '
         'idempotency key it was sent with, not a freshly generated one '
         '(#313)', () async {

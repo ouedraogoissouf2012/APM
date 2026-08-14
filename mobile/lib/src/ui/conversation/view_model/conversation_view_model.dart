@@ -271,18 +271,33 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
     if (active.sessionId != sid || state.sessionId != sid) return;
     if (state.status != ConversationStatus.idle) return;
     final localTurns = state.turns;
+    // The opening bubble is synthesized client-side (start(), ConversationScript.openingMessage)
+    // and NEVER persisted, so the server transcript (`active.turns`) always starts at the first
+    // USER turn. The bubble is present iff local leads with an assistant turn AND the server does
+    // NOT lead with that same turn (server starts at a user turn, or is empty). Align the two
+    // real-turn sequences from that head offset: aligning from index 0 shifts every server turn
+    // by one when the opening is present, dropping every correction chip and deleting the
+    // opening bubble (#400).
+    final hasClientOpening =
+        localTurns.isNotEmpty &&
+        localTurns.first.role == kRoleAssistant &&
+        (active.turns.isEmpty || active.turns.first.role == kRoleUser);
+    final headOffset = hasClientOpening ? 1 : 0;
     state = state.copyWith(
       turns: [
+        // Preserve the client-only opening bubble — the server never has it.
+        ...localTurns.take(headOffset),
         for (var i = 0; i < active.turns.length; i++)
           ConversationTurn(
             active.turns[i].role,
             active.turns[i].content,
-            // Role match is a cheap extra guard (a correction only ever
-            // belongs to a user turn, reply_playback.dart) against a
-            // hypothetical local/server desync at this position — not
-            // load-bearing in the normal append-only case.
-            correction: i < localTurns.length && localTurns[i].role == active.turns[i].role
-                ? localTurns[i].correction
+            // localTurns[headOffset + i] is the local counterpart of server turn i.
+            // The role match guards a hypothetical local/server desync at this position;
+            // the bound guard covers server turns local hasn't seen yet (the synced tail).
+            correction:
+                headOffset + i < localTurns.length &&
+                    localTurns[headOffset + i].role == active.turns[i].role
+                ? localTurns[headOffset + i].correction
                 : null,
           ),
       ],
