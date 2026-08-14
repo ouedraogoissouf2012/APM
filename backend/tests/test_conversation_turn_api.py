@@ -12,7 +12,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.rate_limit import InMemoryRateLimiter
+from app.core.rate_limit import InMemoryRateLimiter, user_rate_limit_key
 from app.database import get_db
 from app.features.conversation.correction import TurnCorrection
 from app.features.conversation.dependencies import (
@@ -450,3 +450,121 @@ async def test_turn_is_rate_limited_per_user(client):
         f"/sessions/{session_id}/turn", headers=headers, json={"text": "again"}
     )
     assert blocked.status_code == 429
+
+
+class _SpyRateLimiter:
+    """Records every key .check() was called with, so a test can assert the
+    EXACT string the route builds — the precise, unambiguous proof that no IP
+    component leaked into it (#384), rather than an indirect behavioral
+    inference."""
+
+    def __init__(self) -> None:
+        self.checked_keys: list[str] = []
+
+    async def check(self, key: str) -> None:
+        self.checked_keys.append(key)
+
+
+@pytest.mark.asyncio
+async def test_turn_rate_limit_key_has_no_ip_component(client):
+    # #384: user_rate_limit_key() (#356) exists precisely so a paid/inf-quota
+    # endpoint's bucket can't be reset by rotating the apparent IP. /turn was
+    # the one paid endpoint still hand-rolling f"turn:{client_host}:user:{id}".
+    spy = _SpyRateLimiter()
+    app.dependency_overrides[get_conversation_rate_limiter] = lambda: spy
+    try:
+        headers = await _auth_header(client, email="turn-key-noip@b.com")
+        me = await client.get("/auth/me", headers=headers)
+        user_id = me.json()["id"]
+        start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+        session_id = start.json()["session_id"]
+
+        resp = await client.post(
+            f"/sessions/{session_id}/turn",
+            headers={**headers, "X-Forwarded-For": "1.2.3.4"},
+            json={"text": "hi"},
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        app.dependency_overrides.pop(get_conversation_rate_limiter, None)
+
+    assert spy.checked_keys == [user_rate_limit_key("turn", user_id)]
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_rate_limit_key_has_no_ip_component(client):
+    spy = _SpyRateLimiter()
+    app.dependency_overrides[get_conversation_rate_limiter] = lambda: spy
+    try:
+        headers = await _auth_header(client, email="turn-stream-key-noip@b.com")
+        me = await client.get("/auth/me", headers=headers)
+        user_id = me.json()["id"]
+        start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+        session_id = start.json()["session_id"]
+
+        resp = await client.post(
+            f"/sessions/{session_id}/turn/stream",
+            headers={**headers, "X-Forwarded-For": "1.2.3.4"},
+            json={"text": "hi"},
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        app.dependency_overrides.pop(get_conversation_rate_limiter, None)
+
+    assert spy.checked_keys == [user_rate_limit_key("turn", user_id)]
+
+
+@pytest.mark.asyncio
+async def test_turn_rate_limit_is_not_bypassed_by_ip_rotation(client):
+    """Regression (#384): before the fix, the key embedded client_host, so a
+    different apparent IP per request (IP rotation, VPN, or — per #383 — a
+    spoofed X-Forwarded-For) reset the bucket, defeating the limiter entirely
+    on the single most expensive endpoint (LLM completion + per-sentence TTS).
+    Mirrors the same regression test already applied to every other paid
+    endpoint after #356 (see test_debrief_api.py et al.)."""
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_conversation_rate_limiter] = lambda: limiter
+    try:
+        headers = await _auth_header(client, email="turn-ip-rotate@b.com")
+        start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+        session_id = start.json()["session_id"]
+
+        first = await client.post(
+            f"/sessions/{session_id}/turn",
+            headers={**headers, "X-Forwarded-For": "1.1.1.1"},
+            json={"text": "hi"},
+        )
+        assert first.status_code == 200, first.text
+        blocked = await client.post(
+            f"/sessions/{session_id}/turn",
+            headers={**headers, "X-Forwarded-For": "2.2.2.2"},
+            json={"text": "again"},
+        )
+        assert blocked.status_code == 429, blocked.text
+    finally:
+        app.dependency_overrides.pop(get_conversation_rate_limiter, None)
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_rate_limit_is_not_bypassed_by_ip_rotation(client):
+    limiter = InMemoryRateLimiter(max_hits=1, window_seconds=60)
+    app.dependency_overrides[get_conversation_rate_limiter] = lambda: limiter
+    try:
+        headers = await _auth_header(client, email="turn-stream-ip-rotate@b.com")
+        start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+        session_id = start.json()["session_id"]
+
+        first = await client.post(
+            f"/sessions/{session_id}/turn/stream",
+            headers={**headers, "X-Forwarded-For": "1.1.1.1"},
+            json={"text": "hi"},
+        )
+        assert first.status_code == 200, first.text
+        blocked = await client.post(
+            f"/sessions/{session_id}/turn/stream",
+            headers={**headers, "X-Forwarded-For": "2.2.2.2"},
+            json={"text": "again"},
+        )
+        assert blocked.status_code == 429, blocked.text
+    finally:
+        app.dependency_overrides.pop(get_conversation_rate_limiter, None)

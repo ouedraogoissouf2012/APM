@@ -92,6 +92,16 @@ class Settings(BaseSettings):
     # reverse proxy sits in front (it sets the header); otherwise a client could
     # forge it to dodge per-IP rate limits. Off by default (direct connections).
     trust_proxy_headers: bool = False
+    # How many trusted reverse-proxy hops sit directly in front of the app
+    # (#383), each APPENDING to X-Forwarded-For (nginx's
+    # $proxy_add_x_forwarded_for, AWS ALB, GCP LB — the common case, and what
+    # the default of 1 assumes: a single proxy). The real client ends up this
+    # many entries from the RIGHT of the header; everything to its left —
+    # including the left-most entry client_ip() used to trust — is
+    # attacker-suppliable and must be ignored. Only consulted when
+    # trust_proxy_headers is True; must be >= 1 in that case (see
+    # validate_production_safety) or the header is never trusted at all.
+    trusted_proxy_count: int = 1
     # Reject an audio upload larger than this before reading it into memory (#120),
     # so a huge/streamed body cannot exhaust the server. 10 MB ~ minutes of speech.
     max_upload_bytes: int = 10 * 1024 * 1024
@@ -141,10 +151,21 @@ class Settings(BaseSettings):
     # older context, but replaying ALL of it makes cost AND latency grow without
     # bound in a long conversation. 0 = unlimited (no window).
     conversation_history_max_messages: int = 20
+    # Hard cap on the PERSISTED transcript itself (#364/#379); 0 = unlimited.
+    # Without this, a long-running session (unbounded on a paid tier, which has
+    # no per-session quota) grows the transcript's JSONB column forever — every
+    # turn re-reads and rewrites the WHOLE column. Threaded to
+    # ConversationTurnService's transcript_max_messages.
+    conversation_transcript_max_messages: int = 200
     deepseek_debrief_max_tokens: int = 900
     deepseek_mission_max_tokens: int = 500  # a mission brief is short structured JSON
     deepseek_shadowing_max_tokens: int = 300  # a target phrase + short coaching
     debrief_max_errors: int = 5  # errors surfaced to the learner per debrief
+    # Bounds the debrief prompt to the learner's most recent utterances
+    # (#364/#379); 0 = unlimited. Threaded to DebriefAnalyzer's
+    # max_learner_turns, reused by both the end-of-session debrief and the
+    # onboarding placement (both estimate CEFR from the same analyzer).
+    debrief_max_learner_turns: int = 60
     session_history_page_size: int = 20
     # Literal-validated: a typo (e.g. "deepsek") or a not-yet-implemented
     # engine fails at startup instead of silently degrading or 502-ing.
@@ -229,6 +250,14 @@ class Settings(BaseSettings):
             raise ValueError("GROQ_API_KEY is required when Groq (or the fallback) is enabled")
         if self.pronunciation_engine == ENGINE_GOP and not self.gop_service_url.strip():
             raise ValueError("GOP_SERVICE_URL is required when PRONUNCIATION_ENGINE=gop")
+        # #383: 0 or negative would make client_ip()'s `hops[-trusted_proxy_count]`
+        # pick the LEFT-MOST (attacker-controlled) hop again — via Python's
+        # `list[-0] == list[0]` for 0, and simply the wrong end for a negative
+        # count — silently reopening the exact spoofing bug this setting exists
+        # to close. Only checked when the header is actually trusted; an unused
+        # value is harmless.
+        if self.trust_proxy_headers and self.trusted_proxy_count < 1:
+            raise ValueError("TRUSTED_PROXY_COUNT must be >= 1 when TRUST_PROXY_HEADERS is enabled")
 
         return self
 
