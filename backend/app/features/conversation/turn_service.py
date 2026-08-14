@@ -14,12 +14,12 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
+from app.core.llm.interfaces import LlmProvider, TtsProvider
+from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER, Message
 from app.domain.exceptions import ConflictError
 from app.features.auth.models import User
 from app.features.conversation.correction import TurnCorrection, TurnCorrector
-from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER, Message
 from app.features.conversation.prompt import PromptContext, build_system_prompt
-from app.features.conversation.providers.interfaces import LlmProvider, TtsProvider
 from app.features.conversation.repository import TranscriptRepository
 from app.features.missions.repository import MissionRepository
 from app.features.profile.repository import ProfileRepository

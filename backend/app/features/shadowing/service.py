@@ -11,8 +11,8 @@ see #128).
 import asyncio
 import logging
 
+from app.core.llm.interfaces import SttProvider
 from app.domain.exceptions import LlmProviderError
-from app.features.conversation.providers.interfaces import SttProvider
 from app.features.pronunciation.domain import PhonemeScore
 from app.features.pronunciation.provider import PronunciationProvider
 from app.features.pronunciation.scorer import score_words

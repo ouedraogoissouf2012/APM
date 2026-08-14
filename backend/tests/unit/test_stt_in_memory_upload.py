@@ -7,8 +7,9 @@ passes 1 MB, so a ~40 s turn (~1.3 MB) transiently hits disk — undercutting th
 SpooledTemporaryFile never rolled (`_rolled is False`), contrasted with the
 default parser which does roll.
 
-The in-memory parser moved to audio_upload.py in #230 so the three upload
-endpoints share one implementation instead of stt_router.py's own copy.
+The in-memory parser lives in app/core/http/multipart.py (promoted out of the
+conversation slice in #406) so the three upload endpoints share one
+implementation instead of stt_router.py's own copy.
 """
 
 from collections.abc import AsyncIterator
@@ -17,7 +18,7 @@ import pytest
 from starlette.datastructures import Headers
 from starlette.formparsers import MultiPartParser
 
-from app.features.conversation.audio_upload import _InMemoryMultiPartParser
+from app.core.http.multipart import _InMemoryMultiPartParser
 
 _BOUNDARY = b"----test227"
 _BIG = 1_300_000  # ~1.3 MB — above Starlette's 1 MB spool threshold

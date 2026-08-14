@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.features.conversation.messages import ROLE_USER
+from app.core.llm.messages import ROLE_USER
 from app.features.conversation.models import Transcript
 from app.features.debrief.models import Debrief
 from app.features.proof.service import SessionErrors

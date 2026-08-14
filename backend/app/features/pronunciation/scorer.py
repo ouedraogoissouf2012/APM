@@ -20,7 +20,7 @@ contract. Continuous phonetic quality is issue #111 step 2.
 
 import re
 
-from app.features.conversation.providers.interfaces import VerboseTranscript
+from app.core.llm.interfaces import VerboseTranscript
 from app.features.pronunciation.domain import WordScore
 
 _WORD = re.compile(r"[a-z0-9']+")

@@ -1,6 +1,6 @@
 import json
 
-from app.features.conversation.messages import Message
+from app.core.llm.messages import Message
 
 
 class FakeShadowingLlm:

@@ -7,11 +7,11 @@ GOP provider must NOT break the attempt — the word-level scoring still stands.
 
 import pytest
 
-from app.domain.exceptions import LlmProviderError
-from app.features.conversation.providers.interfaces import (
+from app.core.llm.interfaces import (
     TranscriptWord,
     VerboseTranscript,
 )
+from app.domain.exceptions import LlmProviderError
 from app.features.pronunciation.domain import PhonemeScore
 from app.features.shadowing.service import ShadowingService
 

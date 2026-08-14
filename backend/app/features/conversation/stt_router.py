@@ -2,15 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.core.http.multipart import read_bounded_audio
+from app.core.llm.interfaces import SttProvider
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
-from app.features.conversation.audio_upload import read_bounded_audio
 from app.features.conversation.dependencies import (
     get_conversation_rate_limiter,
     get_stt_provider,
 )
-from app.features.conversation.providers.interfaces import SttProvider
 from app.features.voice_consent.dependencies import get_voice_consent_service
 from app.features.voice_consent.service import VoiceConsentService
 

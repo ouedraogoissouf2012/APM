@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from app.features.conversation.prompt import strip_persistent_instructions
+from app.core.prompt_safety import strip_persistent_instructions
 from app.features.profile.models import LearnerProfile
 from app.features.profile.repository import ProfileRepository
 

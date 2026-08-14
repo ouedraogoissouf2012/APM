@@ -1,9 +1,9 @@
 import pytest
 
+from app.core.llm.factory import build_llm_provider, shared_llm_provider
+from app.core.llm.providers.deepseek import DeepSeekLlmProvider
+from app.core.llm.providers.fakes import FakeLlm
 from app.domain.exceptions import LlmProviderError
-from app.features.conversation.factory import build_llm_provider, shared_llm_provider
-from app.features.conversation.providers.deepseek import DeepSeekLlmProvider
-from app.features.conversation.providers.fakes import FakeLlm
 
 
 def test_factory_returns_fake_llm_by_default():
@@ -148,8 +148,8 @@ class _FakeSettings:
 
 
 def test_groq_fallback_builds_a_two_provider_fallback_chain():
-    from app.features.conversation.factory import build_feature_llm
-    from app.features.conversation.providers.fallback import FallbackLlmProvider
+    from app.core.llm.factory import build_feature_llm
+    from app.core.llm.providers.fallback import FallbackLlmProvider
 
     provider = build_feature_llm("groq_fallback", _FakeSettings(), max_tokens=300)
 
@@ -162,7 +162,7 @@ def test_groq_fallback_primary_is_short_and_no_retry_distinct_from_standalone_gr
     # internal SDK retry) so the secondary gets a fair share of the chain's
     # deadline — a distinct client/cache entry from standalone (non-fallback)
     # Groq usage, which keeps the shared deepseek_timeout_seconds/max_retries.
-    from app.features.conversation.factory import (
+    from app.core.llm.factory import (
         _FALLBACK_PRIMARY_MAX_RETRIES,
         _FALLBACK_PRIMARY_TIMEOUT_SECONDS,
         build_feature_llm,
@@ -193,7 +193,7 @@ def test_groq_fallback_primary_is_short_and_no_retry_distinct_from_standalone_gr
 def test_groq_fallback_secondary_keeps_the_shared_deepseek_settings():
     # The secondary (DeepSeek) is the reliable safety net — it keeps the normal,
     # shared timeout/retries rather than the primary's fast-fail tuning.
-    from app.features.conversation.factory import build_feature_llm, shared_llm_provider
+    from app.core.llm.factory import build_feature_llm, shared_llm_provider
 
     settings = _FakeSettings()
     fallback_provider = build_feature_llm("groq_fallback", settings, max_tokens=300)

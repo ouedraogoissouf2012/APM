@@ -7,10 +7,10 @@ import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER
 from app.core.rate_limit import InMemoryRateLimiter
 from app.features.analytics.models import AnalyticsEventRow
 from app.features.auth.models import User
-from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER
 from app.features.conversation.models import Transcript
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.domain import VocabularyWord

@@ -4,15 +4,15 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.core.llm.factory import build_feature_llm
+from app.core.llm.interfaces import SttProvider, TtsProvider
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
 from app.domain.exceptions import NotFoundError
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.correction import TurnCorrector
-from app.features.conversation.factory import build_feature_llm
 from app.features.conversation.providers.caching_tts import CachingTtsProvider
-from app.features.conversation.providers.interfaces import SttProvider, TtsProvider
 from app.features.conversation.providers.stt import shared_stt_provider
 from app.features.conversation.providers.tts import EdgeTtsProvider
 from app.features.conversation.providers.tts_cache_factory import build_tts_cache

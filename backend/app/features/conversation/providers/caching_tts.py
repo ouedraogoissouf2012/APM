@@ -10,7 +10,7 @@ The key is the text only: one CachingTtsProvider wraps one provider, which is
 pinned to a single voice — so text uniquely identifies the audio here.
 """
 
-from app.features.conversation.providers.interfaces import TtsCache, TtsProvider
+from app.core.llm.interfaces import TtsCache, TtsProvider
 
 
 class CachingTtsProvider:

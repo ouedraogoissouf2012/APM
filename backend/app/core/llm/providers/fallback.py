@@ -19,9 +19,9 @@ import logging
 import time
 from collections.abc import AsyncIterator, Callable
 
+from app.core.llm.interfaces import LlmProvider
+from app.core.llm.messages import Message
 from app.domain.exceptions import LlmProviderError
-from app.features.conversation.messages import Message
-from app.features.conversation.providers.interfaces import LlmProvider
 
 logger = logging.getLogger(__name__)
 

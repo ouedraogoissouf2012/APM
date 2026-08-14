@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER
+from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.repository import SqlAlchemyDebriefRepository
 

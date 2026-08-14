@@ -1,7 +1,7 @@
-from app.features.conversation.messages import ROLE_USER, Message
-from app.features.conversation.providers.interfaces import (
+from app.core.llm.interfaces import (
     TextCompletionProvider as LlmProvider,
 )
+from app.core.llm.messages import ROLE_USER, Message
 from app.features.debrief.domain import (
     VALID_CEFR,
     DebriefError,

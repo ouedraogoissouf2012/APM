@@ -33,7 +33,7 @@ class _FakeStt:
         return self._transcript
 
     async def transcribe_verbose(self, audio: bytes):
-        from app.features.conversation.providers.interfaces import (
+        from app.core.llm.interfaces import (
             TranscriptWord,
             VerboseTranscript,
         )

@@ -4,9 +4,9 @@ from typing import Any, Protocol, cast
 from sqlalchemy import CursorResult, Executable, delete, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.llm.messages import ROLE_USER
 from app.features.analytics.models import AnalyticsEventRow
 from app.features.auth.models import User
-from app.features.conversation.messages import ROLE_USER
 from app.features.conversation.models import Transcript
 from app.features.debrief.models import Debrief
 from app.features.idempotency.models import IdempotencyKey

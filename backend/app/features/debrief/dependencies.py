@@ -3,16 +3,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.engines import ENGINE_FAKE
+from app.core.llm.factory import build_feature_llm
+from app.core.llm.interfaces import (
+    TextCompletionProvider as LlmProvider,
+)
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
 from app.features.analytics.repository import SqlAlchemyAnalyticsCounter
 from app.features.analytics.service import AnalyticsService
 from app.features.analytics.sinks import SqlAlchemyAnalyticsSink
-from app.features.conversation.factory import build_feature_llm
-from app.features.conversation.providers.interfaces import (
-    TextCompletionProvider as LlmProvider,
-)
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.enrichment import PostDebriefEnrichment

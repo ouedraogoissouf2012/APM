@@ -3,13 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.engines import ENGINE_FAKE
+from app.core.llm.factory import build_feature_llm
+from app.core.llm.interfaces import (
+    TextCompletionProvider as LlmProvider,
+)
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
-from app.features.conversation.factory import build_feature_llm
-from app.features.conversation.providers.interfaces import (
-    TextCompletionProvider as LlmProvider,
-)
 from app.features.missions.compiler import MissionCompiler
 from app.features.missions.fake_llm import FakeMissionLlm
 from app.features.missions.repository import SqlAlchemyMissionRepository

@@ -12,10 +12,10 @@ keeps the A1 default and their level self-adjusts through later debriefs.
 
 from dataclasses import dataclass
 
+from app.core.llm.messages import ROLE_USER
+from app.core.prompt_safety import strip_persistent_instructions
 from app.features.auth.models import User
 from app.features.auth.repository import UserRepository
-from app.features.conversation.messages import ROLE_USER
-from app.features.conversation.prompt import strip_persistent_instructions
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.domain import VALID_CEFR
 from app.features.profile.repository import ProfileRepository

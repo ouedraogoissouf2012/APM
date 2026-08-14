@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from app.features.conversation.messages import Message
+from app.core.llm.messages import Message
 
 
 @dataclass(frozen=True)

@@ -106,7 +106,7 @@ async def test_http_gop_provider_aclose_closes_its_httpx_client():
 
 @pytest.mark.asyncio
 async def test_openai_llm_provider_aclose_closes_its_client_via_close():
-    from app.features.conversation.providers.deepseek import OpenAiCompatibleLlmProvider
+    from app.core.llm.providers.deepseek import OpenAiCompatibleLlmProvider
 
     client = _SpyOpenAiClient()
     provider = OpenAiCompatibleLlmProvider(client=client, model="m", max_tokens=1)

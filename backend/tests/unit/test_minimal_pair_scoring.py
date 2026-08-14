@@ -5,7 +5,7 @@ decide: did they say the target? did they say the OTHER word instead? Both use
 the same normalization/presence rule as the shadowing scorer.
 """
 
-from app.features.conversation.providers.interfaces import TranscriptWord, VerboseTranscript
+from app.core.llm.interfaces import TranscriptWord, VerboseTranscript
 from app.features.minimal_pairs.pair_scoring import score_pair_attempt
 
 
