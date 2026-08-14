@@ -151,10 +151,21 @@ class Settings(BaseSettings):
     # older context, but replaying ALL of it makes cost AND latency grow without
     # bound in a long conversation. 0 = unlimited (no window).
     conversation_history_max_messages: int = 20
+    # Hard cap on the PERSISTED transcript itself (#364/#379); 0 = unlimited.
+    # Without this, a long-running session (unbounded on a paid tier, which has
+    # no per-session quota) grows the transcript's JSONB column forever — every
+    # turn re-reads and rewrites the WHOLE column. Threaded to
+    # ConversationTurnService's transcript_max_messages.
+    conversation_transcript_max_messages: int = 200
     deepseek_debrief_max_tokens: int = 900
     deepseek_mission_max_tokens: int = 500  # a mission brief is short structured JSON
     deepseek_shadowing_max_tokens: int = 300  # a target phrase + short coaching
     debrief_max_errors: int = 5  # errors surfaced to the learner per debrief
+    # Bounds the debrief prompt to the learner's most recent utterances
+    # (#364/#379); 0 = unlimited. Threaded to DebriefAnalyzer's
+    # max_learner_turns, reused by both the end-of-session debrief and the
+    # onboarding placement (both estimate CEFR from the same analyzer).
+    debrief_max_learner_turns: int = 60
     session_history_page_size: int = 20
     # Literal-validated: a typo (e.g. "deepsek") or a not-yet-implemented
     # engine fails at startup instead of silently degrading or 502-ing.

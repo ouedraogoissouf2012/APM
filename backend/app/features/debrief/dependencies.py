@@ -60,7 +60,11 @@ def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
         sessions=SqlAlchemySessionRepository(db),
         transcripts=SqlAlchemyTranscriptRepository(db),
         debriefs=SqlAlchemyDebriefRepository(db),
-        analyzer=DebriefAnalyzer(llm, max_errors=settings.debrief_max_errors),
+        analyzer=DebriefAnalyzer(
+            llm,
+            max_errors=settings.debrief_max_errors,
+            max_learner_turns=settings.debrief_max_learner_turns,
+        ),
         profiles=SqlAlchemyProfileRepository(db),
         # Best-effort side-effects, run after the core debrief commit (ADR 0001).
         enrichment=PostDebriefEnrichment(

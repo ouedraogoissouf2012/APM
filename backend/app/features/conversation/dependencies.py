@@ -125,4 +125,5 @@ def get_conversation_turn_service(
         missions=SqlAlchemyMissionRepository(db),
         meter=session_service.record_turn_activity,
         history_max_messages=settings.conversation_history_max_messages,
+        transcript_max_messages=settings.conversation_transcript_max_messages,
     )

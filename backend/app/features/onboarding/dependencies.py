@@ -44,7 +44,11 @@ def get_onboarding_service(db: AsyncSession = Depends(get_db)) -> OnboardingServ
             settings.debrief_engine, settings, settings.deepseek_debrief_max_tokens
         )
     return OnboardingService(
-        analyzer=DebriefAnalyzer(llm, max_errors=settings.debrief_max_errors),
+        analyzer=DebriefAnalyzer(
+            llm,
+            max_errors=settings.debrief_max_errors,
+            max_learner_turns=settings.debrief_max_learner_turns,
+        ),
         profiles=SqlAlchemyProfileRepository(db),
         users=SqlAlchemyUserRepository(db),
     )
