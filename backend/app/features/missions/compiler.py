@@ -15,9 +15,7 @@ cannot be compiled is a hard error: we raise `MissionCompileError` (mapped to 50
 rather than hand back a garbage simulation.
 """
 
-import json
-from typing import Any
-
+from app.core.llm_json import clip, parse_json_object
 from app.domain.exceptions import LlmProviderError
 from app.features.conversation.messages import ROLE_USER, Message
 from app.features.conversation.prompt import (
@@ -97,17 +95,17 @@ class MissionCompiler:
         except Exception as exc:  # provider failure -> hard error (502)
             raise MissionCompileError("Mission compiler LLM failed") from exc
 
-        data = _loads(raw)
+        data = parse_json_object(raw)
         if data is None:
             raise MissionCompileError("Mission compiler returned non-JSON output")
 
-        persona = _clip(str(data.get("persona", "")))
-        goal = _clip(str(data.get("goal", "")))
+        persona = clip(str(data.get("persona", "")), _MAX_FIELD_CHARS)
+        goal = clip(str(data.get("goal", "")), _MAX_FIELD_CHARS)
         if not persona or not goal:
             raise MissionCompileError("Mission brief is missing a persona or a goal")
 
         questions = [
-            _clip(str(q), _MAX_QUESTION_CHARS)
+            clip(str(q), _MAX_QUESTION_CHARS)
             for q in data.get("likely_questions", [])
             if str(q).strip()
         ][:_MAX_QUESTIONS]
@@ -143,18 +141,3 @@ def _build_system_prompt(persona: str, goal: str, questions: list[str], safe_con
     ]
     parts.append(render_untrusted_block(untrusted_lines))
     return "\n".join(parts)
-
-
-def _loads(text: str) -> dict[str, Any] | None:
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        return None
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _clip(value: str, max_chars: int = _MAX_FIELD_CHARS) -> str:
-    return value.strip()[:max_chars]

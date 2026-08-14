@@ -5,10 +5,9 @@ it returns empty coaching rather than raising. When nothing was missed there is
 nothing to coach, so no LLM call is made at all.
 """
 
-import json
 import logging
-from typing import Any
 
+from app.core.llm_json import clip, parse_json_object
 from app.features.conversation.messages import ROLE_USER, Message
 from app.features.conversation.prompt import render_untrusted_block
 from app.features.conversation.providers.interfaces import TextCompletionProvider
@@ -51,18 +50,7 @@ class ShadowingCoach:
             _logger.warning("Shadowing coaching LLM call failed", exc_info=True)
             return ""
 
-        data = _loads(raw)
+        data = parse_json_object(raw)
         if data is None:
             return ""
-        return str(data.get("coaching", "")).strip()[:_MAX_COACHING_CHARS]
-
-
-def _loads(text: str) -> dict[str, Any] | None:
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        return None
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
+        return clip(str(data.get("coaching", "")), _MAX_COACHING_CHARS)

@@ -7,11 +7,10 @@ non-JSON output (e.g. the fake engine) yields *no* correction, so a correction
 problem can never break a conversation turn.
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
+from app.core.llm_json import clip, parse_json_object
 from app.features.conversation.messages import ROLE_USER, Message
 from app.features.conversation.providers.interfaces import TextCompletionProvider
 from app.features.profile.correction_style import style_for_intensity
@@ -77,11 +76,11 @@ class TurnCorrector:
         # below handles the common case; the try/except is the backstop for any
         # other type surprise from a free-form LLM.
         try:
-            data = _loads(raw)
+            data = parse_json_object(raw)
             if data is None or not data.get("has_error"):
                 return None
-            original = _clip(str(data.get("original", "")))
-            correction = _clip(str(data.get("correction", "")))
+            original = clip(str(data.get("original", "")), _MAX_FIELD_CHARS)
+            correction = clip(str(data.get("correction", "")), _MAX_FIELD_CHARS)
             # Only trust a correction anchored in what the learner actually said,
             # and that actually changes something.
             if not original or not correction or original not in text or original == correction:
@@ -91,13 +90,13 @@ class TurnCorrector:
             # split into per-character "alternatives". Only a real list is trusted.
             if not isinstance(raw_alternatives, list):
                 raw_alternatives = []
-            alternatives = [_clip(str(a)) for a in raw_alternatives if str(a).strip()][
-                :_MAX_ALTERNATIVES
-            ]
+            alternatives = [
+                clip(str(a), _MAX_FIELD_CHARS) for a in raw_alternatives if str(a).strip()
+            ][:_MAX_ALTERNATIVES]
             return TurnCorrection(
                 original=original,
                 correction=correction,
-                rule=_clip(str(data.get("rule", ""))),
+                rule=clip(str(data.get("rule", "")), _MAX_FIELD_CHARS),
                 alternatives=alternatives,
             )
         except Exception:
@@ -105,18 +104,3 @@ class TurnCorrector:
             # pattern of malformed LLM output is visible, not just silently dropped.
             _logger.warning("Correction response could not be parsed", exc_info=True)
             return None
-
-
-def _loads(text: str) -> dict[str, Any] | None:
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        return None
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _clip(value: str) -> str:
-    return value.strip()[:_MAX_FIELD_CHARS]

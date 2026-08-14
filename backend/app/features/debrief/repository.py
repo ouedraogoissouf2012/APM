@@ -1,8 +1,9 @@
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.persistence import advisory_xact_lock
 from app.features.debrief.models import Debrief
 
 
@@ -32,12 +33,10 @@ class SqlAlchemyDebriefRepository:
         self._session = session
 
     async def lock_for_session(self, session_id: int) -> None:
-        # A 2-key advisory lock, namespaced by a fixed hash of "debrief" so this
-        # can never collide with an unrelated advisory lock elsewhere keyed by a
-        # raw id (there are none today, but the namespace costs nothing).
-        await self._session.execute(
-            select(func.pg_advisory_xact_lock(func.hashtext("debrief"), session_id))
-        )
+        # Namespaced by "debrief" (#371, core.persistence) so this can never
+        # collide with an unrelated advisory lock elsewhere keyed by a raw id
+        # (e.g. ReviewRepository's, namespaced by "review").
+        await advisory_xact_lock(self._session, "debrief", session_id)
 
     async def save(
         self, session_id: int, cefr_estimate: str, summary: str, errors: list[dict]
