@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:apm/src/core/offline/connectivity_controller.dart';
+import 'package:apm/src/core/offline/connectivity_monitor.dart';
 import 'package:apm/src/core/offline/offline_turn_queue.dart';
 import 'package:apm/src/core/offline/offline_turn_sync.dart';
 import 'package:apm/src/core/offline/pending_turn.dart';
@@ -42,18 +43,33 @@ class _FakeSync implements OfflineTurnSync {
   }
 }
 
+/// A controllable [ConnectivityMonitor] a test can push OS-level connectivity
+/// transitions through, standing in for the real connectivity_plus platform
+/// channel (unavailable/unmocked in a plain unit test).
+class _FakeConnectivityMonitor implements ConnectivityMonitor {
+  final _controller = StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get onConnectivityChanged => _controller.stream;
+
+  void emit(bool online) => _controller.add(online);
+}
+
 void main() {
   late _InMemoryQueue queue;
   late _FakeSync sync;
+  late _FakeConnectivityMonitor monitor;
   late ProviderContainer container;
 
   setUp(() {
     queue = _InMemoryQueue();
     sync = _FakeSync(queue);
+    monitor = _FakeConnectivityMonitor();
     container = ProviderContainer(
       overrides: [
         offlineTurnQueueProvider.overrideWithValue(queue),
         offlineTurnSyncProvider.overrideWithValue(sync),
+        connectivityMonitorProvider.overrideWithValue(monitor),
       ],
     );
     addTearDown(container.dispose);
@@ -110,6 +126,35 @@ void main() {
     expect(container.read(connectivityControllerProvider).pendingCount, 1);
   });
 
+  test('refresh() recovers online once the queue is empty, even when '
+      'something other than syncPending drained it (#404)', () async {
+    // recordFailedTurn leaves online=false; before #404, refresh() only ever
+    // recomputed pendingCount and left `online` stuck at false forever — the
+    // banner would say "Hors ligne" even with nothing left to retry.
+    final ctrl = container.read(connectivityControllerProvider.notifier);
+    await ctrl.recordFailedTurn(1, 'a', idempotencyKey: 'k1');
+    expect(container.read(connectivityControllerProvider).online, isFalse);
+    await queue.remove('k1'); // drained by something other than syncPending
+
+    await ctrl.refresh();
+
+    final state = container.read(connectivityControllerProvider);
+    expect(state.online, isTrue);
+    expect(state.pendingCount, 0);
+  });
+
+  test('refresh() leaves online untouched while turns remain queued (#404)',
+      () async {
+    final ctrl = container.read(connectivityControllerProvider.notifier);
+    await ctrl.recordFailedTurn(1, 'a', idempotencyKey: 'k1');
+
+    await ctrl.refresh(); // the turn is still queued — nothing was drained
+
+    final state = container.read(connectivityControllerProvider);
+    expect(state.online, isFalse);
+    expect(state.pendingCount, 1);
+  });
+
   test('a concurrent syncPending is ignored while one is in flight', () async {
     await queue.enqueue(_turnFor(1));
     final ctrl = container.read(connectivityControllerProvider.notifier);
@@ -123,6 +168,36 @@ void main() {
     await Future.wait([first, second]);
 
     expect(sync.calls, 1); // exactly one replay ran despite two triggers
+  });
+
+  group('automatic replay on reconnect (#404)', () {
+    test('the OS reporting connectivity back triggers syncPending '
+        'automatically, without a manual "Réessayer" tap', () async {
+      await queue.enqueue(_turnFor(1));
+      // Reading the notifier is what runs build() and subscribes to the
+      // monitor — mirrors how ConversationViewModel.start() first touches
+      // this provider in production.
+      container.read(connectivityControllerProvider.notifier);
+
+      monitor.emit(true);
+      await pumpEventQueue(); // let the unawaited() syncPending() finish
+
+      final state = container.read(connectivityControllerProvider);
+      expect(sync.calls, 1);
+      expect(state.online, isTrue);
+      expect(state.pendingCount, 0);
+    });
+
+    test('the OS reporting connectivity LOST does not trigger a sync',
+        () async {
+      await queue.enqueue(_turnFor(1));
+      container.read(connectivityControllerProvider.notifier);
+
+      monitor.emit(false);
+      await pumpEventQueue();
+
+      expect(sync.calls, 0);
+    });
   });
 }
 

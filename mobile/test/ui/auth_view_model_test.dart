@@ -6,6 +6,7 @@ import 'package:apm/src/core/audio/voice_take_store.dart';
 import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/observability/providers.dart';
+import 'package:apm/src/core/offline/connectivity_monitor.dart';
 import 'package:apm/src/core/offline/offline_turn_queue.dart';
 import 'package:apm/src/core/offline/pending_turn.dart';
 import 'package:apm/src/core/offline/providers.dart';
@@ -131,6 +132,17 @@ const _user = AppUser(
   tier: 'free',
 );
 
+/// Connectivity monitor that never emits — none of these tests exercise the
+/// OS-level reconnect signal (#404); connectivity_controller_test.dart covers
+/// that behavior directly. Keeps ConnectivityController.build() (reached
+/// transitively via ConversationViewModel.build()'s ref.listen) from touching
+/// the real connectivity_plus platform channel in this plain unit-test
+/// environment (no TestWidgetsFlutterBinding here).
+class _NoopConnectivityMonitor implements ConnectivityMonitor {
+  @override
+  Stream<bool> get onConnectivityChanged => const Stream.empty();
+}
+
 ProviderContainer _containerWith(
   AuthRepository repo, {
   VoiceTakeStore? takeStore,
@@ -147,6 +159,7 @@ ProviderContainer _containerWith(
   final c = ProviderContainer(
     overrides: [
       authRepositoryProvider.overrideWithValue(repo),
+      connectivityMonitorProvider.overrideWithValue(_NoopConnectivityMonitor()),
       if (takeStore != null)
         voiceTakeStoreProvider.overrideWithValue(takeStore),
       if (crashReporter != null)

@@ -11,6 +11,7 @@ import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/core/offline/connectivity_controller.dart';
+import 'package:apm/src/core/offline/connectivity_monitor.dart';
 import 'package:apm/src/core/offline/offline_turn_queue.dart';
 import 'package:apm/src/core/offline/pending_turn.dart';
 import 'package:apm/src/core/offline/providers.dart';
@@ -206,6 +207,15 @@ class _FakeRecorder implements AudioRecordingService {
 
 class _MockProfileRepository extends Mock implements ProfileRepository {}
 
+/// Connectivity monitor that never emits — most tests here don't exercise the
+/// OS-level reconnect signal (#404); connectivity_controller_test.dart covers
+/// that behavior directly. Keeps ConnectivityController.build() from touching
+/// the real connectivity_plus platform channel in these unit tests.
+class _NoopConnectivityMonitor implements ConnectivityMonitor {
+  @override
+  Stream<bool> get onConnectivityChanged => const Stream.empty();
+}
+
 class _FakeSpeech implements SpeechService {
   /// [recognized] is heard on the first turn; [thenSilence] makes every later
   /// turn return empty (so an auto-chaining loop terminates naturally).
@@ -341,6 +351,10 @@ ProviderContainer _container(
       // (#311), which reads this — default to an in-memory fake so tests
       // never hit the real secure-storage-backed queue.
       offlineTurnQueueProvider.overrideWithValue(offlineQueue ?? _InMemoryOfflineQueue()),
+      // #404: ConnectivityController.build() now subscribes to this — override
+      // with a fake so tests never touch the real connectivity_plus platform
+      // channel (unavailable/unmocked here).
+      connectivityMonitorProvider.overrideWithValue(_NoopConnectivityMonitor()),
       if (takeStore != null) voiceTakeStoreProvider.overrideWithValue(takeStore),
       if (crashReporter != null) crashReporterProvider.overrideWithValue(crashReporter),
       // Avoid any real /config network fetch in tests.
@@ -540,6 +554,7 @@ void main() {
         speechServiceProvider.overrideWithValue(speech),
         profileRepositoryProvider.overrideWithValue(profileRepo),
         offlineTurnQueueProvider.overrideWithValue(_InMemoryOfflineQueue()),
+        connectivityMonitorProvider.overrideWithValue(_NoopConnectivityMonitor()),
       ],
     );
     addTearDown(c.dispose);
@@ -561,6 +576,7 @@ void main() {
         speechServiceProvider.overrideWithValue(speech),
         profileRepositoryProvider.overrideWithValue(profileRepo),
         offlineTurnQueueProvider.overrideWithValue(_InMemoryOfflineQueue()),
+        connectivityMonitorProvider.overrideWithValue(_NoopConnectivityMonitor()),
       ],
     );
     addTearDown(c.dispose);
@@ -1015,6 +1031,7 @@ void main() {
         reviewRepositoryProvider.overrideWithValue(reviewRepo),
         progressRepositoryProvider.overrideWithValue(progressRepo),
         offlineTurnQueueProvider.overrideWithValue(_InMemoryOfflineQueue()),
+        connectivityMonitorProvider.overrideWithValue(_NoopConnectivityMonitor()),
         runtimeConfigProvider.overrideWith(
           (ref) async => const RuntimeConfig(
             demoMode: false,
@@ -1260,6 +1277,155 @@ void main() {
       expect(c.read(conversationViewModelProvider).status,
           ConversationStatus.idle);
       verifyNever(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')));
+    });
+  });
+
+  group('non-network failures are reported, not swallowed (#403)', () {
+    test('a non-network failure while streaming the reply is reported',
+        () async {
+      // Before #403 the conversation feature — the app's central flow — was
+      // the ONLY feature view-model with zero reportError calls: a backend
+      // 502 or a malformed stream event here vanished without a trace.
+      final repo = _MockConversationRepository();
+      when(
+        () => repo.startSession(
+          mode: any(named: 'mode'),
+          scenarioId: any(named: 'scenarioId'),
+        ),
+      ).thenAnswer((_) async => 1);
+      when(
+        () => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')),
+      ).thenAnswer(
+        (_) => Stream<TurnEvent>.error(
+          const ApiException(statusCode: 502, code: 'BadGateway', message: 'boom'),
+        ),
+      );
+      final reporter = _MockCrashReporter();
+      final c = _container(repo, _FakeSpeech('hello'), crashReporter: reporter);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond();
+
+      verify(
+        () => reporter.captureError(
+          any(),
+          any(),
+          context: 'ReplyPlayback.stream',
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+      expect(c.read(conversationViewModelProvider).error, 'Could not get a reply');
+    });
+
+    test('a NETWORK failure while streaming the reply is queued for replay, '
+        'not reported — it is an expected, already-handled condition',
+        () async {
+      final repo = _MockConversationRepository();
+      when(
+        () => repo.startSession(
+          mode: any(named: 'mode'),
+          scenarioId: any(named: 'scenarioId'),
+        ),
+      ).thenAnswer((_) async => 1);
+      when(
+        () => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')),
+      ).thenAnswer(
+        (_) => Stream<TurnEvent>.error(
+          const ApiException(statusCode: 0, code: 'network', message: 'offline'),
+        ),
+      );
+      final reporter = _MockCrashReporter();
+      final c = _container(repo, _FakeSpeech('hello'), crashReporter: reporter);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond();
+
+      verifyNever(
+        () => reporter.captureError(
+          any(),
+          any(),
+          context: any(named: 'context'),
+          data: any(named: 'data'),
+        ),
+      );
+      expect(c.read(connectivityControllerProvider).pendingCount, 1);
+    });
+
+    test('a non-network transcribe failure in push-to-talk is reported '
+        '(previously accused the learner\'s pronunciation with no trace of '
+        'the real cause)', () async {
+      final repo = _MockConversationRepository();
+      when(
+        () => repo.startSession(
+          mode: any(named: 'mode'),
+          scenarioId: any(named: 'scenarioId'),
+        ),
+      ).thenAnswer((_) async => 1);
+      when(() => repo.transcribe(any())).thenThrow(
+        const ApiException(statusCode: 503, code: 'ServiceUnavailable', message: 'stt down'),
+      );
+      final reporter = _MockCrashReporter();
+      final c = _container(
+        repo,
+        _FakeSpeech(''),
+        serverStt: true,
+        crashReporter: reporter,
+      );
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond(); // push-to-talk: start recording
+      await vm.stopConversation(); // stop -> transcribe (fails)
+
+      verify(
+        () => reporter.captureError(
+          any(),
+          any(),
+          context: 'PushToTalkController.stopAndRespond: transcribe failed',
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+      expect(
+        c.read(conversationViewModelProvider).error,
+        'Could not understand you — try again',
+      );
+    });
+
+    test('a NETWORK transcribe failure in push-to-talk is NOT reported',
+        () async {
+      final repo = _MockConversationRepository();
+      when(
+        () => repo.startSession(
+          mode: any(named: 'mode'),
+          scenarioId: any(named: 'scenarioId'),
+        ),
+      ).thenAnswer((_) async => 1);
+      when(() => repo.transcribe(any())).thenThrow(
+        const ApiException(statusCode: 0, code: 'network', message: 'offline'),
+      );
+      final reporter = _MockCrashReporter();
+      final c = _container(
+        repo,
+        _FakeSpeech(''),
+        serverStt: true,
+        crashReporter: reporter,
+      );
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      await vm.listenAndRespond();
+      await vm.stopConversation();
+
+      verifyNever(
+        () => reporter.captureError(
+          any(),
+          any(),
+          context: any(named: 'context'),
+          data: any(named: 'data'),
+        ),
+      );
     });
   });
 
