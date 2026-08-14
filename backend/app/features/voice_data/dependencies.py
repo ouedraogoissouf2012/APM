@@ -1,11 +1,14 @@
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
-from app.features.voice_data.repository import SqlAlchemyVoiceDataSource, VoiceDataStreamSource
+from app.features.voice_data.repository import (
+    SqlAlchemyVoiceDataSource,
+    VoiceDataExportRepository,
+)
 from app.features.voice_data.service import VoiceDataService
 
 _settings = get_settings()
@@ -37,11 +40,14 @@ def get_voice_data_service(db: AsyncSession = Depends(get_db)) -> VoiceDataServi
     return VoiceDataService(SqlAlchemyVoiceDataSource(db))
 
 
-def get_voice_data_repository(db: AsyncSession = Depends(get_db)) -> VoiceDataStreamSource:
-    """Not the ``VoiceDataService``/Protocol pair used by erasure: the export
-    endpoint streams straight from the repository so the response can be
-    memory-bounded (#365), which ``VoiceDataService``'s list-returning shape
-    can't express without changing it (outside this ticket's territory). Typed
-    as ``VoiceDataStreamSource`` (not the concrete class) so the router depends
-    on an interface a test can substitute a fake for."""
-    return SqlAlchemyVoiceDataSource(db)
+def get_voice_data_export_repository(
+    db: AsyncSession = Depends(get_db),
+) -> VoiceDataExportRepository:
+    """DI seam for the streaming export (#365, #389). The repository is built from
+    a fresh sessionmaker bound to the REQUEST ENGINE (``db.bind``), not the request
+    session: each keyset page runs in its own short-lived session so the router can
+    release the request connection before the client-paced download (see the router's
+    ``db.rollback()``). ``db.bind`` is the engine and is unaffected by that rollback.
+    Injecting the repo (rather than building it inline) keeps the seam substitutable
+    in tests and the router thin."""
+    return VoiceDataExportRepository(async_sessionmaker(bind=db.bind, expire_on_commit=False))

@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.database import get_db
@@ -11,6 +11,7 @@ from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.voice_data.dependencies import (
     get_voice_data_export_rate_limiter,
+    get_voice_data_export_repository,
     get_voice_data_service,
 )
 from app.features.voice_data.repository import VoiceDataExportRepository
@@ -61,6 +62,7 @@ async def _stream_export_json(
 async def export_voice_data(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    repo: VoiceDataExportRepository = Depends(get_voice_data_export_repository),
     limiter: RateLimiter = Depends(get_voice_data_export_rate_limiter),
 ) -> StreamingResponse:
     """Export the learner's voice-derived data: utterances, vocabulary, debriefs,
@@ -82,12 +84,9 @@ async def export_voice_data(
     # ~20 pool slots per slow reader. rollback() ends that transaction and returns the
     # connection to the pool; `db` is never queried again below.
     await db.rollback()
-    # Build a fresh sessionmaker from the SAME bind (the engine, unaffected by the
-    # rollback) so every page runs against whichever engine this request resolved to
-    # (prod, or the test DB via dependency_overrides on get_db) and each page checks
-    # out a connection only for the duration of its own short-lived session.
-    page_sessions = async_sessionmaker(bind=db.bind, expire_on_commit=False)
-    repo = VoiceDataExportRepository(page_sessions)
+    # `repo` (get_voice_data_export_repository) streams from its own sessionmaker bound
+    # to the engine — NOT this request session — so it is unaffected by the rollback and
+    # each keyset page opens its own short-lived connection.
     return StreamingResponse(_stream_export_json(repo, user_id), media_type="application/json")
 
 
