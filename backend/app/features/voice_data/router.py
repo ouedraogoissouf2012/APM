@@ -221,15 +221,25 @@ async def export_voice_data(
     fetch each page is released back to the pool between pages instead of being
     pinned for the whole client-paced download."""
     await limiter.check(user_rate_limit_key("voice-data-export", current_user.id))
-    # `db` is read for its bind (the engine) only — never queried directly, so
-    # it never itself checks out a pooled connection (SQLAlchemy sessions
-    # acquire a connection lazily, on first statement). Building a fresh
-    # sessionmaker from that SAME bind means every page below runs against
-    # whichever engine this request resolved to (prod, or the test DB via
-    # dependency_overrides on get_db) without hardcoding either one.
+    # Capture the id BEFORE releasing the session: rollback() expires every ORM object
+    # attached to `db` (including current_user, loaded by get_current_user), so reading
+    # current_user.id afterwards would trigger a lazy reload on the now-released
+    # connection — in a sync attribute access with no greenlet (MissingGreenlet).
+    user_id = current_user.id
+    # Release the request-scoped connection BEFORE streaming (#389): get_current_user
+    # already queried on `db`, so this session is holding a pooled connection. Without
+    # this rollback it would stay checked out for the ENTIRE client-paced download
+    # (get_db only closes it once the StreamingResponse completes), pinning one of the
+    # ~20 pool slots per slow reader. rollback() ends that transaction and returns the
+    # connection to the pool; `db` is never queried again below.
+    await db.rollback()
+    # Build a fresh sessionmaker from the SAME bind (the engine, unaffected by the
+    # rollback) so every page runs against whichever engine this request resolved to
+    # (prod, or the test DB via dependency_overrides on get_db) and each page checks
+    # out a connection only for the duration of its own short-lived session.
     page_sessions = async_sessionmaker(bind=db.bind, expire_on_commit=False)
     return StreamingResponse(
-        _stream_export_json(page_sessions, current_user.id), media_type="application/json"
+        _stream_export_json(page_sessions, user_id), media_type="application/json"
     )
 
 

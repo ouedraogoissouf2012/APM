@@ -99,7 +99,14 @@ class AuthService:
         # 'user found, password wrong' — with no extra hash that would itself leak
         # email existence via timing.
         hashed_password = user.hashed_password if user is not None else await dummy_password_hash()
-        if user is None or not await verify_password(password, hashed_password):
+        # Evaluate verify UNCONDITIONALLY — never short-circuited by `user is None`.
+        # `if user is None or not await verify_password(...)` would skip the argon2
+        # verify entirely on a miss, so a non-existent email returns fast while a real
+        # email + wrong password pays a full argon2 verify: a timing side-channel that
+        # leaks email existence — exactly what #239's stable dummy hash exists to close.
+        # Verifying the dummy hash makes the miss cost the same one argon2 op.
+        password_ok = await verify_password(password, hashed_password)
+        if user is None or not password_ok:
             raise InvalidCredentialsError("Invalid credentials")
         # Best-effort periodic purge of expired/revoked tokens (#239).
         await self._refresh.purge_expired(datetime.now(UTC), commit=False)
