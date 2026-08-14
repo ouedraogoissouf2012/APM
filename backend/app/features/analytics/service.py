@@ -67,7 +67,12 @@ class AnalyticsService:
         # First-ever completion AND it was actually recorded -> activation. A DB
         # partial-unique index on activation makes the write idempotent, so a
         # cross-session race can't produce two activations (the loser's commit fails
-        # and is swallowed here).
+        # and is swallowed here). This exactly-once guarantee relies on the
+        # activation row never being deleted: it is exempt from the analytics
+        # retention purge (#385, purge/task.py) specifically so this index keeps
+        # blocking a second insert for the lifetime of the account — if it were
+        # ever purged, `prior` (session_completed count) would stay >0 for an
+        # active user and activation would never be re-emitted.
         if completed and prior == 0:
             await self._emit(AnalyticsEvent(name=EVENT_ACTIVATION, user_id=user_id))
 
