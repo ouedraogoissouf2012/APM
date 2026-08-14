@@ -1,8 +1,8 @@
 from typing import TYPE_CHECKING
 
+from app.core.prompt_safety import strip_persistent_instructions
 from app.domain.exceptions import NotFoundError
 from app.features.auth.models import User
-from app.features.conversation.prompt import strip_persistent_instructions
 from app.features.conversation.repository import TranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.cefr import next_cefr_level

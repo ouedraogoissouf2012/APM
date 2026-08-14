@@ -8,7 +8,7 @@ turns each target word into a clarity score:
   UI hides it rather than inventing a number.
 """
 
-from app.features.conversation.providers.interfaces import TranscriptWord, VerboseTranscript
+from app.core.llm.interfaces import TranscriptWord, VerboseTranscript
 from app.features.pronunciation.scorer import score_words
 
 

@@ -255,7 +255,7 @@ async def test_concurrent_record_session_lost_update_is_prevented_by_the_lock(
 @pytest.mark.asyncio
 async def test_debrief_feeds_the_review_schedule(client, db_session):
     """End-to-end: a debrief with an error schedules that type for review."""
-    from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER
+    from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER
     from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 
     headers = await _auth(client)

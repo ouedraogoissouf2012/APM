@@ -15,14 +15,14 @@ cannot be compiled is a hard error: we raise `MissionCompileError` (mapped to 50
 rather than hand back a garbage simulation.
 """
 
+from app.core.llm.interfaces import TextCompletionProvider
+from app.core.llm.messages import ROLE_USER, Message
 from app.core.llm_json import clip, parse_json_object
-from app.domain.exceptions import LlmProviderError
-from app.features.conversation.messages import ROLE_USER, Message
-from app.features.conversation.prompt import (
+from app.core.prompt_safety import (
     render_untrusted_block,
     strip_persistent_instructions,
 )
-from app.features.conversation.providers.interfaces import TextCompletionProvider
+from app.domain.exceptions import LlmProviderError
 from app.features.missions.domain import MissionBrief, SourceType
 
 _MAX_QUESTIONS = 5

@@ -13,9 +13,9 @@ import asyncio
 
 import pytest
 
+from app.core.llm.messages import ROLE_USER, Message
+from app.core.llm.providers.fallback import FallbackLlmProvider
 from app.domain.exceptions import LlmProviderError
-from app.features.conversation.messages import ROLE_USER, Message
-from app.features.conversation.providers.fallback import FallbackLlmProvider
 
 
 class _StubLlm:

@@ -4,9 +4,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER
 from app.features.analytics.domain import EVENT_ACTIVATION, EVENT_SESSION_COMPLETED
 from app.features.analytics.models import AnalyticsEventRow
-from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 
 

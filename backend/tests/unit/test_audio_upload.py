@@ -4,7 +4,7 @@ import pytest
 from fastapi import FastAPI, HTTPException, Request
 from httpx import ASGITransport, AsyncClient
 
-from app.features.conversation.audio_upload import parse_bounded_multipart
+from app.core.http.multipart import parse_bounded_multipart
 
 
 def _app(max_bytes: int) -> FastAPI:

@@ -8,8 +8,8 @@ rather than 502-ing.
 
 import logging
 
+from app.core.llm.interfaces import TextCompletionProvider
 from app.core.llm_json import clip, parse_json_object
-from app.features.conversation.providers.interfaces import TextCompletionProvider
 from app.features.shadowing.domain import PhoneticFocus, ShadowingPhrase
 
 _MAX_TEXT_CHARS = 200

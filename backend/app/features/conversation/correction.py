@@ -10,9 +10,9 @@ problem can never break a conversation turn.
 import logging
 from dataclasses import dataclass, field
 
+from app.core.llm.interfaces import TextCompletionProvider
+from app.core.llm.messages import ROLE_USER, Message
 from app.core.llm_json import clip, parse_json_object
-from app.features.conversation.messages import ROLE_USER, Message
-from app.features.conversation.providers.interfaces import TextCompletionProvider
 from app.features.profile.correction_style import style_for_intensity
 
 _MAX_ALTERNATIVES = 2

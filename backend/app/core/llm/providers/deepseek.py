@@ -3,8 +3,8 @@ import re
 from collections.abc import AsyncIterator
 from typing import Any
 
+from app.core.llm.messages import Message
 from app.domain.exceptions import LlmProviderError
-from app.features.conversation.messages import Message
 
 logger = logging.getLogger(__name__)
 

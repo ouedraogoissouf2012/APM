@@ -7,14 +7,14 @@ from app.core.engines import (
     ENGINE_GROQ_FALLBACK,
 )
 from app.core.http_lifecycle import register_closeable
-from app.domain.exceptions import LlmProviderError
-from app.features.conversation.providers.deepseek import (
+from app.core.llm.interfaces import LlmProvider
+from app.core.llm.providers.deepseek import (
     OpenAiCompatibleLlmProvider,
     build_openai_compatible_client,
 )
-from app.features.conversation.providers.fakes import FakeLlm
-from app.features.conversation.providers.fallback import FallbackLlmProvider
-from app.features.conversation.providers.interfaces import LlmProvider
+from app.core.llm.providers.fakes import FakeLlm
+from app.core.llm.providers.fallback import FallbackLlmProvider
+from app.domain.exceptions import LlmProviderError
 
 # The fallback chain's PRIMARY (Groq) must fail FAST and WITHOUT an internal SDK
 # retry (#230): a flaky/slow primary is better served by handing off to the

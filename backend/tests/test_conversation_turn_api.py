@@ -12,6 +12,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.core.llm.providers.fakes import FakeLlm
 from app.core.rate_limit import InMemoryRateLimiter, user_rate_limit_key
 from app.database import get_db
 from app.features.conversation.correction import TurnCorrection
@@ -19,7 +20,6 @@ from app.features.conversation.dependencies import (
     get_conversation_rate_limiter,
     get_conversation_turn_service,
 )
-from app.features.conversation.providers.fakes import FakeLlm
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
 from app.features.profile.repository import SqlAlchemyProfileRepository

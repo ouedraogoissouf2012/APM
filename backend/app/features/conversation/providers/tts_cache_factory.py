@@ -8,7 +8,7 @@ the `TtsCache` interface, so nothing changes when the backend does.
 from typing import cast
 
 from app.core.http_lifecycle import register_closeable
-from app.features.conversation.providers.interfaces import TtsCache
+from app.core.llm.interfaces import TtsCache
 from app.features.conversation.providers.tts_cache import (
     InMemoryTtsCache,
     RedisTtsCache,

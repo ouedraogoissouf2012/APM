@@ -2,16 +2,16 @@ from fastapi import Depends
 
 from app.config import get_settings
 from app.core.engines import ENGINE_DEEPSEEK
+from app.core.llm.factory import shared_llm_provider
+from app.core.llm.interfaces import (
+    SttProvider,
+)
+from app.core.llm.interfaces import (
+    TextCompletionProvider as LlmProvider,
+)
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.features.conversation.dependencies import get_stt_provider
-from app.features.conversation.factory import shared_llm_provider
-from app.features.conversation.providers.interfaces import (
-    SttProvider,
-)
-from app.features.conversation.providers.interfaces import (
-    TextCompletionProvider as LlmProvider,
-)
 from app.features.pronunciation.provider import (
     PronunciationProvider,
     shared_pronunciation_provider,

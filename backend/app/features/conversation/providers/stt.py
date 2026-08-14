@@ -10,11 +10,11 @@ from functools import lru_cache
 from typing import Any
 
 from app.core.http_lifecycle import register_closeable
-from app.domain.exceptions import LlmProviderError
-from app.features.conversation.providers.interfaces import (
+from app.core.llm.interfaces import (
     TranscriptWord,
     VerboseTranscript,
 )
+from app.domain.exceptions import LlmProviderError
 
 # Without an explicit timeout/max_retries, the openai SDK's defaults apply — a
 # ~600s connect timeout and up to 2 silent retries — on the critical path the

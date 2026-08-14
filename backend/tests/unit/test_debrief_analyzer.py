@@ -1,6 +1,6 @@
 import pytest
 
-from app.features.conversation.messages import Message
+from app.core.llm.messages import Message
 from app.features.debrief.analyzer import DebriefAnalyzer
 
 

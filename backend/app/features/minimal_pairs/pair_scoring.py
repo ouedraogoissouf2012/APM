@@ -8,7 +8,7 @@ other, both (rare), or neither.
 
 import re
 
-from app.features.conversation.providers.interfaces import VerboseTranscript
+from app.core.llm.interfaces import VerboseTranscript
 from app.features.minimal_pairs.domain import PairAttemptResult
 
 _WORD = re.compile(r"[a-z0-9']+")

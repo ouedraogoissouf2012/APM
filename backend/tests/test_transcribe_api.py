@@ -65,7 +65,7 @@ async def test_transcribe_rejects_oversized_upload(client, monkeypatch):
             files={"audio": ("speech.webm", b"x" * 50, "audio/webm")},
         )
         assert resp.status_code == 413, resp.text
-        # audio_upload.py raises a raw HTTPException — must still come back in the
+        # core/http/multipart.py raises a raw HTTPException — must still come back in the
         # SAME normalized envelope as every other error, not FastAPI's default
         # {"detail": ...} (#241).
         body = resp.json()

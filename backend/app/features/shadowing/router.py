@@ -3,12 +3,12 @@ import base64
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.config import get_settings
+from app.core.http.multipart import parse_bounded_multipart
+from app.core.llm.interfaces import TtsProvider
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
-from app.features.conversation.audio_upload import parse_bounded_multipart
 from app.features.conversation.dependencies import get_tts_provider
-from app.features.conversation.providers.interfaces import TtsProvider
 from app.features.shadowing.dependencies import (
     get_shadowing_rate_limiter,
     get_shadowing_service,

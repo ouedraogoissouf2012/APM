@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER
 from app.features.auth.models import User
-from app.features.conversation.messages import ROLE_ASSISTANT, ROLE_USER
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.repository import SqlAlchemyDebriefRepository
 from app.features.proof.repository import SqlAlchemyProofDataSource

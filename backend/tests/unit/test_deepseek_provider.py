@@ -1,8 +1,8 @@
 import pytest
 
+from app.core.llm.messages import Message
+from app.core.llm.providers.deepseek import DeepSeekLlmProvider
 from app.domain.exceptions import LlmProviderError
-from app.features.conversation.messages import Message
-from app.features.conversation.providers.deepseek import DeepSeekLlmProvider
 
 
 class _StubMessage:

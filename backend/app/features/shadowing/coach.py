@@ -7,10 +7,10 @@ nothing to coach, so no LLM call is made at all.
 
 import logging
 
+from app.core.llm.interfaces import TextCompletionProvider
+from app.core.llm.messages import ROLE_USER, Message
 from app.core.llm_json import clip, parse_json_object
-from app.features.conversation.messages import ROLE_USER, Message
-from app.features.conversation.prompt import render_untrusted_block
-from app.features.conversation.providers.interfaces import TextCompletionProvider
+from app.core.prompt_safety import render_untrusted_block
 
 _MAX_COACHING_CHARS = 400
 _logger = logging.getLogger(__name__)

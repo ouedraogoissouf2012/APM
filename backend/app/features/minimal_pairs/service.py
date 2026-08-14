@@ -5,7 +5,7 @@ other word of the pair, and coach the confusion. Nothing is persisted; the audio
 never touches the database (privacy by default, cf #128).
 """
 
-from app.features.conversation.providers.interfaces import SttProvider
+from app.core.llm.interfaces import SttProvider
 from app.features.minimal_pairs.coach import PairCoach
 from app.features.minimal_pairs.domain import PairAttemptResult
 from app.features.minimal_pairs.pair_scoring import score_pair_attempt

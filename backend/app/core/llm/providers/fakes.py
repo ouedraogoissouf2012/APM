@@ -1,10 +1,10 @@
 from collections.abc import AsyncIterator
 
-from app.features.conversation.messages import Message
-from app.features.conversation.providers.interfaces import (
+from app.core.llm.interfaces import (
     TranscriptWord,
     VerboseTranscript,
 )
+from app.core.llm.messages import Message
 
 
 class FakeStt:

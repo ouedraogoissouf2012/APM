@@ -7,8 +7,8 @@ the service with a fake STT.
 
 import pytest
 
+from app.core.llm.interfaces import TranscriptWord, VerboseTranscript
 from app.core.rate_limit import InMemoryRateLimiter
-from app.features.conversation.providers.interfaces import TranscriptWord, VerboseTranscript
 from app.features.minimal_pairs.coach import PairCoach
 from app.features.minimal_pairs.dependencies import (
     get_minimal_pairs_rate_limiter,
