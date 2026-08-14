@@ -36,6 +36,7 @@ from app.features.auth.dependencies import (  # noqa: E402
 from app.features.conversation.dependencies import get_conversation_rate_limiter  # noqa: E402
 from app.features.debrief.dependencies import get_debrief_rate_limiter  # noqa: E402
 from app.features.missions.dependencies import get_mission_rate_limiter  # noqa: E402
+from app.features.voice_data.dependencies import get_voice_data_export_rate_limiter  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -82,6 +83,11 @@ async def client(_engine, _setup_db) -> AsyncClient:
     app.dependency_overrides[get_conversation_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_debrief_rate_limiter] = lambda: NoOpRateLimiter()
     app.dependency_overrides[get_mission_rate_limiter] = lambda: NoOpRateLimiter()
+    # Process-wide 5/hour singleton (redis_url empty in tests) that is never reset
+    # between tests; low user ids repeat across the fresh-DB-per-test fixture, so
+    # without this override export calls accumulate and later tests flake with 429.
+    # The dedicated test_export_is_rate_limited installs its own real limiter.
+    app.dependency_overrides[get_voice_data_export_rate_limiter] = lambda: NoOpRateLimiter()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

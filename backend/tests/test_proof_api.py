@@ -111,6 +111,57 @@ async def test_proof_normalises_by_session_length(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_proof_uses_baseline_and_latest_ignoring_middle_sessions(client, db_session):
+    """#363: the repository now fetches only the earliest/latest session with a
+    debrief via two targeted queries, instead of every session on the skill.
+    With 3+ sessions, the middle one(s) must still be correctly ignored — same
+    output as the old 'fetch everything, use sessions[0]/sessions[-1]' code."""
+    headers = await _auth(client)
+    first = await _session_with_debrief(
+        client,
+        db_session,
+        headers,
+        scenario="job_interview",
+        cefr="A1",
+        errors=[_err("verb_tense"), _err("verb_tense")],
+        turns=10,
+    )
+    # Middle session: if it leaked into the comparison, "article" would show up
+    # as resolved/new_or_worse and "verb_tense" 's rate would be skewed.
+    await _session_with_debrief(
+        client,
+        db_session,
+        headers,
+        scenario="job_interview",
+        cefr="A2",
+        errors=[_err("article"), _err("article"), _err("article")],
+        turns=10,
+    )
+    last = await _session_with_debrief(
+        client,
+        db_session,
+        headers,
+        scenario="job_interview",
+        cefr="B1",
+        errors=[],
+        turns=10,
+    )
+
+    resp = await client.get("/me/proof/job_interview", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["baseline_session_id"] == first
+    assert body["latest_session_id"] == last
+    assert body["baseline_cefr"] == "A1"
+    assert body["latest_cefr"] == "B1"
+    # verb_tense: made at baseline, gone at latest -> resolved. article (middle
+    # session only) must NOT appear anywhere — it was never baseline or latest.
+    assert body["resolved"] == ["verb_tense"]
+    assert body["improved"] == []
+    assert body["new_or_worse"] == []
+
+
+@pytest.mark.asyncio
 async def test_proof_is_scoped_to_the_skill_and_user(client, db_session):
     headers = await _auth(client)
     # Two sessions but on DIFFERENT scenarios -> no proof for either.
