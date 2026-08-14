@@ -47,7 +47,9 @@ async def _engine():
     # across pytest-asyncio's per-test loops ("another operation is in progress").
     settings = get_settings()
     assert settings.database_url_test, "DATABASE_URL_TEST must be set for tests"
-    engine = create_async_engine(settings.database_url_test, future=True)
+    # Mirror the prod engine's hide_parameters=True (app/database.py) so tests see
+    # the same redaction of bound parameters in DB-error strings/logs.
+    engine = create_async_engine(settings.database_url_test, future=True, hide_parameters=True)
     yield engine
     await engine.dispose()
 

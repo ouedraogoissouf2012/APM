@@ -108,8 +108,6 @@ class AuthService:
         password_ok = await verify_password(password, hashed_password)
         if user is None or not password_ok:
             raise InvalidCredentialsError("Invalid credentials")
-        # Best-effort periodic purge of expired/revoked tokens (#239).
-        await self._refresh.purge_expired(datetime.now(UTC), commit=False)
         return await self._issue_tokens(user)
 
     async def refresh(self, raw_refresh_token: str) -> AuthResult:

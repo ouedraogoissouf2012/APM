@@ -40,7 +40,8 @@ def _to_token_out(result: AuthResult) -> TokenOut:
 
 
 def _client_host(request: Request) -> str:
-    return client_ip(request, get_settings().trust_proxy_headers)
+    s = get_settings()
+    return client_ip(request, s.trust_proxy_headers, s.trusted_proxy_count)
 
 
 @router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
