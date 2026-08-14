@@ -32,7 +32,7 @@ class SqlAlchemyProofDataSource:
         # only ever reads the first and last element (#363). Transcript.turns —
         # a JSONB blob that can run tens of KB per session — is now selected for
         # AT MOST these two rows, never for the whole history.
-        def _edge_query(order_by: ColumnElement[Any]) -> Select[Any]:
+        def _edge_query(*order_by: ColumnElement[Any]) -> Select[Any]:
             return (
                 select(
                     ConversationSession.id,
@@ -47,23 +47,32 @@ class SqlAlchemyProofDataSource:
                     ConversationSession.user_id == user_id,
                     ConversationSession.scenario_id == skill,
                 )
-                .order_by(order_by)
+                .order_by(*order_by)
                 .limit(1)
             )
 
         baseline_row = (
-            await self._session.execute(_edge_query(ConversationSession.started_at.asc()))
+            await self._session.execute(
+                _edge_query(ConversationSession.started_at.asc(), ConversationSession.id.asc())
+            )
         ).first()
         if baseline_row is None:
             return []
         baseline = self._to_session_errors(baseline_row)
 
         latest_row = (
-            await self._session.execute(_edge_query(ConversationSession.started_at.desc()))
+            await self._session.execute(
+                _edge_query(ConversationSession.started_at.desc(), ConversationSession.id.desc())
+            )
         ).first()
-        # Guaranteed non-None: the ASC query above already found a matching row,
-        # so the DESC query (same WHERE, no ORDER-dependent filtering) must too.
-        assert latest_row is not None
+        # The two edge queries are separate executes sharing one READ COMMITTED
+        # transaction, so a concurrent self-purge committing between them can delete
+        # every matching row and make this DESC query return None even though the ASC
+        # one didn't. Degrade to the single-session shape the caller already handles
+        # instead of asserting a concurrency-reachable invariant (an assert would 500,
+        # and is stripped entirely under `python -O`).
+        if latest_row is None:
+            return [baseline]
         latest = self._to_session_errors(latest_row)
 
         # A single session on this skill: baseline and latest are the SAME row.
