@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request, status
 
 from app.api.client_ip import client_ip
 from app.config import get_settings
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.core.security import hash_token
 from app.features.auth.dependencies import (
     get_auth_service,
@@ -112,7 +112,9 @@ async def change_password(
     # Keyed by user_id, not IP (#300): the caller is already authenticated via
     # get_current_user, so this throttles brute-forcing old_password with a
     # stolen access token regardless of which IP the attacker calls from.
-    await limiter.check(f"change_password:{current_user.id}")
+    # Via the canonical helper (#374), not a hand-rolled f-string — the single
+    # place the "per-user, no IP" invariant lives (#356).
+    await limiter.check(user_rate_limit_key("change_password", current_user.id))
     await service.change_password(current_user, payload.old_password, payload.new_password)
 
 

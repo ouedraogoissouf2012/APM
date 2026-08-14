@@ -94,6 +94,7 @@ class ConversationTurnService:
         missions: MissionRepository | None = None,
         meter: Callable[[int, int], Awaitable[None]] | None = None,
         history_max_messages: int = 20,
+        transcript_max_messages: int = 200,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
@@ -103,8 +104,19 @@ class ConversationTurnService:
         self._tts = tts
         self._missions = missions
         # Sliding window of transcript messages replayed to the LLM per turn (#224);
-        # 0 = unlimited. The full transcript is still persisted and analysed.
+        # 0 = unlimited. The PERSISTED transcript is separately bounded by
+        # transcript_max_messages below — this window is a strict subset of it.
         self._history_max_messages = history_max_messages
+        # Hard cap on the PERSISTED transcript itself (#364); 0 = unlimited. Without
+        # this, a long-running session (unbounded on a paid tier, which has no
+        # per-session quota) grows the transcript's JSONB column forever — every
+        # turn re-reads and rewrites the WHOLE column, so the cost of a single turn
+        # (and the write-amplified WAL it generates) grows with the session's
+        # entire history instead of staying constant. Once the cap is hit, the
+        # oldest messages age out (sliding window, like history_max_messages) so a
+        # long session degrades gracefully (older debrief/proof context is lost)
+        # rather than growing the DB row and every turn's cost without bound.
+        self._transcript_max_messages = transcript_max_messages
         # Called once per turn to meter the quota per turn (#119). Injected (DIP)
         # so this service stays decoupled from the session/quota logic. Best-effort:
         # a metering failure must never break a turn.
@@ -294,9 +306,10 @@ class ConversationTurnService:
         system_prompt, intensity = await self._prompt_and_intensity_for(session, user)
         # Only the last N messages go to the LLM (#224): replaying the WHOLE transcript
         # every turn makes cost + latency grow without bound in a long conversation.
-        # `turns` (the full transcript) is untouched — it is still persisted and the
-        # end-of-session debrief analyses all of it; the profile memory_summary in the
-        # system prompt carries the older context the window drops.
+        # `turns` (the persisted transcript, itself bounded by transcript_max_messages
+        # — see _persist) is untouched here — it is still what the end-of-session
+        # debrief analyses; the profile memory_summary in the system prompt carries
+        # the older context the window (and, past the cap, the transcript itself) drops.
         window = turns[-self._history_max_messages :] if self._history_max_messages > 0 else turns
         history = [Message(role=t["role"], content=t["content"]) for t in window]
         history.append(Message(role=ROLE_USER, content=text))
@@ -340,6 +353,10 @@ class ConversationTurnService:
             {"role": ROLE_USER, "content": text},
             {"role": ROLE_ASSISTANT, "content": reply},
         ]
+        # Bound the PERSISTED transcript (#364): this exchange is always kept even
+        # if `turns` was already at the cap; the oldest messages age out instead.
+        if self._transcript_max_messages > 0 and len(turns) > self._transcript_max_messages:
+            turns = turns[-self._transcript_max_messages :]
         await self._transcripts.save(session_id, turns)
         # Meter the quota per turn (#119). Best-effort: never break a turn if it
         # fails — the transcript is already saved.

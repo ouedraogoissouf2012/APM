@@ -182,6 +182,40 @@ async def test_detailed_intensity_allows_more_errors():
 
 
 @pytest.mark.asyncio
+async def test_analyze_caps_learner_text_to_the_most_recent_turns():
+    # #364 (shared root cause with the transcript-storage issue): an
+    # abusive/very long session must not grow the debrief LLM call's prompt
+    # (cost/latency) without bound. Only the last max_learner_turns learner
+    # utterances are analyzed. Recency is also the right bias for a CEFR
+    # estimate — it should reflect the learner's CURRENT level, not be diluted
+    # by an early warm-up on a very long session.
+    turns = [{"role": "user", "content": f"turn {i}"} for i in range(10)]
+    llm = _CannedLlm('{"cefr_estimate": "B1", "summary": "", "errors": []}')
+    analyzer = DebriefAnalyzer(llm, max_learner_turns=3)
+
+    await analyzer.analyze(turns, native_language="fr")
+
+    seen = llm.seen_user or ""
+    assert "turn 9" in seen
+    assert "turn 7" in seen
+    assert "turn 6" not in seen
+    assert "turn 0" not in seen
+
+
+@pytest.mark.asyncio
+async def test_analyze_learner_turn_cap_of_zero_means_unlimited():
+    turns = [{"role": "user", "content": f"turn {i}"} for i in range(5)]
+    llm = _CannedLlm('{"cefr_estimate": "B1", "summary": "", "errors": []}')
+    analyzer = DebriefAnalyzer(llm, max_learner_turns=0)
+
+    await analyzer.analyze(turns, native_language="fr")
+
+    seen = llm.seen_user or ""
+    assert "turn 0" in seen
+    assert "turn 4" in seen
+
+
+@pytest.mark.asyncio
 async def test_analyze_passes_native_language_and_only_learner_text():
     llm = _CannedLlm('{"cefr_estimate": "B1", "summary": "", "errors": []}')
     analyzer = DebriefAnalyzer(llm)

@@ -49,9 +49,16 @@ def _str_list(value: object, cap: int) -> list[str]:
 
 
 class DebriefAnalyzer:
-    def __init__(self, llm: LlmProvider, max_errors: int = 5) -> None:
+    def __init__(self, llm: LlmProvider, max_errors: int = 5, max_learner_turns: int = 60) -> None:
         self._llm = llm
         self._max_errors = max_errors
+        # Bounds the debrief prompt to the learner's most recent utterances (#364,
+        # shared root cause with the transcript-storage write amplification): an
+        # abusive/very long session must not grow this LLM call's prompt size (cost
+        # + latency) without limit. Recency is also the right bias for a CEFR
+        # estimate — it should reflect how the learner is doing NOW, not be diluted
+        # by an early warm-up on a very long session. 0 = unlimited.
+        self._max_learner_turns = max_learner_turns
 
     async def analyze(
         self,
@@ -69,7 +76,10 @@ class DebriefAnalyzer:
         else:
             max_errors = self._max_errors
             directive = ""
-        learner_text = "\n".join(t.get("content", "") for t in turns if t.get("role") == ROLE_USER)
+        learner_turns = [t.get("content", "") for t in turns if t.get("role") == ROLE_USER]
+        if self._max_learner_turns > 0:
+            learner_turns = learner_turns[-self._max_learner_turns :]
+        learner_text = "\n".join(learner_turns)
         system_prompt = _build_system_prompt(native_language, max_errors, directive)
         raw = await self._llm.complete(
             system_prompt,

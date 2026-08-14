@@ -243,6 +243,102 @@ async def test_take_turn_windows_history_to_the_last_n_messages():
 
 
 @pytest.mark.asyncio
+async def test_persisted_transcript_is_capped_to_transcript_max_messages():
+    # #364: the PERSISTED transcript (not just the LLM history window) must be
+    # bounded too, or a long/abusive paid-tier session grows it (and the cost of
+    # rewriting it every turn) without limit. The newest messages are always kept;
+    # the oldest are dropped once the cap is exceeded.
+    prior = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
+        for i in range(6)  # m0..m5
+    ]
+    llm = _CannedLlm()
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(prior),
+        _FakeProfiles(),
+        llm,
+        transcript_max_messages=6,
+    )
+
+    result = await service.take_turn(1, _user(), "now")
+
+    # 6 prior + 2 new = 8, capped to the most recent 6 -> the oldest 2 (m0, m1) drop.
+    assert len(result.turns) == 6
+    assert [t["content"] for t in result.turns] == ["m2", "m3", "m4", "m5", "now", "Nice!"]
+
+
+@pytest.mark.asyncio
+async def test_transcript_cap_of_zero_means_unlimited():
+    prior = [{"role": "user", "content": f"m{i}"} for i in range(50)]
+    llm = _CannedLlm()
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(prior),
+        _FakeProfiles(),
+        llm,
+        transcript_max_messages=0,  # 0 = no cap
+    )
+
+    result = await service.take_turn(1, _user(), "now")
+
+    assert len(result.turns) == 52
+
+
+class _StatefulFakeTranscripts:
+    """Unlike _FakeTranscripts (a fixed snapshot), this actually persists what
+    save() writes so a test can replay a MULTI-turn session and observe how the
+    stored transcript's size evolves turn over turn — the shape #364's fix is
+    about."""
+
+    def __init__(self) -> None:
+        self._by_session: dict[int, list[dict]] = {}
+        self.save_sizes: list[int] = []
+
+    async def get_by_session(self, session_id):
+        turns = self._by_session.get(session_id)
+        if turns is None:
+            return None
+
+        class _T:
+            pass
+
+        t = _T()
+        t.turns = turns
+        return t
+
+    async def save(self, session_id, turns):
+        self._by_session[session_id] = turns
+        self.save_sizes.append(len(turns))
+
+
+@pytest.mark.asyncio
+async def test_long_session_persisted_size_plateaus_at_the_cap_instead_of_growing_forever():
+    # #364: the concrete before/after this issue is about. BEFORE the fix, the
+    # persisted array grows by 2 every turn forever (2, 4, 6, 8, ... 40 over 20
+    # turns) — an unbounded, "non borne" cost in a long paid-tier session, and
+    # what gets rewritten in full on every single turn. AFTER the fix, it grows
+    # the same way only until the cap, then plateaus — the per-turn write cost
+    # becomes CONSTANT regardless of how long the session runs.
+    transcripts = _StatefulFakeTranscripts()
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        transcripts,
+        _FakeProfiles(),
+        _CannedLlm("ok"),
+        transcript_max_messages=6,
+    )
+
+    for i in range(20):
+        await service.take_turn(1, _user(), f"turn {i}")
+
+    # Grows 2 at a time up to the cap, then plateaus — never exceeds it again.
+    assert transcripts.save_sizes[:3] == [2, 4, 6]
+    assert all(size == 6 for size in transcripts.save_sizes[3:])
+    assert len(transcripts.save_sizes) == 20
+
+
+@pytest.mark.asyncio
 async def test_history_window_of_zero_means_unlimited():
     prior = [{"role": "user", "content": f"m{i}"} for i in range(6)]
     llm = _CannedLlm()
