@@ -17,6 +17,7 @@ import '../../debrief/view_model/debrief_view_model.dart';
 import '../../history/view_model/progress_view_model.dart';
 import '../../home/view_model/streak_view_model.dart';
 import '../../missions/view_model/mission_view_model.dart';
+import '../../onboarding/view_model/placement_view_model.dart';
 import '../../privacy/view_model/voice_privacy_view_model.dart';
 import '../../profile/view_model/profile_view_model.dart';
 import '../../proof/view_model/proof_view_model.dart';
@@ -56,7 +57,7 @@ final authViewModelProvider = AsyncNotifierProvider<AuthViewModel, AppUser?>(
 /// `voiceTakesProvider`) invalidate their WHOLE family — every cached id,
 /// not just one — the right thing here since logout doesn't know which ids
 /// were viewed.
-final List<ProviderOrFamily> userScopedProviders = [
+final List<ProviderOrFamily> userScopedProviders = List.unmodifiable([
   profileViewModelProvider,
   streakProvider,
   progressProvider,
@@ -68,7 +69,11 @@ final List<ProviderOrFamily> userScopedProviders = [
   missionViewModelProvider,
   voiceTakesProvider,
   conversationViewModelProvider,
-];
+  // Non-autoDispose, holds the learner's transcribed placement answers +
+  // computed CEFR level; reachable across accounts via the register->placement
+  // redirect, so it MUST be reset on logout like every other per-user provider.
+  placementViewModelProvider,
+]);
 
 class AuthViewModel extends AsyncNotifier<AppUser?> {
   @override

@@ -33,6 +33,7 @@ import 'package:apm/src/ui/debrief/view_model/debrief_view_model.dart';
 import 'package:apm/src/ui/history/view_model/progress_view_model.dart';
 import 'package:apm/src/ui/home/view_model/streak_view_model.dart';
 import 'package:apm/src/ui/missions/view_model/mission_view_model.dart';
+import 'package:apm/src/ui/onboarding/view_model/placement_view_model.dart';
 import 'package:apm/src/ui/privacy/view_model/voice_privacy_view_model.dart';
 import 'package:apm/src/ui/proof/view_model/proof_view_model.dart';
 import 'package:apm/src/ui/review/view_model/review_view_model.dart';
@@ -485,6 +486,23 @@ void main() {
           c.read(missionViewModelProvider).sourceType,
           MissionSourceType.offer, // back to the default: build() reran
           reason: 'missionViewModelProvider not invalidated',
+        );
+      },
+    );
+
+    test(
+      'placementViewModelProvider is in the per-user registry (#373) — a '
+      'non-autoDispose provider holding transcribed placement answers + CEFR, '
+      'reachable across accounts via register->placement; the comprehensive '
+      'test above proves every registry entry is invalidated on logout, so '
+      'membership is what guarantees it resets for the next account',
+      () {
+        expect(
+          userScopedProviders,
+          contains(placementViewModelProvider),
+          reason: 'placementViewModelProvider omitted from userScopedProviders '
+              '— a new account on this device would inherit the previous '
+              'learner\'s transcribed placement answers and CEFR level',
         );
       },
     );
