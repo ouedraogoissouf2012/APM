@@ -3,12 +3,10 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header
 from fastapi.responses import StreamingResponse
 
-from app.api.client_ip import client_ip
-from app.config import get_settings
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.domain.exceptions import ConflictError, LlmProviderError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
@@ -35,7 +33,6 @@ _TURN_LOCK_CONFLICT_MESSAGE = "A turn is already in progress for this session"
 async def take_turn(
     session_id: int,
     payload: TurnIn,
-    request: Request,
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
     service: ConversationTurnService = Depends(get_conversation_turn_service),
@@ -54,8 +51,12 @@ async def take_turn(
     lock section is scoped to `_process`, so run_once's existing
     except-Exception-then-release already frees a newly-claimed idempotency
     key when the lock is contended, with no duplicated cleanup here."""
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"turn:{client_host}:user:{current_user.id}")
+    # Keyed by user_id, not IP (#384): /turn is the paid endpoint's single
+    # heaviest call (LLM completion + per-sentence TTS) — an IP-keyed bucket
+    # would let a rotated apparent IP (or, per #383, a spoofed
+    # X-Forwarded-For) reset it, defeating the limiter entirely for an
+    # inf-quota (premium) account. Same helper every other paid endpoint uses.
+    await limiter.check(user_rate_limit_key("turn", current_user.id))
 
     async def _process() -> str:
         if not await idempotency.acquire_turn_lock(current_user.id, session_id):
@@ -105,7 +106,6 @@ async def _replay_completed(reply: str) -> AsyncIterator[str]:
 async def stream_turn(
     session_id: int,
     payload: TurnIn,
-    request: Request,
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
     service: ConversationTurnService = Depends(get_conversation_turn_service),
@@ -122,8 +122,8 @@ async def stream_turn(
     the quota: a per-session turn lock serialises CONCURRENT turns (#256), and an
     optional `Idempotency-Key` header dedupes a SEQUENTIAL retry (#261) — the same
     key replays its cached reply without re-processing, a still-in-flight key 409s."""
-    client_host = client_ip(request, get_settings().trust_proxy_headers)
-    await limiter.check(f"turn:{client_host}:user:{current_user.id}")
+    # Keyed by user_id, not IP (#384) — see take_turn's identical comment above.
+    await limiter.check(user_rate_limit_key("turn", current_user.id))
 
     # Idempotency-Key layer (#261): dedupe a REPLAYED turn (network retry / offline
     # replay). A completed key replays its cached reply with no processing and no
