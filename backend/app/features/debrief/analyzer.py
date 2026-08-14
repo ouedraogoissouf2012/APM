@@ -48,6 +48,16 @@ def _str_list(value: object, cap: int) -> list[str]:
     return items[:cap]
 
 
+def _dict_list(value: object) -> list[dict]:
+    """Coerce a free-form LLM list-of-object field to a list of dicts (#387): a
+    missing/None/wrongly-typed field (a bare string, int, or null) becomes [],
+    and any non-dict element is dropped. `parse_debrief_json` only guarantees
+    the TOP-LEVEL value is a dict — it makes no promise about nested fields."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
 class DebriefAnalyzer:
     def __init__(self, llm: LlmProvider, max_errors: int = 5, max_learner_turns: int = 60) -> None:
         self._llm = llm
@@ -102,7 +112,7 @@ class DebriefAnalyzer:
             cefr = fallback_cefr
 
         errors: list[DebriefError] = []
-        for item in data.get("errors", [])[:max_errors]:
+        for item in _dict_list(data.get("errors"))[:max_errors]:
             original = str(item.get("original", ""))
             if original and original in learner_text:
                 errors.append(
@@ -118,9 +128,7 @@ class DebriefAnalyzer:
                 )
 
         words: list[VocabularyWord] = []
-        for item in data.get("words", [])[:3]:
-            if not isinstance(item, dict):
-                continue
+        for item in _dict_list(data.get("words"))[:3]:
             word = str(item.get("word", "")).strip()
             if not word:
                 continue

@@ -158,16 +158,16 @@ class SqlAlchemyVoiceDataSource:
         # Both are exercised directly by test_erase_is_atomic_on_partial_failure
         # and test_concurrent_erasure_from_same_user.
         #
-        # An explicit `SELECT ... FOR UPDATE` on the user row was considered (it
-        # is the pattern used for read-modify-write races elsewhere, e.g.
-        # auth/repository.py's UserRepository.lock and the quota path in
-        # sessions/service.py) but deliberately left out: it isn't needed here
-        # (both tests above pass without it), and locking the user row BEFORE
-        # the sessions delete below would invert lock order against
-        # SessionService.record_turn_activity(), which autoflushes a
-        # ConversationSession update and only locks the user row afterwards —
-        # an AB-BA deadlock between "erase my data" and "record this turn" for
-        # the same user that doesn't exist today.
+        # Lock the user row FIRST (SELECT ... FOR UPDATE), before the sessions
+        # delete below, so this erase cascade shares the USER->SESSION lock
+        # acquisition order of SessionService.record_turn_activity() (#381),
+        # start() and end(). record_turn_activity locks the user row before
+        # dirtying the session (#381 fix); deleting sessions here first (which
+        # row-locks the session rows) and only touching the user row afterwards
+        # would acquire (user, session) in the OPPOSITE order — a classic AB-BA
+        # deadlock between "erase my data" and "record this turn" for the same
+        # user. Mirrors the UserRepository.lock pattern.
+        await self._session.execute(select(User).where(User.id == user_id).with_for_update())
 
         # Sub-select the user's session ids once; transcripts and debriefs are
         # keyed by session, everything else by user directly.

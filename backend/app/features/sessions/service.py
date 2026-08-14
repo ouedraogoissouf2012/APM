@@ -221,11 +221,21 @@ class SessionService:
         now = now or datetime.now(UTC)
         today = now.date()
         minutes = elapsed_minutes(_as_utc(session.last_activity_at), now, cap=self._turn_meter_cap)
-        session.last_activity_at = now
-        # Lock the user row (like start()): quota minutes and streak counters are a
-        # read-modify-write, so a plain get would let concurrent turns lost-update
-        # each other (#188). FOR UPDATE serialises them.
+        # Lock the user row (like start()/end()) BEFORE mutating the session
+        # (#381): quota minutes and streak counters are a read-modify-write, so a
+        # plain get would let concurrent turns lost-update each other (#188) —
+        # FOR UPDATE serialises them. The ordering matters as much as the lock
+        # itself: dirtying `session.last_activity_at` first would make the
+        # lock() call's autoflush (autoflush defaults to True) emit
+        # `UPDATE sessions ...` BEFORE `SELECT users ... FOR UPDATE`, i.e. a
+        # SESSION->USER acquisition order — the reverse of start()/end(), which
+        # lock the user while nothing is dirty yet and only mutate the session
+        # afterwards (USER->SESSION). Two connections contending on the same
+        # (user, session) pair in opposite lock order is a classic AB-BA
+        # deadlock: locking the user here first, before any session mutation,
+        # keeps every path on the same USER->SESSION order.
         user = await self._users.lock(user_id)
+        session.last_activity_at = now
         if user is not None:
             if minutes > 0:
                 quota.record_usage(user, minutes, today)

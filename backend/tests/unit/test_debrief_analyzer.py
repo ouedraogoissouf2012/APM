@@ -69,6 +69,56 @@ async def test_analyze_tolerates_missing_words_field():
     assert result.words == []
 
 
+@pytest.mark.parametrize(
+    "errors_json",
+    ['["stray"]', "5", "null"],
+    ids=["stray-non-dict-element", "scalar", "null"],
+)
+@pytest.mark.asyncio
+async def test_analyze_degrades_gracefully_on_a_malformed_errors_field(errors_json):
+    # #387: parse_debrief_json only guarantees the TOP-LEVEL value is a dict —
+    # "errors" itself, and its elements, carry no type guarantee from a
+    # free-form LLM. A stray non-dict element, a scalar, or null must degrade
+    # to no errors, never raise (uncaught -> 500, and the finished session's
+    # debrief would be lost since analyze() runs before save()).
+    reply = f'{{"cefr_estimate": "A2", "summary": "ok", "errors": {errors_json}}}'
+    analyzer = DebriefAnalyzer(_CannedLlm(reply))
+    result = await analyzer.analyze(_TURNS, native_language="fr")
+    assert result.errors == []
+    assert result.cefr_estimate == "A2"  # the rest of the debrief still comes through
+
+
+@pytest.mark.asyncio
+async def test_analyze_keeps_valid_errors_alongside_a_stray_non_dict_element():
+    # A single malformed element must not sink the whole (otherwise valid) list.
+    reply = (
+        '{"cefr_estimate": "A2", "summary": "s", "errors": ['
+        '  "stray",'
+        '  {"original": "I go to school yesterday", "correction": "I went to school yesterday",'
+        '   "rule": "past", "error_type": "verb_tense"}'
+        " ]}"
+    )
+    analyzer = DebriefAnalyzer(_CannedLlm(reply))
+    result = await analyzer.analyze(_TURNS, native_language="fr")
+    assert len(result.errors) == 1
+    assert result.errors[0].correction == "I went to school yesterday"
+
+
+@pytest.mark.parametrize(
+    "words_json",
+    ['["stray"]', "5", "null"],
+    ids=["stray-non-dict-element", "scalar", "null"],
+)
+@pytest.mark.asyncio
+async def test_analyze_degrades_gracefully_on_a_malformed_words_field(words_json):
+    # #387: same guard, the sibling "words" field — a scalar or null used to
+    # raise TypeError at `data.get("words", [])[:3]` before the guard existed.
+    reply = f'{{"cefr_estimate": "A2", "summary": "ok", "errors": [], "words": {words_json}}}'
+    analyzer = DebriefAnalyzer(_CannedLlm(reply))
+    result = await analyzer.analyze(_TURNS, native_language="fr")
+    assert result.words == []
+
+
 @pytest.mark.asyncio
 async def test_analyze_captures_explanation_examples_and_alternatives():
     reply = (

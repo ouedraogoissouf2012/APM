@@ -199,6 +199,80 @@ async def test_end_bills_the_last_turn_interval_only_once(_engine, _setup_db):
 
 
 @pytest.mark.asyncio
+async def test_record_turn_activity_and_end_do_not_deadlock(_engine, _setup_db):
+    """#381: start()/end() lock the user row BEFORE touching the session
+    (USER->SESSION). Pre-fix, record_turn_activity dirtied
+    `session.last_activity_at` BEFORE locking the user — the session factory
+    leaves autoflush at its True default (database.py), so that lock() call's
+    SELECT ... FOR UPDATE autoflushed the dirty session first, emitting
+    `UPDATE sessions ...` THEN `SELECT users ... FOR UPDATE`: a SESSION->USER
+    order, the reverse of start()/end(). Two real connections contending on the
+    same (user, session) pair in opposite lock order deadlock (Postgres
+    SQLSTATE 40P01) once genuinely concurrent.
+
+    Reproduced with two independent real connections and `asyncio.gather` —
+    each awaited DB round-trip is a genuine yield point, so the event loop
+    truly interleaves the two connections' statements at the network level
+    (mirrors this file's other real-concurrency tests, e.g.
+    test_end_bills_the_last_turn_interval_only_once, and
+    test_debrief_api.py's/test_review_api.py's concurrent-request tests).
+    Repeated over several fresh sessions for the same user: an AB-BA deadlock
+    depends on genuine timing, so one shot could pass by luck even with the
+    bug present — a loop makes the reproduction reliable rather than a single
+    coin flip. If either call raises, asyncio.gather propagates it and fails
+    the test — a real 40P01 surfaces as an unhandled DBAPIError."""
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from app.core.security import hash_password
+    from app.features.auth.models import User
+    from app.features.auth.repository import SqlAlchemyUserRepository
+    from app.features.sessions.models import ConversationSession
+    from app.features.sessions.repository import SqlAlchemySessionRepository
+    from app.features.sessions.service import SessionService
+
+    maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    t0 = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
+
+    async with maker() as s:
+        user = User(
+            email="deadlock-race@b.com", hashed_password=hash_password("x"), native_language="fr"
+        )
+        s.add(user)
+        await s.commit()
+        await s.refresh(user)
+        uid = user.id
+
+    def _svc(db: AsyncSession) -> SessionService:
+        return SessionService(
+            SqlAlchemySessionRepository(db), SqlAlchemyUserRepository(db), free_daily_minutes=1000
+        )
+
+    for i in range(10):
+        async with maker() as seed:
+            session = ConversationSession(
+                user_id=uid,
+                mode="free",
+                started_at=t0,
+                last_activity_at=t0,
+                voice_engine="fake",
+            )
+            seed.add(session)
+            await seed.commit()
+            await seed.refresh(session)
+            sid = session.id
+
+        moment = t0 + timedelta(minutes=i + 1)
+        async with maker() as db_a, maker() as db_b:
+            await asyncio.gather(
+                _svc(db_a).record_turn_activity(sid, uid, now=moment),
+                _svc(db_b).end(sid, uid, now=moment),
+            )
+
+
+@pytest.mark.asyncio
 async def test_sessions_has_composite_user_id_started_at_index(db_session):
     """#359: (user_id, started_at) must stay index-covered — it serves
     get_active_for_user's plain user_id filter as a leftmost-prefix match and

@@ -104,11 +104,17 @@ class MissionCompiler:
         if not persona or not goal:
             raise MissionCompileError("Mission brief is missing a persona or a goal")
 
-        questions = [
-            clip(str(q), _MAX_QUESTION_CHARS)
-            for q in data.get("likely_questions", [])
-            if str(q).strip()
-        ][:_MAX_QUESTIONS]
+        raw_questions = data.get("likely_questions")
+        # #387: coerce to a list before iterating — a scalar (`5`) or `null` from
+        # a free-form LLM would otherwise raise TypeError here instead of the
+        # documented MissionCompileError->502, and a bare string would silently
+        # iterate CHARACTERS into per-character "questions" embedded in the
+        # stored system_prompt.
+        if not isinstance(raw_questions, list):
+            raw_questions = []
+        questions = [clip(str(q), _MAX_QUESTION_CHARS) for q in raw_questions if str(q).strip()][
+            :_MAX_QUESTIONS
+        ]
 
         system_prompt = _build_system_prompt(persona, goal, questions, safe_content)
         return MissionBrief(

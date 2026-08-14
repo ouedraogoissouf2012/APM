@@ -141,8 +141,15 @@ async def test_concurrent_record_session_same_user_does_not_duplicate_or_crash(
     reproduce genuinely concurrent transactions — mirrors
     test_debrief_api.py's #302 concurrency test, at the service layer since
     record_session has no dedicated HTTP endpoint of its own (it's a hook off
-    the debrief flow). The repository's advisory lock (lock_for_user)
-    serialises them: the loser blocks until the winner's commit releases it.
+    the debrief flow).
+
+    #392: this alone does NOT prove lock_for_user serialises the read-compute-
+    write — upsert()'s ON CONFLICT DO UPDATE guarantees `count == 1` on its
+    own, since both calls here start from the SAME empty state and compute the
+    byte-identical write (same error type, same correction); last-writer-wins
+    is indistinguishable from serialised here. See
+    test_concurrent_record_session_lost_update_is_prevented_by_the_lock below
+    for a test that actually exercises the lock.
     """
     headers = await _auth(client)
     me = await client.get("/auth/me", headers=headers)
@@ -165,6 +172,84 @@ async def test_concurrent_record_session_same_user_does_not_duplicate_or_crash(
         .where(ReviewItem.user_id == user_id, ReviewItem.error_type == "verb_tense")
     )
     assert count == 1  # no duplicate row, no IntegrityError
+
+
+@pytest.mark.asyncio
+async def test_concurrent_record_session_lost_update_is_prevented_by_the_lock(
+    client, db_session, _engine
+):
+    """#392: makes lock_for_user's read-compute-write serialisation actually
+    observable, unlike the sibling test above. Pre-seeds one error type to a
+    KNOWN, already-due state (one clean session in: stage=1/J+3), then fires
+    two concurrent record_session calls that read that SAME shared prior state
+    and compute DIVERGENT next states from it:
+
+    - "seen" (the error reappeared): on_error_seen unconditionally resets to
+      stage=0/J+1 with the NEW correction, regardless of prior state.
+    - "absent" (a clean session): on_error_absent reads next_review_at off
+      the prior state to decide whether to advance the streak/stage.
+
+    Properly serialised, the final row is deterministically the "seen" reset
+    REGARDLESS of which call the lock lets through first: if "seen" applies
+    first, "absent" then re-reads its own now-future next_review_at and
+    becomes a no-op that just re-writes the same row; if "absent" applies
+    first, "seen" overwrites it unconditionally anyway. Without the lock (or
+    with it moved after list_for_user, e.g. a future refactor reasoning "ON
+    CONFLICT already makes upsert race-free" — see the sibling test's
+    docstring for exactly why that reasoning is wrong), both calls instead
+    read the STALE pre-seeded state independently, and whichever commits last
+    wins outright: on the iterations where "absent" wins, the newly-seen
+    error's reset is silently discarded, leaving stage=2/latest_correction=
+    "old mistake" as the final state — the lost update the lock exists to
+    prevent, and a scenario this test can distinguish from the deterministic
+    "seen always wins" invariant above. Repeated over several pre-seeded items
+    since a raw last-writer race is timing-dependent — a single attempt could
+    pass by luck even with the lock broken (mirrors this file's/
+    test_debrief_api.py's/test_sessions.py's other real-concurrency tests,
+    which rely on genuine DB-driven timing rather than mocked delays)."""
+    headers = await _auth(client)
+    me = await client.get("/auth/me", headers=headers)
+    user_id = me.json()["id"]
+
+    maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    seed_service = ReviewService(SqlAlchemyReviewRepository(db_session))
+
+    for i in range(8):
+        error_type = f"verb_tense_{i}"
+        seeded_at = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        # Well past the pre-seed's resulting next_review_at (seeded_at + 4
+        # days: J+1 then J+3), so on_error_absent below treats it as due.
+        now = seeded_at + timedelta(days=10)
+
+        # Two real sessions establish a KNOWN prior state: one clean session
+        # already applied (stage=1/J+3, one clean_streak) on top of the
+        # original sighting.
+        await seed_service.record_session(user_id, {error_type: "old mistake"}, seeded_at)
+        await seed_service.record_session(user_id, {}, seeded_at + timedelta(days=1))
+        db_session.expire_all()
+
+        async with maker() as session_a, maker() as session_b:
+            service_a = ReviewService(SqlAlchemyReviewRepository(session_a))
+            service_b = ReviewService(SqlAlchemyReviewRepository(session_b))
+            await asyncio.gather(
+                service_a.record_session(user_id, {error_type: "new mistake"}, now),
+                service_b.record_session(user_id, {}, now),
+            )
+
+        db_session.expire_all()
+        item = await db_session.scalar(
+            select(ReviewItem).where(
+                ReviewItem.user_id == user_id, ReviewItem.error_type == error_type
+            )
+        )
+        assert item is not None
+        # Deterministic under correct serialisation regardless of interleaving
+        # order (see docstring) — a lost update instead leaves the "absent"
+        # advance (stage 2, stale correction) as the final state on at least
+        # one of these 8 iterations if the lock is broken.
+        assert item.stage == 0, f"iteration {i}: lost update — 'absent' overwrote 'seen'"
+        assert item.clean_streak == 0
+        assert item.latest_correction == "new mistake"
 
 
 @pytest.mark.asyncio

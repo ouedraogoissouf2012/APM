@@ -109,6 +109,25 @@ async def test_likely_questions_are_capped():
     assert len(brief.likely_questions) <= 5
 
 
+@pytest.mark.parametrize(
+    "likely_questions_json",
+    ["5", "null", '"a bare string"'],
+    ids=["scalar", "null", "bare-string"],
+)
+@pytest.mark.asyncio
+async def test_malformed_likely_questions_degrades_to_an_empty_list(likely_questions_json):
+    # #387: `for q in data.get("likely_questions", [])` used to raise TypeError
+    # on a scalar/null (uncaught -> 500, instead of the documented
+    # MissionCompileError->502) and silently iterate CHARACTERS on a bare
+    # string, embedding per-character garbage "questions" in the stored
+    # system_prompt. Persona/goal are still valid, so the brief must still
+    # compile — just with no likely_questions, not a crash or garbled ones.
+    payload = f'{{"persona": "p", "goal": "g", "likely_questions": {likely_questions_json}}}'
+    brief, _ = await _compile(payload)
+    assert brief.likely_questions == []
+    assert brief.persona == "p"
+
+
 @pytest.mark.asyncio
 async def test_blank_content_raises_compile_error():
     from app.features.missions.compiler import MissionCompileError
