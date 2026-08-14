@@ -17,7 +17,8 @@ from app.features.debrief.repository import SqlAlchemyDebriefRepository
 from app.features.review.models import ReviewItem
 from app.features.sessions.models import ConversationSession
 from app.features.vocabulary.models import VocabularyEntry
-from app.features.voice_data import router as voice_data_router
+from app.features.voice_data import repository as voice_data_repository
+from app.features.voice_data.repository import VoiceDataExportRepository
 
 
 async def _user(db_session, email="vd-page@b.com") -> User:
@@ -48,7 +49,7 @@ async def test_pagination_releases_the_pooled_connection_between_pages(
     client reading HTTP bytes), the connection used to fetch the page that
     produced those rows must already be checked back in — not held open for
     the whole iteration."""
-    monkeypatch.setattr(voice_data_router, "_EXPORT_PAGE_SIZE", 2)
+    monkeypatch.setattr(voice_data_repository, "_EXPORT_PAGE_SIZE", 2)
     user = await _user(db_session)
     now = datetime.now(UTC)
     for i in range(5):
@@ -59,7 +60,7 @@ async def test_pagination_releases_the_pooled_connection_between_pages(
 
     sessionmaker = async_sessionmaker(bind=_engine, expire_on_commit=False)
     checkouts_while_consuming = []
-    async for _item in voice_data_router._stream_utterances_paginated(sessionmaker, user.id):
+    async for _item in VoiceDataExportRepository(sessionmaker).stream_utterances(user.id):
         # Measured the instant control returns to the consumer — i.e. AFTER
         # whichever page produced this item has already closed its session.
         checkouts_while_consuming.append(_engine.pool.checkedout())
@@ -78,7 +79,7 @@ async def test_utterances_keyset_pagination_covers_every_row_exactly_once_in_ord
     -> 3 pages (3+3+1), forcing 2 page boundaries. Every utterance must appear
     exactly once, in the original started_at order — no row skipped or
     duplicated at a boundary."""
-    monkeypatch.setattr(voice_data_router, "_EXPORT_PAGE_SIZE", 3)
+    monkeypatch.setattr(voice_data_repository, "_EXPORT_PAGE_SIZE", 3)
     user = await _user(db_session, email="vd-page-utt@b.com")
     now = datetime.now(UTC)
     for i in range(7):
@@ -90,7 +91,7 @@ async def test_utterances_keyset_pagination_covers_every_row_exactly_once_in_ord
     sessionmaker = async_sessionmaker(bind=_engine, expire_on_commit=False)
     texts = [
         item["text"]
-        async for item in voice_data_router._stream_utterances_paginated(sessionmaker, user.id)
+        async for item in VoiceDataExportRepository(sessionmaker).stream_utterances(user.id)
     ]
 
     assert texts == [f"turn {i}" for i in range(7)]  # exact order, no dup/skip
@@ -102,7 +103,7 @@ async def test_vocabulary_keyset_pagination_covers_every_row_exactly_once(
 ):
     """Single-column (id) keyset cursor, 10 rows, page size 3 -> 4 pages
     (3+3+3+1)."""
-    monkeypatch.setattr(voice_data_router, "_EXPORT_PAGE_SIZE", 3)
+    monkeypatch.setattr(voice_data_repository, "_EXPORT_PAGE_SIZE", 3)
     user = await _user(db_session, email="vd-page-vocab@b.com")
     for i in range(10):
         db_session.add(VocabularyEntry(user_id=user.id, word=f"word{i}", translation=f"t{i}"))
@@ -111,7 +112,7 @@ async def test_vocabulary_keyset_pagination_covers_every_row_exactly_once(
     sessionmaker = async_sessionmaker(bind=_engine, expire_on_commit=False)
     words = [
         item["word"]
-        async for item in voice_data_router._stream_vocabulary_paginated(sessionmaker, user.id)
+        async for item in VoiceDataExportRepository(sessionmaker).stream_vocabulary(user.id)
     ]
 
     assert sorted(words) == sorted(f"word{i}" for i in range(10))
@@ -122,7 +123,7 @@ async def test_vocabulary_keyset_pagination_covers_every_row_exactly_once(
 async def test_review_items_keyset_pagination_covers_every_row_exactly_once(
     db_session, _engine, monkeypatch
 ):
-    monkeypatch.setattr(voice_data_router, "_EXPORT_PAGE_SIZE", 3)
+    monkeypatch.setattr(voice_data_repository, "_EXPORT_PAGE_SIZE", 3)
     user = await _user(db_session, email="vd-page-review@b.com")
     for i in range(8):
         db_session.add(ReviewItem(user_id=user.id, error_type=f"type{i}", latest_correction="c"))
@@ -131,7 +132,7 @@ async def test_review_items_keyset_pagination_covers_every_row_exactly_once(
     sessionmaker = async_sessionmaker(bind=_engine, expire_on_commit=False)
     types = [
         item["error_type"]
-        async for item in voice_data_router._stream_review_items_paginated(sessionmaker, user.id)
+        async for item in VoiceDataExportRepository(sessionmaker).stream_review_items(user.id)
     ]
 
     assert sorted(types) == sorted(f"type{i}" for i in range(8))
@@ -142,7 +143,7 @@ async def test_review_items_keyset_pagination_covers_every_row_exactly_once(
 async def test_debriefs_keyset_pagination_covers_every_row_exactly_once_in_order(
     db_session, _engine, monkeypatch
 ):
-    monkeypatch.setattr(voice_data_router, "_EXPORT_PAGE_SIZE", 2)
+    monkeypatch.setattr(voice_data_repository, "_EXPORT_PAGE_SIZE", 2)
     user = await _user(db_session, email="vd-page-debrief@b.com")
     now = datetime.now(UTC)
     for i in range(5):
@@ -157,7 +158,7 @@ async def test_debriefs_keyset_pagination_covers_every_row_exactly_once_in_order
     sessionmaker = async_sessionmaker(bind=_engine, expire_on_commit=False)
     summaries = [
         item["summary"]
-        async for item in voice_data_router._stream_debriefs_paginated(sessionmaker, user.id)
+        async for item in VoiceDataExportRepository(sessionmaker).stream_debriefs(user.id)
     ]
 
     assert summaries == [f"summary {i}" for i in range(5)]
@@ -168,7 +169,7 @@ async def test_export_endpoint_is_complete_across_multiple_pages(client, db_sess
     """End-to-end: with a tiny page size forcing several page round-trips, the
     HTTP response must still contain EVERY utterance — proving the endpoint
     itself (not just the internal generator) is correct across page boundaries."""
-    monkeypatch.setattr(voice_data_router, "_EXPORT_PAGE_SIZE", 2)
+    monkeypatch.setattr(voice_data_repository, "_EXPORT_PAGE_SIZE", 2)
     reg = await client.post(
         "/auth/register", json={"email": "vd-page-http@b.com", "password": "s3cret!pass"}
     )

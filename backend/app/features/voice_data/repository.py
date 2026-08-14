@@ -1,8 +1,8 @@
-from collections.abc import AsyncIterator
-from typing import Protocol, cast
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from typing import Any, Protocol, cast
 
-from sqlalchemy import CursorResult, Executable, delete, or_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import CursorResult, Executable, delete, or_, select, tuple_, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.features.analytics.models import AnalyticsEventRow
 from app.features.auth.models import User
@@ -250,3 +250,164 @@ class SqlAlchemyVoiceDataSource:
         }
         await self._session.commit()
         return deleted
+
+
+# Rows per keyset page for VoiceDataExportRepository (#389). Each page opens
+# its OWN short-lived DB session (see _keyset_pages), so the pooled connection
+# is released back to the pool BETWEEN pages while the client reads — never
+# pinned for the whole client-paced download, unlike the single request-scoped
+# session #365/#377 originally used. Not in Settings: config.py is outside
+# this ticket's territory in this coordinated wave.
+_EXPORT_PAGE_SIZE = 200
+
+
+async def _keyset_pages(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    fetch_page: Callable[[AsyncSession, Any], Awaitable[Sequence[Any]]],
+    cursor_of: Callable[[Any], Any],
+    *,
+    page_size: int,
+) -> AsyncIterator[Any]:
+    """Generic keyset-paginated fetch (#389): the core of the fix.
+
+    Each loop iteration opens a FRESH, short-lived session, awaits `fetch_page`
+    on it, and closes it (the `async with` exit) BEFORE yielding any row from
+    that page. So while the caller (here, the ASGI layer sending bytes at the
+    client's TCP-backpressured pace) is consuming a page's rows, no DB
+    connection is checked out at all — only during the brief page fetch itself.
+    `fetch_page(session, cursor)` receives the previous page's cursor (None for
+    the first page) and must return at most `page_size` rows in an order for
+    which `cursor_of` on the last row is a valid resume point (a strictly
+    increasing keyset column, or tuple of columns).
+    """
+    cursor: Any = None
+    while True:
+        async with sessionmaker() as session:
+            rows = await fetch_page(session, cursor)
+        if not rows:
+            return
+        for row in rows:
+            yield row
+        cursor = cursor_of(rows[-1])
+        if len(rows) < page_size:
+            return
+
+
+class VoiceDataExportRepository:
+    """Keyset-paginated fetch of the learner's voice-derived rows for the
+    streaming export endpoint (#365, #389, #405).
+
+    Distinct from ``SqlAlchemyVoiceDataSource`` above: that class streams each
+    category off ONE server-side cursor bound to a single session held for the
+    whole request. This class re-opens a fresh, short-lived session for EVERY
+    page (via ``_keyset_pages``), which is what lets the export endpoint
+    release its pooled connection between pages (#389) — a shape
+    ``SqlAlchemyVoiceDataSource`` can't express without holding a session open
+    for the entire client-paced download.
+
+    Owns the SQL reaching the 5 other features' ORM models (ConversationSession,
+    Transcript, Debrief, VocabularyEntry, ReviewItem) AND the business
+    knowledge of what an 'utterance' is (a ``Transcript.turns`` entry with
+    ``role == ROLE_USER``) — neither belongs in the router (#405).
+    """
+
+    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        self._sessionmaker = sessionmaker
+
+    async def stream_utterances(self, user_id: int) -> AsyncIterator[dict]:
+        async def fetch_page(session: AsyncSession, cursor: Any) -> Sequence[Any]:
+            stmt = (
+                select(ConversationSession.id, ConversationSession.started_at, Transcript.turns)
+                .join(Transcript, Transcript.session_id == ConversationSession.id)
+                .where(ConversationSession.user_id == user_id)
+            )
+            if cursor is not None:
+                stmt = stmt.where(
+                    tuple_(ConversationSession.started_at, ConversationSession.id) > tuple_(*cursor)
+                )
+            stmt = stmt.order_by(
+                ConversationSession.started_at.asc(), ConversationSession.id.asc()
+            ).limit(_EXPORT_PAGE_SIZE)
+            return (await session.execute(stmt)).all()
+
+        async for session_id, started_at, turns in _keyset_pages(
+            self._sessionmaker,
+            fetch_page,
+            lambda row: (row[1], row[0]),
+            page_size=_EXPORT_PAGE_SIZE,
+        ):
+            for turn in turns or []:
+                if isinstance(turn, dict) and turn.get("role") == ROLE_USER:
+                    yield {
+                        "session_id": session_id,
+                        "started_at": started_at.isoformat(),
+                        "text": str(turn.get("content", "")),
+                    }
+
+    async def stream_debriefs(self, user_id: int) -> AsyncIterator[dict]:
+        async def fetch_page(session: AsyncSession, cursor: Any) -> Sequence[Any]:
+            stmt = (
+                select(
+                    ConversationSession.id,
+                    ConversationSession.started_at,
+                    Debrief.cefr_estimate,
+                    Debrief.summary,
+                    Debrief.errors,
+                )
+                .join(Debrief, Debrief.session_id == ConversationSession.id)
+                .where(ConversationSession.user_id == user_id)
+            )
+            if cursor is not None:
+                stmt = stmt.where(
+                    tuple_(ConversationSession.started_at, ConversationSession.id) > tuple_(*cursor)
+                )
+            stmt = stmt.order_by(
+                ConversationSession.started_at.asc(), ConversationSession.id.asc()
+            ).limit(_EXPORT_PAGE_SIZE)
+            return (await session.execute(stmt)).all()
+
+        async for session_id, started_at, cefr_estimate, summary, errors in _keyset_pages(
+            self._sessionmaker,
+            fetch_page,
+            lambda row: (row[1], row[0]),
+            page_size=_EXPORT_PAGE_SIZE,
+        ):
+            yield {
+                "session_id": session_id,
+                "started_at": started_at.isoformat(),
+                "cefr_estimate": cefr_estimate,
+                "summary": summary,
+                "errors": errors or [],
+            }
+
+    async def stream_vocabulary(self, user_id: int) -> AsyncIterator[dict]:
+        async def fetch_page(session: AsyncSession, cursor: Any) -> Sequence[Any]:
+            stmt = select(VocabularyEntry).where(VocabularyEntry.user_id == user_id)
+            if cursor is not None:
+                stmt = stmt.where(VocabularyEntry.id > cursor)
+            stmt = stmt.order_by(VocabularyEntry.id.asc()).limit(_EXPORT_PAGE_SIZE)
+            return (await session.scalars(stmt)).all()
+
+        async for entry in _keyset_pages(
+            self._sessionmaker, fetch_page, lambda e: e.id, page_size=_EXPORT_PAGE_SIZE
+        ):
+            yield {"word": entry.word, "translation": entry.translation, "example": entry.example}
+
+    async def stream_review_items(self, user_id: int) -> AsyncIterator[dict]:
+        async def fetch_page(session: AsyncSession, cursor: Any) -> Sequence[Any]:
+            stmt = select(ReviewItem).where(ReviewItem.user_id == user_id)
+            if cursor is not None:
+                stmt = stmt.where(ReviewItem.id > cursor)
+            stmt = stmt.order_by(ReviewItem.id.asc()).limit(_EXPORT_PAGE_SIZE)
+            return (await session.scalars(stmt)).all()
+
+        async for item in _keyset_pages(
+            self._sessionmaker, fetch_page, lambda r: r.id, page_size=_EXPORT_PAGE_SIZE
+        ):
+            yield {
+                "error_type": item.error_type,
+                "latest_correction": item.latest_correction,
+                "stage": item.stage,
+                "status": item.status,
+                "next_review_at": item.next_review_at.isoformat() if item.next_review_at else None,
+            }
