@@ -11,10 +11,10 @@ from typing import Protocol
 
 from app.features.streaks.logic import StreakState as _StreakState
 from app.features.streaks.logic import current_streak_for
-
-# A weekly goal must be a sane, positive number of minutes.
-MIN_WEEKLY_GOAL_MINUTES = 5
-MAX_WEEKLY_GOAL_MINUTES = 1000
+from app.features.streaks.schemas import (
+    MAX_WEEKLY_GOAL_MINUTES,
+    MIN_WEEKLY_GOAL_MINUTES,
+)
 
 
 @dataclass(frozen=True)
