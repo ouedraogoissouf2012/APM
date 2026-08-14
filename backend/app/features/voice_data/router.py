@@ -1,174 +1,24 @@
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from typing import Any
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, tuple_
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.database import get_db
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
-from app.features.conversation.messages import ROLE_USER
-from app.features.conversation.models import Transcript
-from app.features.debrief.models import Debrief
-from app.features.review.models import ReviewItem
-from app.features.sessions.models import ConversationSession
-from app.features.vocabulary.models import VocabularyEntry
 from app.features.voice_data.dependencies import (
     get_voice_data_export_rate_limiter,
+    get_voice_data_export_repository,
     get_voice_data_service,
 )
+from app.features.voice_data.repository import VoiceDataExportRepository
 from app.features.voice_data.schemas import VoiceDataEraseOut, VoiceDataExportOut
 from app.features.voice_data.service import VoiceDataService
 
 router = APIRouter(prefix="/me/voice-data", tags=["voice-data"])
-
-# Rows per page (#389). Each page opens its OWN short-lived DB session (see
-# _keyset_pages), so the pooled connection is released back to the pool BETWEEN
-# pages while the client reads — never pinned for the whole client-paced
-# download, unlike the single request-scoped session #365/#377 originally used.
-# Not in Settings: config.py is outside this ticket's territory in this
-# coordinated wave.
-_EXPORT_PAGE_SIZE = 200
-
-
-async def _keyset_pages(
-    sessionmaker: async_sessionmaker[AsyncSession],
-    fetch_page: Callable[[AsyncSession, Any], Awaitable[Sequence[Any]]],
-    cursor_of: Callable[[Any], Any],
-    *,
-    page_size: int,
-) -> AsyncIterator[Any]:
-    """Generic keyset-paginated fetch (#389): the core of the fix.
-
-    Each loop iteration opens a FRESH, short-lived session, awaits `fetch_page`
-    on it, and closes it (the `async with` exit) BEFORE yielding any row from
-    that page. So while the caller (here, the ASGI layer sending bytes at the
-    client's TCP-backpressured pace) is consuming a page's rows, no DB
-    connection is checked out at all — only during the brief page fetch itself.
-    `fetch_page(session, cursor)` receives the previous page's cursor (None for
-    the first page) and must return at most `page_size` rows in an order for
-    which `cursor_of` on the last row is a valid resume point (a strictly
-    increasing keyset column, or tuple of columns).
-    """
-    cursor: Any = None
-    while True:
-        async with sessionmaker() as session:
-            rows = await fetch_page(session, cursor)
-        if not rows:
-            return
-        for row in rows:
-            yield row
-        cursor = cursor_of(rows[-1])
-        if len(rows) < page_size:
-            return
-
-
-async def _stream_utterances_paginated(
-    sessionmaker: async_sessionmaker[AsyncSession], user_id: int
-) -> AsyncIterator[dict]:
-    async def fetch_page(session: AsyncSession, cursor: Any) -> Sequence[Any]:
-        stmt = (
-            select(ConversationSession.id, ConversationSession.started_at, Transcript.turns)
-            .join(Transcript, Transcript.session_id == ConversationSession.id)
-            .where(ConversationSession.user_id == user_id)
-        )
-        if cursor is not None:
-            stmt = stmt.where(
-                tuple_(ConversationSession.started_at, ConversationSession.id) > tuple_(*cursor)
-            )
-        stmt = stmt.order_by(
-            ConversationSession.started_at.asc(), ConversationSession.id.asc()
-        ).limit(_EXPORT_PAGE_SIZE)
-        return (await session.execute(stmt)).all()
-
-    async for session_id, started_at, turns in _keyset_pages(
-        sessionmaker, fetch_page, lambda row: (row[1], row[0]), page_size=_EXPORT_PAGE_SIZE
-    ):
-        for turn in turns or []:
-            if isinstance(turn, dict) and turn.get("role") == ROLE_USER:
-                yield {
-                    "session_id": session_id,
-                    "started_at": started_at.isoformat(),
-                    "text": str(turn.get("content", "")),
-                }
-
-
-async def _stream_debriefs_paginated(
-    sessionmaker: async_sessionmaker[AsyncSession], user_id: int
-) -> AsyncIterator[dict]:
-    async def fetch_page(session: AsyncSession, cursor: Any) -> Sequence[Any]:
-        stmt = (
-            select(
-                ConversationSession.id,
-                ConversationSession.started_at,
-                Debrief.cefr_estimate,
-                Debrief.summary,
-                Debrief.errors,
-            )
-            .join(Debrief, Debrief.session_id == ConversationSession.id)
-            .where(ConversationSession.user_id == user_id)
-        )
-        if cursor is not None:
-            stmt = stmt.where(
-                tuple_(ConversationSession.started_at, ConversationSession.id) > tuple_(*cursor)
-            )
-        stmt = stmt.order_by(
-            ConversationSession.started_at.asc(), ConversationSession.id.asc()
-        ).limit(_EXPORT_PAGE_SIZE)
-        return (await session.execute(stmt)).all()
-
-    async for session_id, started_at, cefr_estimate, summary, errors in _keyset_pages(
-        sessionmaker, fetch_page, lambda row: (row[1], row[0]), page_size=_EXPORT_PAGE_SIZE
-    ):
-        yield {
-            "session_id": session_id,
-            "started_at": started_at.isoformat(),
-            "cefr_estimate": cefr_estimate,
-            "summary": summary,
-            "errors": errors or [],
-        }
-
-
-async def _stream_vocabulary_paginated(
-    sessionmaker: async_sessionmaker[AsyncSession], user_id: int
-) -> AsyncIterator[dict]:
-    async def fetch_page(session: AsyncSession, cursor: Any) -> Sequence[Any]:
-        stmt = select(VocabularyEntry).where(VocabularyEntry.user_id == user_id)
-        if cursor is not None:
-            stmt = stmt.where(VocabularyEntry.id > cursor)
-        stmt = stmt.order_by(VocabularyEntry.id.asc()).limit(_EXPORT_PAGE_SIZE)
-        return (await session.scalars(stmt)).all()
-
-    async for entry in _keyset_pages(
-        sessionmaker, fetch_page, lambda e: e.id, page_size=_EXPORT_PAGE_SIZE
-    ):
-        yield {"word": entry.word, "translation": entry.translation, "example": entry.example}
-
-
-async def _stream_review_items_paginated(
-    sessionmaker: async_sessionmaker[AsyncSession], user_id: int
-) -> AsyncIterator[dict]:
-    async def fetch_page(session: AsyncSession, cursor: Any) -> Sequence[Any]:
-        stmt = select(ReviewItem).where(ReviewItem.user_id == user_id)
-        if cursor is not None:
-            stmt = stmt.where(ReviewItem.id > cursor)
-        stmt = stmt.order_by(ReviewItem.id.asc()).limit(_EXPORT_PAGE_SIZE)
-        return (await session.scalars(stmt)).all()
-
-    async for item in _keyset_pages(
-        sessionmaker, fetch_page, lambda r: r.id, page_size=_EXPORT_PAGE_SIZE
-    ):
-        yield {
-            "error_type": item.error_type,
-            "latest_correction": item.latest_correction,
-            "stage": item.stage,
-            "status": item.status,
-            "next_review_at": item.next_review_at.isoformat() if item.next_review_at else None,
-        }
 
 
 async def _assemble_export_json(
@@ -196,13 +46,13 @@ async def _assemble_export_json(
 
 
 async def _stream_export_json(
-    sessionmaker: async_sessionmaker[AsyncSession], user_id: int
+    repo: VoiceDataExportRepository, user_id: int
 ) -> AsyncIterator[bytes]:
     categories: tuple[tuple[str, AsyncIterator[dict]], ...] = (
-        ("utterances", _stream_utterances_paginated(sessionmaker, user_id)),
-        ("vocabulary", _stream_vocabulary_paginated(sessionmaker, user_id)),
-        ("debriefs", _stream_debriefs_paginated(sessionmaker, user_id)),
-        ("review_items", _stream_review_items_paginated(sessionmaker, user_id)),
+        ("utterances", repo.stream_utterances(user_id)),
+        ("vocabulary", repo.stream_vocabulary(user_id)),
+        ("debriefs", repo.stream_debriefs(user_id)),
+        ("review_items", repo.stream_review_items(user_id)),
     )
     async for chunk in _assemble_export_json(categories):
         yield chunk
@@ -212,6 +62,7 @@ async def _stream_export_json(
 async def export_voice_data(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    repo: VoiceDataExportRepository = Depends(get_voice_data_export_repository),
     limiter: RateLimiter = Depends(get_voice_data_export_rate_limiter),
 ) -> StreamingResponse:
     """Export the learner's voice-derived data: utterances, vocabulary, debriefs,
@@ -233,14 +84,10 @@ async def export_voice_data(
     # ~20 pool slots per slow reader. rollback() ends that transaction and returns the
     # connection to the pool; `db` is never queried again below.
     await db.rollback()
-    # Build a fresh sessionmaker from the SAME bind (the engine, unaffected by the
-    # rollback) so every page runs against whichever engine this request resolved to
-    # (prod, or the test DB via dependency_overrides on get_db) and each page checks
-    # out a connection only for the duration of its own short-lived session.
-    page_sessions = async_sessionmaker(bind=db.bind, expire_on_commit=False)
-    return StreamingResponse(
-        _stream_export_json(page_sessions, user_id), media_type="application/json"
-    )
+    # `repo` (get_voice_data_export_repository) streams from its own sessionmaker bound
+    # to the engine — NOT this request session — so it is unaffected by the rollback and
+    # each keyset page opens its own short-lived connection.
+    return StreamingResponse(_stream_export_json(repo, user_id), media_type="application/json")
 
 
 @router.delete("", response_model=VoiceDataEraseOut)
