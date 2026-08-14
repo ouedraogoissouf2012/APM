@@ -244,8 +244,13 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
   /// change mid-fetch can't apply the wrong session's turns. `getActiveSession`
   /// only carries role+content (no correction), so any correction chip already
   /// attached locally is preserved by matching it back onto the re-fetched turn
-  /// with the same role+content — otherwise this refresh would silently wipe a
-  /// gold chip the learner is currently looking at.
+  /// AT THE SAME POSITION (#390) — turns are strictly append-only and this only
+  /// runs while idle (guarded above, both before and after the await), so the
+  /// local list's order is a stable, correctly-ordered prefix of what the
+  /// server just returned. Matching by role+content instead (the previous
+  /// approach) collapsed two turns with identical text — e.g. the learner
+  /// saying "yes" twice — onto the SAME correction, so a later corrected turn
+  /// could leak its chip onto an earlier, uncorrected one with the same words.
   Future<void> _refreshTurnsFromServer() async {
     final sid = state.sessionId;
     if (sid == null || state.status != ConversationStatus.idle) return;
@@ -265,17 +270,20 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
     if (!ref.mounted || active == null) return;
     if (active.sessionId != sid || state.sessionId != sid) return;
     if (state.status != ConversationStatus.idle) return;
-    final corrections = {
-      for (final t in state.turns)
-        if (t.correction != null) '${t.role} ${t.content}': t.correction!,
-    };
+    final localTurns = state.turns;
     state = state.copyWith(
       turns: [
-        for (final t in active.turns)
+        for (var i = 0; i < active.turns.length; i++)
           ConversationTurn(
-            t.role,
-            t.content,
-            correction: corrections['${t.role} ${t.content}'],
+            active.turns[i].role,
+            active.turns[i].content,
+            // Role match is a cheap extra guard (a correction only ever
+            // belongs to a user turn, reply_playback.dart) against a
+            // hypothetical local/server desync at this position — not
+            // load-bearing in the normal append-only case.
+            correction: i < localTurns.length && localTurns[i].role == active.turns[i].role
+                ? localTurns[i].correction
+                : null,
           ),
       ],
     );

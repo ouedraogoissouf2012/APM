@@ -132,6 +132,13 @@ class _BodyState extends ConsumerState<_Body> {
       // "erased" message is never a lie.
       await ref.read(voiceTakeStoreProvider).eraseAll();
       await ref.read(voicePrivacyRepositoryProvider).eraseData();
+      // #382: eraseAll() wipes the on-device store, but voiceTakesProvider is
+      // a plain (non-autoDispose) cache of the DECRYPTED bytes it already
+      // read — without this, "Ma preuve" for a skill viewed before the erase
+      // keeps replaying the supposedly-erased audio from that cache until an
+      // app restart, making the success message below a lie. A .family
+      // invalidate drops every cached skill, not just one.
+      ref.invalidate(voiceTakesProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Tes données voix ont été effacées')),

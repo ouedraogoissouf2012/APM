@@ -1396,6 +1396,95 @@ void main() {
       expect(userTurn.correction?.correction, 'I am happy');
     });
 
+    test(
+      'a #312 refresh reconciles corrections by POSITION, not by identical '
+      'text — two turns that both said "yes" are not conflated (#390)',
+      () async {
+        final queue = _InMemoryOfflineQueue();
+        final repo = _MockConversationRepository();
+        when(
+          () => repo.startSession(
+            mode: any(named: 'mode'),
+            scenarioId: any(named: 'scenarioId'),
+          ),
+        ).thenAnswer((_) async => 1);
+        // The server's authoritative transcript: identical content ("yes")
+        // at two DIFFERENT positions; getActiveSession never carries
+        // correction data.
+        when(() => repo.getActiveSession()).thenAnswer(
+          (_) async => const ActiveSessionData(
+            sessionId: 1,
+            mode: 'free',
+            scenarioId: null,
+            turns: [
+              (
+                role: 'assistant',
+                content: 'Hi, what would you like to talk about?',
+              ),
+              (role: 'user', content: 'yes'),
+              (role: 'assistant', content: 'OK, tell me more.'),
+              (role: 'user', content: 'yes'),
+              (role: 'assistant', content: 'Great!'),
+            ],
+          ),
+        );
+        final c = _container(repo, _FakeSpeech(''), offlineQueue: queue);
+        final vm = c.read(conversationViewModelProvider.notifier);
+        await vm.start(); // sessionId=1, opening turn only
+
+        // Seed the LOCAL state as the precondition #390 describes: the
+        // FIRST "yes" (index 1) never got a correction, the SECOND "yes"
+        // (index 3) already carries one.
+        const correction = TurnCorrection(
+          original: 'yes',
+          correction: 'Yes.',
+          rule: 'Capitalize the start of a sentence.',
+          alternatives: [],
+        );
+        vm.state = const ConversationState(
+          sessionId: 1,
+          turns: [
+            ConversationTurn(
+              kRoleAssistant,
+              'Hi, what would you like to talk about?',
+            ),
+            ConversationTurn(kRoleUser, 'yes'), // NOT corrected
+            ConversationTurn(kRoleAssistant, 'OK, tell me more.'),
+            ConversationTurn(kRoleUser, 'yes', correction: correction),
+            ConversationTurn(kRoleAssistant, 'Great!'),
+          ],
+        );
+
+        // Trigger the #312 refresh via a real queue-drain, matching
+        // production (build()'s ref.listen on connectivityControllerProvider).
+        await queue.enqueue(
+          const PendingTurn(sessionId: 1, text: 'x', idempotencyKey: 'other'),
+        );
+        await c.read(connectivityControllerProvider.notifier).refresh();
+        await queue.remove('other');
+        await c.read(connectivityControllerProvider.notifier).refresh();
+        await pumpEventQueue(); // let the unawaited() refresh finish
+
+        final userTurns = c
+            .read(conversationViewModelProvider)
+            .turns
+            .where((t) => t.role == kRoleUser)
+            .toList();
+        expect(userTurns, hasLength(2));
+        expect(
+          userTurns[0].correction,
+          isNull,
+          reason: 'the FIRST "yes" was never corrected — must not gain a '
+              'spurious chip from the second, identical-text turn',
+        );
+        expect(
+          userTurns[1].correction?.correction,
+          'Yes.',
+          reason: 'the SECOND "yes" keeps its own correction',
+        );
+      },
+    );
+
     test('a turn that fails on the network is queued under the SAME '
         'idempotency key it was sent with, not a freshly generated one '
         '(#313)', () async {
