@@ -21,7 +21,11 @@ from app.features.conversation.turn_service import (
     CorrectionReady,
     ReplyChunk,
 )
-from app.features.idempotency.dependencies import get_idempotency_service
+from app.features.idempotency.dependencies import (
+    FreshIdempotencyFactory,
+    get_fresh_idempotency_factory,
+    get_idempotency_service,
+)
 from app.features.idempotency.service import ClaimStatus, IdempotencyService
 
 router = APIRouter(prefix="/sessions/{session_id}", tags=["conversation"])
@@ -110,6 +114,7 @@ async def stream_turn(
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
     service: ConversationTurnService = Depends(get_conversation_turn_service),
     idempotency: IdempotencyService = Depends(get_idempotency_service),
+    fresh_idempotency: FreshIdempotencyFactory = Depends(get_fresh_idempotency_factory),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> StreamingResponse:
     """Stream the reply as Server-Sent Events: one `chunk` event per sentence
@@ -177,7 +182,11 @@ async def stream_turn(
         completed = True  # side effects are committed — never release this key now
         if idempotency_key:
             try:
-                await idempotency.complete(current_user.id, idempotency_key, reply)
+                # A POST-I/O write: the request connection was handed back at the
+                # LLM boundary (#399), so this runs on a FRESH short-lived session,
+                # not the detached request one.
+                async with fresh_idempotency() as idem:
+                    await idem.complete(current_user.id, idempotency_key, reply)
             except Exception:
                 # Best-effort, like the meter: a failed cache leaves the key to the
                 # stale-reclaim path rather than turning a good turn into an error.
@@ -197,7 +206,8 @@ async def stream_turn(
             yield _sse("done", {})
         except LlmProviderError:
             if idempotency_key and not completed:
-                await idempotency.release(current_user.id, idempotency_key)
+                async with fresh_idempotency() as idem:
+                    await idem.release(current_user.id, idempotency_key)
             yield _sse("error", {"message": "LLM provider failed"})
         except Exception:
             # Any other failure (TTS, DB, unexpected) must still close the stream
@@ -205,12 +215,17 @@ async def stream_turn(
             # the client hanging (#123). Logged for diagnosis.
             logging.getLogger(__name__).exception("Unexpected error during turn stream")
             if idempotency_key and not completed:
-                await idempotency.release(current_user.id, idempotency_key)
+                async with fresh_idempotency() as idem:
+                    await idem.release(current_user.id, idempotency_key)
             yield _sse("error", {"message": "Turn failed"})
         finally:
             # Runs on normal completion, on error, AND on client disconnect
-            # (GeneratorExit) — so the session's turn lock is always freed.
-            await idempotency.release_turn_lock(current_user.id, session_id)
+            # (GeneratorExit) — so the session's turn lock is always freed. On a
+            # FRESH session (#399): the request connection was released at the LLM
+            # boundary, so reusing the request session from inside this streaming
+            # task group would raise MissingGreenlet.
+            async with fresh_idempotency() as idem:
+                await idem.release_turn_lock(current_user.id, session_id)
 
     return StreamingResponse(
         event_stream(),

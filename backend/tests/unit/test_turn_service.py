@@ -158,6 +158,175 @@ class _CannedCorrector:
         return self._correction
 
 
+class _OrderRecordingLlm:
+    """Records the shared event log at the moment the LLM runs, so a test can
+    assert the DB connection was released BEFORE the LLM I/O (#399)."""
+
+    def __init__(self, events: list[str], reply: str = "Nice!") -> None:
+        self._events = events
+        self._reply = reply
+
+    async def complete(self, system_prompt, history):
+        self._events.append("llm")
+        return self._reply
+
+    async def stream_complete(self, system_prompt, history):
+        self._events.append("llm")
+        for chunk in self._reply.split(". "):
+            yield chunk
+
+
+class _RecordingTranscripts:
+    """A transcript repo that logs a tag when it saves — used to tell the FRESH
+    persistence scope's repo apart from the request-scoped one (#399)."""
+
+    def __init__(self, events: list[str], tag: str) -> None:
+        self._events = events
+        self._tag = tag
+        self.saved = None
+
+    async def get_by_session(self, session_id):
+        return None
+
+    async def save(self, session_id, turns):
+        self._events.append(f"save:{self._tag}")
+        self.saved = (session_id, turns)
+
+        class _Saved:
+            pass
+
+        s = _Saved()
+        s.turns = turns
+        return s
+
+
+def _io_boundary(events: list[str]):
+    async def _release() -> None:
+        events.append("release")
+
+    return _release
+
+
+def _fresh_scope(fresh_transcripts, events: list[str], meter=None):
+    from contextlib import asynccontextmanager
+
+    from app.features.conversation.turn_service import TurnPersistence
+
+    @asynccontextmanager
+    async def _factory():
+        events.append("scope:open")
+        try:
+            yield TurnPersistence(fresh_transcripts, meter)
+        finally:
+            events.append("scope:close")
+
+    return _factory
+
+
+@pytest.mark.asyncio
+async def test_take_turn_releases_connection_before_llm_then_persists_on_fresh_scope():
+    # #399: the request connection is released at the I/O boundary (BEFORE the LLM),
+    # and the terminal write goes to the FRESH persistence scope, never the
+    # request-scoped transcript repo held during the reads.
+    events: list[str] = []
+    request_transcripts = _RecordingTranscripts(events, "request")
+    fresh_transcripts = _RecordingTranscripts(events, "fresh")
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        request_transcripts,
+        _FakeProfiles(),
+        _OrderRecordingLlm(events, "Hi!"),
+        io_boundary=_io_boundary(events),
+        persistence=_fresh_scope(fresh_transcripts, events),
+    )
+
+    await service.take_turn(1, _user(), "hello")
+
+    # Connection released BEFORE the LLM; fresh scope opened AFTER it; the save
+    # lands on the fresh repo (not the request one held during the reads).
+    assert events == ["release", "llm", "scope:open", "save:fresh", "scope:close"]
+    assert request_transcripts.saved is None
+    assert fresh_transcripts.saved is not None
+
+
+@pytest.mark.asyncio
+async def test_take_turn_meters_on_the_fresh_scope_not_the_request_meter():
+    # #399: the meter must run on the FRESH connection too, so the whole terminal
+    # write (transcript + quota) holds one short-lived connection, not the request's.
+    events: list[str] = []
+    fresh_calls: list[tuple[int, int]] = []
+    request_calls: list[tuple[int, int]] = []
+
+    async def _fresh_meter(session_id: int, user_id: int) -> None:
+        fresh_calls.append((session_id, user_id))
+
+    async def _request_meter(session_id: int, user_id: int) -> None:  # pragma: no cover
+        request_calls.append((session_id, user_id))
+
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _FakeProfiles(),
+        _CannedLlm(),
+        meter=_request_meter,  # would be used only WITHOUT a fresh scope
+        io_boundary=_io_boundary(events),
+        persistence=_fresh_scope(
+            _RecordingTranscripts(events, "fresh"), events, meter=_fresh_meter
+        ),
+    )
+
+    await service.take_turn(1, _user(), "hello")
+
+    assert fresh_calls == [(1, 7)]
+    assert request_calls == []  # the request-scoped meter is NOT used
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_releases_connection_before_llm_then_persists_on_fresh_scope():
+    # #399, streaming path: same guarantee as take_turn — release, stream the LLM,
+    # then persist the full reply on a fresh scope.
+    events: list[str] = []
+    fresh_transcripts = _RecordingTranscripts(events, "fresh")
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        _RecordingTranscripts(events, "request"),
+        _FakeProfiles(),
+        _OrderRecordingLlm(events, "Hi there. How are you?"),
+        io_boundary=_io_boundary(events),
+        persistence=_fresh_scope(fresh_transcripts, events),
+    )
+
+    _ = [c async for c in service.stream_turn(1, _user(), "hello")]
+
+    assert events[0] == "release"  # connection freed before anything streams
+    assert events.index("llm") < events.index("scope:open")  # LLM before the fresh scope
+    assert "save:fresh" in events and "save:request" not in events
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_persists_partial_on_fresh_scope_after_release():
+    # #399: even the mid-stream-failure partial persist must go to the fresh scope,
+    # after the connection was released — not the request repo.
+    events: list[str] = []
+    fresh_transcripts = _RecordingTranscripts(events, "fresh")
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        _RecordingTranscripts(events, "request"),
+        _FakeProfiles(),
+        _PartialThenFailingLlm(["Hi there.", "How are"]),
+        io_boundary=_io_boundary(events),
+        persistence=_fresh_scope(fresh_transcripts, events),
+    )
+
+    with pytest.raises(LlmProviderError):
+        async for _event in service.stream_turn(1, _user(), "hello"):
+            pass
+
+    assert events[0] == "release"
+    assert "save:fresh" in events and "save:request" not in events
+    assert fresh_transcripts.saved[1][-1]["content"] == "Hi there. How are"
+
+
 @pytest.mark.asyncio
 async def test_take_turn_appends_user_and_assistant_and_persists():
     transcripts = _FakeTranscripts()

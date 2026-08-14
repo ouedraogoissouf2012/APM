@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.http.multipart import read_bounded_audio
 from app.core.llm.interfaces import SttProvider
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
+from app.database import get_db, release_request_connection
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.conversation.dependencies import (
@@ -28,6 +30,7 @@ async def transcribe(
     limiter: RateLimiter = Depends(get_conversation_rate_limiter),
     stt: SttProvider = Depends(get_stt_provider),
     consent: VoiceConsentService = Depends(get_voice_consent_service),
+    db: AsyncSession = Depends(get_db),
 ) -> TranscribeOut:
     """Transcribe one recorded utterance with the server-side STT (Whisper via
     Groq). Used instead of the browser recognizer for far better accuracy on a
@@ -59,5 +62,10 @@ async def transcribe(
     )
     if not data:
         return TranscribeOut(text="")  # silence -> empty, the client stays idle
+    # #399: every DB read is done (auth + consent). Hand the request's connection
+    # back to the pool before the seconds-long Groq STT call below, so it isn't held
+    # idle — otherwise a burst of concurrent /transcribe exhausts the pool and starves
+    # unrelated endpoints. Nothing below touches the DB or a lazy ORM attribute.
+    await release_request_connection(db)
     text = await stt.transcribe(data)
     return TranscribeOut(text=text)

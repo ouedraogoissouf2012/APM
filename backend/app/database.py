@@ -38,3 +38,17 @@ SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:
         yield session
+
+
+async def release_request_connection(session: AsyncSession) -> None:
+    """Hand a request's DB connection back to the pool before a long external I/O
+    call, so it isn't held idle for seconds on the hot conversation paths (#399).
+
+    `expunge_all()` DETACHES the ORM objects the session loaded so the following
+    rollback can't EXPIRE them (an expired object lazy-reloads on next access — a
+    stray query, or a MissingGreenlet inside a streaming task group). rollback()
+    then ends the read transaction and returns the connection to the pool. Only
+    safe when the caller has no pending writes on this session and reads only
+    already-loaded column values afterwards (never a lazy relationship)."""
+    session.expunge_all()
+    await session.rollback()
