@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/audio/providers.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
+import '../../../core/observability/ref_report_error.dart';
 import '../../../core/offline/connectivity_controller.dart';
 import '../../../data/models/turn_correction.dart';
 import '../../../data/repositories/conversation_repository.dart';
@@ -89,7 +90,7 @@ class ReplyPlayback {
         }
         if (!isLive() || _cancelled) return false;
       }
-    } catch (e) {
+    } catch (e, s) {
       // On a NETWORK failure, don't lose the turn: queue it for replay on
       // reconnect (#127) and tell the learner it will be sent later. A
       // non-network failure keeps the previous generic error.
@@ -98,6 +99,11 @@ class ReplyPlayback {
         await _ref
             .read(connectivityControllerProvider.notifier)
             .recordFailedTurn(sessionId, heard, idempotencyKey: idempotencyKey);
+      } else {
+        // #403: a network failure is expected (queued above) and stays quiet;
+        // anything else here (a backend 5xx, a malformed stream event) is a
+        // silent failure of the app's central flow unless reported.
+        _ref.reportError(e, s, context: 'ReplyPlayback.stream');
       }
       if (_host.mounted) {
         _host.state = _host.state.copyWith(
@@ -109,7 +115,19 @@ class ReplyPlayback {
       }
       return false;
     }
-    return isLive();
+    final live = isLive();
+    if (live) {
+      // #404 (best-effort, defense-in-depth alongside the connectivity_plus
+      // listener in connectivity_controller.dart): a successful turn is a
+      // stronger signal of ACTUAL reachability than the OS-level connectivity
+      // event, which can fire before the network is genuinely usable (e.g. a
+      // captive portal). Only bothers when there is something to reconcile.
+      final connectivity = _ref.read(connectivityControllerProvider);
+      if (connectivity.hasPending || !connectivity.online) {
+        unawaited(_ref.read(connectivityControllerProvider.notifier).syncPending());
+      }
+    }
+    return live;
   }
 
   // Sequential background player for the neural audio clips. Clips are enqueued

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'offline_turn_queue.dart';
@@ -40,12 +42,36 @@ class ConnectivityController extends Notifier<ConnectivityState> {
   bool _syncing = false;
 
   @override
-  ConnectivityState build() => const ConnectivityState();
+  ConnectivityState build() {
+    // #404: without this, syncPending() only ever ran from the NetworkBanner's
+    // manual "Réessayer" tap — a learner who reconnects and keeps talking sees
+    // "Hors ligne" indefinitely until they notice the banner and tap it. The
+    // subscription outlives this Notifier (it is never autoDisposed), so it is
+    // cancelled once, on app teardown, via ref.onDispose.
+    final sub = ref
+        .read(connectivityMonitorProvider)
+        .onConnectivityChanged
+        .listen((online) {
+          if (online) unawaited(syncPending());
+        });
+    ref.onDispose(sub.cancel);
+    return const ConnectivityState();
+  }
 
-  /// Loads the current pending count (e.g. on app start).
+  /// Loads the current pending count (e.g. on app start). Also reconciles
+  /// [ConnectivityState.online] when the queue is empty (#404): a caller other
+  /// than [syncPending] (e.g. [OfflineTurnSync] draining the last turn through
+  /// some other path) can otherwise leave `online` stuck at `false` — reported
+  /// forever with nothing left to retry. Left untouched when turns remain
+  /// queued: whether the app is online with turns still pending is exactly
+  /// what [syncPending]'s own outcome determines, not something [refresh] can
+  /// infer from the count alone.
   Future<void> refresh() async {
     final count = (await _queue.pending()).length;
-    state = state.copyWith(pendingCount: count);
+    state = ConnectivityState(
+      online: count == 0 ? true : state.online,
+      pendingCount: count,
+    );
   }
 
   /// Queues a turn that failed on the network and marks the app offline.

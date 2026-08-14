@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/observability/providers.dart';
+import '../../../core/observability/ref_report_error.dart';
 import 'conversation_host.dart';
 import 'conversation_providers.dart';
 import 'conversation_state.dart';
@@ -86,7 +88,15 @@ class PushToTalkController {
     final String heard;
     try {
       heard = (await _ref.read(conversationRepositoryProvider).transcribe(bytes)).trim();
-    } catch (_) {
+    } catch (e, s) {
+      // #403: a network failure is expected (the learner sees the offline
+      // message elsewhere) and stays quiet; anything else here (a backend
+      // 5xx, a transcription-service outage) must not vanish silently — it
+      // would otherwise be wrongly blamed on the learner's pronunciation.
+      final offline = e is ApiException && (e.statusCode == 0 || e.code == 'network');
+      if (!offline) {
+        _ref.reportError(e, s, context: 'PushToTalkController.stopAndRespond: transcribe failed');
+      }
       if (_host.mounted) {
         _host.state = _host.state.copyWith(
           status: ConversationStatus.idle,
