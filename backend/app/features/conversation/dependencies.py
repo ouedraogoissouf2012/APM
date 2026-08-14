@@ -1,14 +1,16 @@
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from functools import lru_cache
 
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
 from app.core.llm.factory import build_feature_llm
 from app.core.llm.interfaces import SttProvider, TtsProvider
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
-from app.database import get_db
+from app.database import get_db, release_request_connection
 from app.domain.exceptions import NotFoundError
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.correction import TurnCorrector
@@ -17,7 +19,7 @@ from app.features.conversation.providers.stt import shared_stt_provider
 from app.features.conversation.providers.tts import EdgeTtsProvider
 from app.features.conversation.providers.tts_cache_factory import build_tts_cache
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
-from app.features.conversation.turn_service import ConversationTurnService
+from app.features.conversation.turn_service import ConversationTurnService, TurnPersistence
 from app.features.missions.repository import SqlAlchemyMissionRepository
 from app.features.profile.repository import SqlAlchemyProfileRepository
 from app.features.sessions.dependencies import build_session_service
@@ -88,6 +90,48 @@ def get_tts_provider() -> TtsProvider:
     return _shared_tts_provider()
 
 
+def _fresh_turn_persistence_factory(
+    db: AsyncSession,
+) -> Callable[[], AbstractAsyncContextManager[TurnPersistence]]:
+    """Build the factory that opens a FRESH, short-lived unit of work for the
+    terminal write of a turn (#399).
+
+    Bound to the SAME engine as the request session (`db.bind`), so it opens its own
+    pool connection — separate from the request's, and against whatever engine the
+    request used (the real DB in prod, the test DB under pytest, with no override).
+    Used AFTER the request connection is handed back at the LLM/TTS boundary, so the
+    pool connection is held only for the sub-second transcript save + quota meter,
+    not the seconds of external I/O. A request session always has a bound engine.
+
+    `db.bind` is read LAZILY, on first invocation — never at construction: the DI
+    wiring is unit-tested by calling get_conversation_turn_service(db=None), so
+    touching `db` here would break that with an AttributeError."""
+
+    @asynccontextmanager
+    async def _open() -> AsyncIterator[TurnPersistence]:
+        maker = async_sessionmaker(bind=db.bind, class_=AsyncSession, expire_on_commit=False)
+        async with maker() as session:
+            meter = build_session_service(
+                SqlAlchemySessionRepository(session), SqlAlchemyUserRepository(session)
+            ).record_turn_activity
+            yield TurnPersistence(SqlAlchemyTranscriptRepository(session), meter)
+
+    return _open
+
+
+def _release_request_connection(db: AsyncSession) -> Callable[[], Awaitable[None]]:
+    """The I/O-boundary hook that hands the request's DB connection back to the pool
+    before the LLM/TTS I/O (#399). Binds `db` into a no-arg callable so the turn
+    service (which knows nothing of AsyncSession) can invoke it. See
+    release_request_connection for why it detaches ORM objects before releasing —
+    notably the authenticated User, whose columns the corrector reads afterwards."""
+
+    async def _release() -> None:
+        await release_request_connection(db)
+
+    return _release
+
+
 def get_conversation_turn_service(
     db: AsyncSession = Depends(get_db),
 ) -> ConversationTurnService:
@@ -103,10 +147,6 @@ def get_conversation_turn_service(
     # system voice (default). Same cached provider as the /tts endpoint (#123).
     tts: TtsProvider | None = _shared_tts_provider() if settings.tts_engine == "edge" else None
     sessions = SqlAlchemySessionRepository(db)
-    # A SessionService sharing this request's db session, used ONLY to meter the
-    # quota per turn (#119) via record_turn_activity — so an abandoned session
-    # can't run unlimited free turns.
-    session_service = build_session_service(sessions, SqlAlchemyUserRepository(db))
     # The correction is a second, bounded LLM call in parallel with the reply
     # (#123 cost control): disabled entirely by config, else skips short utterances.
     corrector = (
@@ -116,6 +156,8 @@ def get_conversation_turn_service(
     )
     return ConversationTurnService(
         sessions=sessions,
+        # The request-scoped repos below serve the READS in prepare_turn only. The
+        # terminal write goes to a FRESH short-lived session (persistence=, #399).
         transcripts=SqlAlchemyTranscriptRepository(db),
         profiles=SqlAlchemyProfileRepository(db),
         llm=llm,
@@ -123,7 +165,10 @@ def get_conversation_turn_service(
         tts=tts,
         # Drives a mission session with the mission's stored persona prompt.
         missions=SqlAlchemyMissionRepository(db),
-        meter=session_service.record_turn_activity,
         history_max_messages=settings.conversation_history_max_messages,
         transcript_max_messages=settings.conversation_transcript_max_messages,
+        # #399: after the reads, hand this request's connection back to the pool so
+        # it isn't held idle across the LLM/TTS I/O; persist on a fresh one.
+        io_boundary=_release_request_connection(db),
+        persistence=_fresh_turn_persistence_factory(db),
     )
