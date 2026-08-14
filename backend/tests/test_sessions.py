@@ -153,7 +153,7 @@ async def test_end_bills_the_last_turn_interval_only_once(_engine, _setup_db):
 
     async with maker() as s:
         user = User(
-            email="race-end@b.com", hashed_password=hash_password("x"), native_language="fr"
+            email="race-end@b.com", hashed_password=await hash_password("x"), native_language="fr"
         )
         s.add(user)
         await s.commit()

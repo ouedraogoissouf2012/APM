@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.features.analytics.domain import EVENT_ACTIVATION
 from app.features.analytics.models import AnalyticsEventRow
 from app.features.auth.models import RefreshToken
 from app.features.idempotency.models import IdempotencyKey
@@ -24,6 +25,18 @@ IDEMPOTENCY_KEY_TTL_HOURS = 24
 
 # Purge old analytics events after 30 days (retention policy)
 ANALYTICS_EVENT_TTL_DAYS = 30
+
+# Event names EXEMPT from the retention purge above (#385): `activation` is not
+# a volume/log event but a permanent, exactly-once per-user funnel marker (DB
+# partial-unique index `uq_analytics_activation_per_user`, #188) — the aggregate
+# reports `users_activated` as a LIFETIME count derived from this row existing.
+# Deleting it after 30 days silently undercounts a still-active learner forever:
+# service.py only re-emits activation when the user has ZERO prior completions,
+# which stays false for anyone who kept practicing. Any future permanent/
+# exactly-once funnel marker belongs in this set too — a per-event log
+# (session_completed, transfer_started) does NOT: those are genuinely
+# volume-bounded by design and must stay subject to the 30-day retention purge.
+ANALYTICS_RETENTION_EXEMPT_NAMES = frozenset({EVENT_ACTIVATION})
 
 
 async def purge_expired_entries(db: AsyncSession) -> dict[str, int]:
@@ -49,10 +62,15 @@ async def purge_expired_entries(db: AsyncSession) -> dict[str, int]:
         )
         results["idempotency_keys"] = getattr(result, "rowcount", 0) or 0
 
-        # Purge old analytics events (retention policy)
+        # Purge old analytics events (retention policy) — EXCEPT the permanent
+        # funnel markers in ANALYTICS_RETENTION_EXEMPT_NAMES (#385), which must
+        # survive regardless of age.
         cutoff_analytics = now - timedelta(days=ANALYTICS_EVENT_TTL_DAYS)
         result = await db.execute(
-            delete(AnalyticsEventRow).where(AnalyticsEventRow.created_at < cutoff_analytics)
+            delete(AnalyticsEventRow).where(
+                AnalyticsEventRow.created_at < cutoff_analytics,
+                AnalyticsEventRow.name.notin_(ANALYTICS_RETENTION_EXEMPT_NAMES),
+            )
         )
         results["analytics_events"] = getattr(result, "rowcount", 0) or 0
 

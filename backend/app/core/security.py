@@ -1,7 +1,7 @@
+import asyncio
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
 from uuid import uuid4
 
 import jwt
@@ -26,16 +26,23 @@ class InvalidTokenError(Exception):
     pass
 
 
-def hash_password(plain: str) -> str:
-    return _pwd.hash(plain)
+async def hash_password(plain: str) -> str:
+    # argon2 (RFC 9106 recommended params: t=3, m=64MiB) is deliberately expensive —
+    # ~50-150ms of pure CPU. Run off the event loop (#386): inline, it blocks every
+    # other coroutine on this worker (incl. concurrent SSE turn streaming) for its
+    # full duration.
+    return await asyncio.to_thread(_pwd.hash, plain)
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd.verify(plain, hashed)
+async def verify_password(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(_pwd.verify, plain, hashed)
 
 
-@lru_cache(maxsize=1)
-def dummy_password_hash() -> str:
+_dummy_hash: str | None = None
+_dummy_hash_lock = asyncio.Lock()
+
+
+async def dummy_password_hash() -> str:
     """A STABLE dummy hash, computed ONCE, for login timing-attack resistance (#239).
 
     On a non-existent email, login still runs verify_password against this hash, so a
@@ -43,8 +50,19 @@ def dummy_password_hash() -> str:
     (cached), NOT re-hashed per call: re-hashing would add a second argon2 op to every
     miss, making a non-existent email ~2x slower and re-opening the very timing oracle
     this closes.
+
+    Manual double-checked-locking cache, not @lru_cache (#386): hash_password is now
+    async, and lru_cache would cache the CORO OBJECT itself — awaitable only once —
+    not its result, breaking on the second call. The lock also closes a startup race:
+    without it, two concurrent first-ever misses could each compute (and briefly use)
+    a DIFFERENT dummy hash before the cache settles.
     """
-    return hash_password(secrets.token_urlsafe(32))
+    global _dummy_hash
+    if _dummy_hash is None:
+        async with _dummy_hash_lock:
+            if _dummy_hash is None:
+                _dummy_hash = await hash_password(secrets.token_urlsafe(32))
+    return _dummy_hash
 
 
 def create_access_token(subject: str) -> str:
