@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/audio/providers.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/providers.dart';
-import '../../../core/observability/providers.dart';
+import '../../../core/observability/ref_report_error.dart';
 import '../../../data/models/minimal_pairs.dart';
 import '../../../data/repositories/minimal_pairs_repository.dart';
 import 'minimal_pairs_state.dart';
@@ -65,7 +65,7 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
       // (#351) An unexpected (non-ApiException) failure would otherwise
       // vanish silently — report it so a recurring cause is visible instead
       // of just "loading failed" reports with no trail.
-      _reportError(e, s, 'MinimalPairsViewModel.loadPair');
+      ref.reportError(e, s, context: 'MinimalPairsViewModel.loadPair');
       _fail('Could not load a pair. Please try again.');
     } finally {
       _busy = false;
@@ -149,7 +149,7 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
       _fail(e.message);
     } catch (e, s) {
       // (#351) see the matching comment in loadPair() above.
-      _reportError(e, s, 'MinimalPairsViewModel.stopAndScore');
+      ref.reportError(e, s, context: 'MinimalPairsViewModel.stopAndScore');
       _fail('Could not score your attempt. Please try again.');
     } finally {
       _busy = false;
@@ -169,7 +169,7 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
       await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
     } catch (e, s) {
       // (#351) see the matching comment in loadPair() above.
-      _reportError(e, s, 'MinimalPairsViewModel.playMine');
+      ref.reportError(e, s, context: 'MinimalPairsViewModel.playMine');
       if (ref.mounted) {
         state = state.copyWith(error: 'Could not play your recording.');
       }
@@ -210,13 +210,5 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
   void _fail(String message) {
     if (!ref.mounted) return;
     state = state.copyWith(phase: PairPhase.idle, error: message);
-  }
-
-  /// Reports an unexpected exception (#351), guarding the read behind
-  /// [ref.mounted] — this is an autoDispose provider, so a `Ref` read after
-  /// disposal throws, and a crash report must never itself become the crash.
-  void _reportError(Object error, StackTrace stack, String context) {
-    if (!ref.mounted) return;
-    ref.read(crashReporterProvider).captureError(error, stack, context: context);
   }
 }

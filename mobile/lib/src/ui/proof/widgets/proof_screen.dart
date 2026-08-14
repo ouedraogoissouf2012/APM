@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/audio/providers.dart';
-import '../../../core/observability/providers.dart';
+import '../../../core/observability/ref_report_error.dart';
 import '../../../core/router/routes.dart';
 import '../../../data/models/proof.dart';
 import '../../review/error_type_label.dart';
@@ -68,12 +68,12 @@ class _TransferButtonState extends ConsumerState<_TransferButton> {
       // (#351) An unexpected failure here would otherwise vanish silently —
       // report it so a recurring cause is visible instead of just a
       // "réessaie" snackbar with no trail.
-      ref.read(crashReporterProvider).captureError(
-            e,
-            s,
-            context: '_TransferButtonState._start',
-            data: {'skill': widget.skill},
-          );
+      ref.reportError(
+        e,
+        s,
+        context: '_TransferButtonState._start',
+        data: {'skill': widget.skill},
+      );
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Impossible de créer le défi — réessaie')),
@@ -258,12 +258,12 @@ class _AudibleProof extends ConsumerWidget {
     try {
       await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
     } catch (e, s) {
-      ref.read(crashReporterProvider).captureError(
-            e,
-            s,
-            context: '_AudibleProof._play',
-            data: {'skill': skill},
-          );
+      ref.reportError(
+        e,
+        s,
+        context: '_AudibleProof._play',
+        data: {'skill': skill},
+      );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Impossible de lire cet enregistrement')),
