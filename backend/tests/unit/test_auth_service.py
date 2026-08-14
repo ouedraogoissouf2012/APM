@@ -98,6 +98,27 @@ async def test_login_unknown_email_raises():
 
 
 @pytest.mark.asyncio
+async def test_login_succeeds_even_if_purge_expired_would_raise():
+    # #407: login() must NOT invoke the best-effort expired-token purge inline —
+    # that's the background loop's job (task.py), running in its own session with
+    # its own rollback. Sharing login's transaction meant a purge failure could
+    # poison it and turn a legitimate login into a raw 500. Proof: a repository
+    # whose purge_expired always raises must not stop login from succeeding.
+    class _PurgeExplodesRepository(InMemoryRefreshTokenRepository):
+        async def purge_expired(self, now, *, commit=True):
+            raise RuntimeError("purge_expired must not be called from login")
+
+    service = AuthService(
+        InMemoryUserRepository(),
+        _PurgeExplodesRepository(),
+        refresh_ttl_days=30,
+    )
+    await service.register("purge@b.com", "s3cret!pass", "fr")
+    result = await service.login("purge@b.com", "s3cret!pass")
+    assert result.user.email == "purge@b.com"
+
+
+@pytest.mark.asyncio
 async def test_refresh_rotates_and_returns_new_tokens():
     service = _service()
     reg = await service.register("r@b.com", "s3cret!pass", "fr")

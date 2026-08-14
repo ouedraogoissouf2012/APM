@@ -1,10 +1,12 @@
+import logging
+
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 
 from app.api.errors import register_exception_handlers
-from app.domain.exceptions import LlmProviderError
+from app.domain.exceptions import AuthenticationError, LlmProviderError
 
 
 def test_llm_provider_error_returns_normalized_502():
@@ -107,6 +109,80 @@ def test_integrity_error_returns_normalized_409():
             "message": "Conflicting data",
         }
     }
+
+
+def test_domain_error_mapped_to_5xx_is_logged_with_stack(caplog):
+    """A DomainError mapped to a 5xx (LlmProviderError -> 502) is an external
+    dependency failure an operator must see (#402) — unlike the 4xx branch below,
+    silence here means an STT/debrief outage is only root-causable by reproducing
+    it live."""
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/boom")
+    async def boom():
+        raise LlmProviderError("Transcription failed")
+
+    with caplog.at_level(logging.WARNING, logger="apm.error"):
+        response = TestClient(app).get("/boom")
+
+    assert response.status_code == 502
+    assert len(caplog.records) == 1
+    record = caplog.records[0]
+    assert record.levelno == logging.WARNING
+    assert record.exc_info is not None  # the stack must be captured
+
+
+def test_domain_error_mapped_to_4xx_is_not_logged(caplog):
+    """4xx DomainErrors are expected client outcomes (bad credentials, not-found,
+    ...) — logging every one would drown real signal in noise."""
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/boom")
+    async def boom():
+        raise AuthenticationError("Invalid token")
+
+    with caplog.at_level(logging.WARNING, logger="apm.error"):
+        response = TestClient(app).get("/boom")
+
+    assert response.status_code == 401
+    assert caplog.records == []
+
+
+def test_integrity_error_is_logged_despite_its_409_status(caplog):
+    """An IntegrityError reaching this net is by definition a surprise (a commit
+    that bypassed an application-level ON CONFLICT guard) disguised as a routine
+    409 — it must be logged even though the response status is a 4xx (#402)."""
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/boom")
+    async def boom():
+        raise IntegrityError("INSERT INTO t (id) VALUES (1)", {}, Exception("duplicate key"))
+
+    with caplog.at_level(logging.WARNING, logger="apm.error"):
+        response = TestClient(app).get("/boom")
+
+    assert response.status_code == 409
+    assert len(caplog.records) == 1
+    assert caplog.records[0].exc_info is not None
+
+
+def test_data_error_is_logged_despite_its_422_status(caplog):
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/boom")
+    async def boom():
+        raise DataError("INSERT INTO t (n) VALUES (999999999999)", {}, Exception("out of range"))
+
+    with caplog.at_level(logging.WARNING, logger="apm.error"):
+        response = TestClient(app).get("/boom")
+
+    assert response.status_code == 422
+    assert len(caplog.records) == 1
+    assert caplog.records[0].exc_info is not None
 
 
 def test_wrong_method_returns_normalized_405_not_bare_detail():

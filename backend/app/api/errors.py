@@ -67,9 +67,25 @@ def _make_handler(http_status: int) -> Callable[[Request, Exception], Awaitable[
             headers["WWW-Authenticate"] = "Bearer"  # RFC 6750
         elif http_status == status.HTTP_429_TOO_MANY_REQUESTS:
             headers["Retry-After"] = "60"  # Retry after 60 seconds
+        if http_status >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+            # A DomainError mapped to 5xx (LlmProviderError/DebriefAnalysisError ->
+            # 502) is an external dependency failure, not an expected client
+            # outcome like the 4xx branches above — log it with the stack so an
+            # STT/debrief/mission outage is root-causable from logs alone (#402).
+            _log_server_side(request, exc)
         return _error_response(http_status, exc.__class__.__name__, message, headers=headers)
 
     return handler
+
+
+def _log_server_side(request: Request, exc: Exception) -> None:
+    _logger.warning(
+        "Domain 5xx: %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exc,
+        extra={"request_id": request.scope.get("apm_request_id", "-")},
+    )
 
 
 async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -101,7 +117,10 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
 async def _data_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """SQLAlchemy DataError (e.g., constraint violation, value out of range).
     Mapped to 422 since it indicates invalid input — likely a client sending data
-    that bypassed Pydantic validation or a pre-check."""
+    that bypassed Pydantic validation or a pre-check. Despite the 4xx response,
+    reaching this net is itself a surprise (validation that should have caught it
+    upstream didn't), so it's logged like a 5xx (#402)."""
+    _log_server_side(request, exc)
     return _error_response(status.HTTP_422_UNPROCESSABLE_ENTITY, "DataError", "Invalid input")
 
 
@@ -110,7 +129,10 @@ async def _integrity_error_handler(request: Request, exc: Exception) -> JSONResp
     that reached the DB uncaught (#362). Most get-or-create races are already
     closed at the repository level with an ON CONFLICT clause, but this is the
     safety net for any commit that isn't: mapped to 409 (the request conflicts
-    with the current state) rather than falling through to a raw 500."""
+    with the current state) rather than falling through to a raw 500. That
+    safety net firing is by definition a surprise disguised as a routine
+    conflict, so it's logged like a 5xx (#402)."""
+    _log_server_side(request, exc)
     return _error_response(status.HTTP_409_CONFLICT, "IntegrityError", "Conflicting data")
 
 
