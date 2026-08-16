@@ -99,6 +99,18 @@ async def test_provider_failure_degrades_gracefully_without_breaking_attempt():
 
 
 @pytest.mark.asyncio
+async def test_score_phonemes_false_skips_provider_and_keeps_word_diff():
+    # #419: scoring consent off -> GOP is never called; word-level result stands.
+    pron = _StubPron([PhonemeScore(phoneme="θ", score=0.08)])
+    result = await _service(_FakeStt("think"), pron).score_attempt(
+        target="think", audio=b"WAV", native_language="fr", score_phonemes=False
+    )
+    assert result.phonemes == []
+    assert result.transcript == "think"
+    assert pron.calls == []
+
+
+@pytest.mark.asyncio
 async def test_empty_audio_returns_empty_result_and_skips_provider():
     pron = _StubPron([PhonemeScore(phoneme="θ", score=0.5)])
     result = await _service(_FakeStt("think"), pron).score_attempt(

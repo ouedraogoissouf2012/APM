@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.config import get_settings
 from app.core.http.multipart import parse_bounded_multipart
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
+from app.domain.exceptions import AuthorizationError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.minimal_pairs.dependencies import (
@@ -11,6 +12,8 @@ from app.features.minimal_pairs.dependencies import (
 )
 from app.features.minimal_pairs.schemas import MAX_WORD_CHARS, PairAttemptOut
 from app.features.minimal_pairs.service import MinimalPairsService
+from app.features.voice_consent.dependencies import get_voice_consent_service
+from app.features.voice_consent.service import VoiceConsentService
 
 router = APIRouter(prefix="/minimal-pairs", tags=["minimal-pairs"])
 
@@ -21,10 +24,15 @@ async def score_attempt(
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_minimal_pairs_rate_limiter),
     service: MinimalPairsService = Depends(get_minimal_pairs_service),
+    consent: VoiceConsentService = Depends(get_voice_consent_service),
 ) -> PairAttemptOut:
     """Score a spoken minimal-pair attempt: did the learner say the target word,
     or the other (confused) word of the pair? The audio is used then discarded."""
     await limiter.check(user_rate_limit_key("minimal-pairs", current_user.id))
+    # #419: same gate as /transcribe and /shadowing/attempt — refuse before the
+    # body is parsed so revoked consent never lets the audio be read.
+    if not await consent.may_transcribe(current_user.id):
+        raise AuthorizationError("Transcription consent has been revoked")
     settings = get_settings()
     # Bounded, in-memory upload (#230): same gap as shadowing/attempt — a plain
     # `UploadFile` parameter has no size cap and spools past 1 MB to disk.

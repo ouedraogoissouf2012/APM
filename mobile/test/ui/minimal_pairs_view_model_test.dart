@@ -6,10 +6,12 @@ import 'package:apm/src/core/audio/audio_recording_service.dart';
 import 'package:apm/src/core/audio/providers.dart';
 import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/observability/providers.dart';
+import 'package:apm/src/data/models/voice_consent.dart';
 import 'package:apm/src/data/repositories/echo_repository.dart';
 import 'package:apm/src/data/repositories/minimal_pairs_repository.dart';
 import 'package:apm/src/ui/minimal_pairs/view_model/minimal_pairs_state.dart';
 import 'package:apm/src/ui/minimal_pairs/view_model/minimal_pairs_view_model.dart';
+import 'package:apm/src/ui/privacy/view_model/voice_privacy_view_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -82,12 +84,19 @@ ProviderContainer _container(
   _FakeAudio? audio,
   _FakeRecorder? recorder,
   CrashReporter? crashReporter,
+  VoiceConsent consent = const VoiceConsent(
+    transcription: true,
+    scoring: false,
+    b2bShare: false,
+    modelTraining: false,
+  ),
 }) {
   final c = ProviderContainer(
     overrides: [
       minimalPairsRepositoryProvider.overrideWithValue(repo),
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
+      voiceConsentProvider.overrideWith((ref) async => consent),
       if (crashReporter != null)
         crashReporterProvider.overrideWithValue(crashReporter),
     ],

@@ -305,6 +305,8 @@ async def test_attempt_surfaces_phoneme_scores_when_gop_engine_wired(client):
 
     token = await _register(client, email="gop@b.com")
     headers = {"Authorization": f"Bearer {token}"}
+    # #419: GOP is opt-in; grant scoring or the router skips the provider.
+    await client.put("/me/voice-consent", headers=headers, json={"scoring": True})
     app.dependency_overrides[get_shadowing_service_with_stt] = _override_service_with(
         "think", pronunciation=_StubPron()
     )
@@ -342,6 +344,62 @@ async def test_attempt_has_empty_phonemes_by_default(client):
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["phonemes"] == []
+    finally:
+        app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
+
+
+@pytest.mark.asyncio
+async def test_attempt_revoked_transcription_returns_403_before_scoring(client):
+    # #419: revoked transcription must 403 and must not run STT/GOP.
+    token = await _register(client, email="shadow-consent@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    await client.put("/me/voice-consent", headers=headers, json={"transcription": False})
+    app.dependency_overrides[get_shadowing_service_with_stt] = _override_service_with(
+        "should-not-run"
+    )
+    try:
+        resp = await client.post(
+            "/shadowing/attempt",
+            headers=headers,
+            data={"target_text": "The ship is sinking"},
+            files={"audio": ("speech.webm", b"xxxx", "audio/webm")},
+        )
+        assert resp.status_code == 403, resp.text
+        assert resp.json()["error"]["code"] == "AuthorizationError"
+        assert "consent" in resp.json()["error"]["message"].lower()
+    finally:
+        app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
+
+
+@pytest.mark.asyncio
+async def test_attempt_without_scoring_consent_skips_gop(client):
+    # #419: default scoring=off -> word-diff still works, phonemes stay empty
+    # even when a GOP provider is wired.
+    from app.features.pronunciation.domain import PhonemeScore
+
+    class _StubPron:
+        calls = 0
+
+        async def score_phonemes(self, audio, target_text):
+            type(self).calls += 1
+            return [PhonemeScore(phoneme="θ", score=0.08)]
+
+    _StubPron.calls = 0
+    token = await _register(client, email="shadow-noscore@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    app.dependency_overrides[get_shadowing_service_with_stt] = _override_service_with(
+        "the ship is sinking", pronunciation=_StubPron()
+    )
+    try:
+        resp = await client.post(
+            "/shadowing/attempt",
+            headers=headers,
+            data={"target_text": "The ship is sinking"},
+            files={"audio": ("speech.webm", b"xxxx", "audio/webm")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["phonemes"] == []
+        assert _StubPron.calls == 0
     finally:
         app.dependency_overrides.pop(get_shadowing_service_with_stt, None)
 

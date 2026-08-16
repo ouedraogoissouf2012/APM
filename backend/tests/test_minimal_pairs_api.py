@@ -219,3 +219,19 @@ async def test_attempt_accepts_target_and_other_at_the_exact_bound(client):
         assert resp.status_code == 200, resp.text
     finally:
         app.dependency_overrides.pop(get_minimal_pairs_service, None)
+
+
+@pytest.mark.asyncio
+async def test_attempt_revoked_transcription_returns_403(client):
+    # #419: same consent gate as /transcribe and /shadowing/attempt.
+    token = await _register(client, email="pair-consent@b.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    await client.put("/me/voice-consent", headers=headers, json={"transcription": False})
+    app.dependency_overrides[get_minimal_pairs_service] = _override_with("should-not-run")
+    try:
+        resp = await _attempt(client, headers, target="sheep", other="ship")
+        assert resp.status_code == 403, resp.text
+        assert resp.json()["error"]["code"] == "AuthorizationError"
+        assert "consent" in resp.json()["error"]["message"].lower()
+    finally:
+        app.dependency_overrides.pop(get_minimal_pairs_service, None)

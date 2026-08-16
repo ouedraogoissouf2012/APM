@@ -8,6 +8,7 @@ from app.core.http.multipart import parse_bounded_multipart
 from app.core.llm.interfaces import TtsProvider
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.database import get_db, release_request_connection
+from app.domain.exceptions import AuthorizationError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.conversation.dependencies import get_tts_provider
@@ -28,6 +29,8 @@ from app.features.shadowing.schemas import (
     WordOut,
 )
 from app.features.shadowing.service import ShadowingService
+from app.features.voice_consent.dependencies import get_voice_consent_service
+from app.features.voice_consent.service import VoiceConsentService
 
 router = APIRouter(tags=["shadowing"])
 
@@ -71,11 +74,18 @@ async def score_attempt(
     current_user: User = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_shadowing_rate_limiter),
     service: ShadowingService = Depends(get_shadowing_service_with_stt),
+    consent: VoiceConsentService = Depends(get_voice_consent_service),
     db: AsyncSession = Depends(get_db),
 ) -> AttemptOut:
     """Transcribe the learner's recording, diff it against the target phrase, and
     coach the missed words. The audio is used then discarded (never stored)."""
     await limiter.check(user_rate_limit_key("shadowing-attempt", current_user.id))
+    # #419: refuse BEFORE parsing the multipart body so revoked transcription
+    # consent never lets the audio be read. GOP is opt-in (`scoring`); word-diff
+    # still runs when scoring is off.
+    allow_transcribe, allow_score = await consent.transcription_and_scoring(current_user.id)
+    if not allow_transcribe:
+        raise AuthorizationError("Transcription consent has been revoked")
     settings = get_settings()
     # Bounded, in-memory upload (#230): a plain `UploadFile` parameter goes
     # through Starlette's default parser, which spools past 1 MB and enforces no
@@ -98,11 +108,14 @@ async def score_attempt(
             status_code=422,
             detail=f"'target_text' must be at most {MAX_TARGET_TEXT_CHARS} characters",
         )
-    # #415: every DB read is done (auth). Release before STT + GOP — the same
-    # idle-hold /transcribe closed for #399. Nothing below touches the DB.
+    # #415: every DB read is done (auth + consent). Release before STT + GOP —
+    # the same idle-hold /transcribe closed for #399. Nothing below touches the DB.
     await release_request_connection(db)
     result = await service.score_attempt(
-        target=target_text, audio=data, native_language=current_user.native_language
+        target=target_text,
+        audio=data,
+        native_language=current_user.native_language,
+        score_phonemes=allow_score,
     )
     return AttemptOut(
         transcript=result.transcript,

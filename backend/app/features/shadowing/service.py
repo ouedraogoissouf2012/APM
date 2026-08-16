@@ -43,7 +43,14 @@ class ShadowingService:
     async def generate_phrase(self, cefr_level: str) -> ShadowingPhrase:
         return await self._generator.generate(cefr_level)
 
-    async def score_attempt(self, target: str, audio: bytes, native_language: str) -> AttemptResult:
+    async def score_attempt(
+        self,
+        target: str,
+        audio: bytes,
+        native_language: str,
+        *,
+        score_phonemes: bool = True,
+    ) -> AttemptResult:
         if self._stt is None:
             raise RuntimeError("Scoring an attempt requires a speech-to-text provider")
         if not audio:
@@ -51,9 +58,10 @@ class ShadowingService:
 
         # Fetch the phoneme-level GOP score alongside transcription: they are
         # independent calls, so run them concurrently rather than in sequence.
+        # #419: skip GOP entirely when scoring consent is off — word-diff remains.
         verbose, phonemes = await asyncio.gather(
             self._stt.transcribe_verbose(audio),
-            self._score_phonemes(target, audio),
+            self._score_phonemes(target, audio) if score_phonemes else _no_phonemes(),
         )
 
         # One verbose call gives us both the text (for the heard/missed diff) and
@@ -92,6 +100,10 @@ class ShadowingService:
         except LlmProviderError:
             logger.warning("Pronunciation scoring failed; returning attempt without phonemes")
             return []
+
+
+async def _no_phonemes() -> list[PhonemeScore]:
+    return []
 
 
 def _merge(heard: list[WordComparison], scores: list) -> list[WordComparison]:
