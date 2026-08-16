@@ -24,8 +24,8 @@ final audioRecordingProvider = Provider<AudioRecordingService>(
 );
 
 /// On-device store of the learner's spoken takes, for the audible before/after
-/// proof (#199). Persistent (files) on native so the before/after survives a
-/// restart; in-memory on web (tracked debt). Single instance per app run.
+/// proof (#199). Persistent (files + Keystore) on native. In-memory on web
+/// (#436): a persisted wrap key in localStorage would let XSS unwrap audio.
 final voiceTakeStoreProvider = Provider<VoiceTakeStore>(
   (ref) => createVoiceTakeStore(),
 );
