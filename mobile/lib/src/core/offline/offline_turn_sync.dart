@@ -13,6 +13,11 @@ class OfflineTurnSync {
   final OfflineTurnQueue _queue;
   final ConversationRepository _conversation;
   final CrashReporter _crashReporter;
+  int _generation = 0;
+
+  /// Abort an in-flight [sync] so a logout cannot finish posting as the next
+  /// account (#429). Safe to call when no sync is running.
+  void cancel() => _generation++;
 
   /// Replays all pending turns in order. Returns the number sent. Stops early and
   /// KEEPS the rest queued on a transient failure (offline, a 5xx, or a 409
@@ -21,13 +26,16 @@ class OfflineTurnSync {
   /// so a permanently-unprocessable turn can't wedge the queue forever.
   Future<int> sync() async {
     var sent = 0;
+    final generation = _generation;
     for (final turn in await _queue.pending()) {
+      if (_generation != generation) return sent;
       try {
         await _conversation.sendTurn(
           turn.sessionId,
           turn.text,
           idempotencyKey: turn.idempotencyKey,
         );
+        if (_generation != generation) return sent;
         await _queue.remove(turn.idempotencyKey);
         sent++;
       } on ApiException catch (e) {

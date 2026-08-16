@@ -41,6 +41,9 @@ class _FakeSync implements OfflineTurnSync {
     _queue.turns.clear();
     return n;
   }
+
+  @override
+  void cancel() {}
 }
 
 /// A controllable [ConnectivityMonitor] a test can push OS-level connectivity

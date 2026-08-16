@@ -103,6 +103,10 @@ class ConnectivityController extends Notifier<ConnectivityState> {
   /// Replays the queue; back online when nothing remains. Re-entrant calls (e.g.
   /// a reconnect trigger racing a manual retry) are ignored while a sync is in
   /// flight, so the same queued turn is never replayed twice concurrently.
+  /// Abort an in-flight replay (#429). The next account's tokens must not
+  /// carry a leftover sync of the previous learner.
+  void cancelPendingSync() => _sync.cancel();
+
   Future<void> syncPending() async {
     if (_syncing) return;
     _syncing = true;
