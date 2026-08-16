@@ -130,6 +130,8 @@ class AuthViewModel extends AsyncNotifier<AppUser?> {
     // "erased" purge, and a read while _currentUserId is still valid could
     // race the pending-purge bookkeeping below.
     state = const AsyncLoading();
+    // #429: stop any in-flight offline replay before tokens are swapped.
+    ref.read(offlineTurnSyncProvider).cancel();
     await ref.read(authRepositoryProvider).logout();
     // Drop every per-user cache (#348, #373): every one of these is a plain
     // (non-autoDispose) provider, so without this the next account on this

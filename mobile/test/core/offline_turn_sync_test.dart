@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:apm/src/core/network/api_exception.dart';
 import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/offline/offline_turn_queue.dart';
@@ -152,5 +154,26 @@ void main() {
     // The server is still processing this exact key; retrying later gets the
     // cached reply (or reclaims it if that request crashed) — never drop it.
     expect((await queue.pending()).map((t) => t.idempotencyKey), ['a']);
+  });
+
+  test('#429: cancel mid-sync does not send remaining turns', () async {
+    await queue.enqueue(_turn('a'));
+    await queue.enqueue(_turn('b'));
+    final hold = Completer<void>();
+    when(() => conv.sendTurn(1, 'hi', idempotencyKey: 'a')).thenAnswer((_) async {
+      await hold.future;
+      return 'reply';
+    });
+    when(
+      () => conv.sendTurn(1, 'hi', idempotencyKey: 'b'),
+    ).thenAnswer((_) async => 'reply');
+
+    final pending = sync.sync();
+    sync.cancel();
+    hold.complete();
+    final sent = await pending;
+
+    expect(sent, 0);
+    verifyNever(() => conv.sendTurn(1, 'hi', idempotencyKey: 'b'));
   });
 }
