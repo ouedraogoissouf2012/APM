@@ -8,7 +8,9 @@ from app.features.conversation.models import Transcript
 
 
 class TranscriptRepository(Protocol):
-    async def save(self, session_id: int, turns: list[dict]) -> None: ...
+    async def save(self, session_id: int, turns: list[dict], *, commit: bool = True) -> None: ...
+
+    async def commit(self) -> None: ...
 
     async def get_by_session(self, session_id: int) -> Transcript | None: ...
 
@@ -17,7 +19,7 @@ class SqlAlchemyTranscriptRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def save(self, session_id: int, turns: list[dict]) -> None:
+    async def save(self, session_id: int, turns: list[dict], *, commit: bool = True) -> None:
         """Upserts the (already-bounded, see ConversationTurnService.
         transcript_max_messages, #364) turns array in ONE round trip: an atomic
         INSERT-or-update-on-conflict, instead of a separate SELECT to decide
@@ -39,6 +41,10 @@ class SqlAlchemyTranscriptRepository:
             set_={"turns": stmt.excluded.turns},
         )
         await self._session.execute(stmt)
+        if commit:
+            await self._session.commit()
+
+    async def commit(self) -> None:
         await self._session.commit()
 
     async def get_by_session(self, session_id: int) -> Transcript | None:

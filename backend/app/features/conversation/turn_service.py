@@ -442,9 +442,10 @@ class ConversationTurnService:
             turns = turns[-self._transcript_max_messages :]
         # #399: write on the fresh persistence scope (own short-lived connection),
         # not the request repo whose connection was handed back at the I/O boundary.
-        await scope.transcripts.save(session_id, turns)
-        # Meter the quota per turn (#119). Best-effort: never break a turn if it
-        # fails — the transcript is already saved.
+        # #438: flush the transcript, then let the meter commit both on the
+        # same fresh session. If the meter is missing or blows up, still commit
+        # the transcript so the turn is not lost.
+        await scope.transcripts.save(session_id, turns, commit=False)
         if scope.meter is not None:
             try:
                 now = clamp_practiced_at(practiced_at)
@@ -456,6 +457,9 @@ class ConversationTurnService:
                 logging.getLogger(__name__).warning(
                     "Per-turn quota metering failed for session %s", session_id, exc_info=True
                 )
+                await scope.transcripts.commit()
+        else:
+            await scope.transcripts.commit()
         return turns
 
 
