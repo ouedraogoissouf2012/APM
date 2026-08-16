@@ -250,6 +250,8 @@ class Settings(BaseSettings):
             raise ValueError("GROQ_API_KEY is required when Groq (or the fallback) is enabled")
         if self.pronunciation_engine == ENGINE_GOP and not self.gop_service_url.strip():
             raise ValueError("GOP_SERVICE_URL is required when PRONUNCIATION_ENGINE=gop")
+        if self.pronunciation_engine == ENGINE_GOP and not self.gop_service_secret.strip():
+            raise ValueError("GOP_SERVICE_SECRET is required when PRONUNCIATION_ENGINE=gop")
         # #383: 0 or negative would make client_ip()'s `hops[-trusted_proxy_count]`
         # pick the LEFT-MOST (attacker-controlled) hop again — via Python's
         # `list[-0] == list[0]` for 0, and simply the wrong end for a negative

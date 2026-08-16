@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +39,14 @@ class Settings(BaseSettings):
     # Cap torch's intra-op thread pool. 0 = leave torch's default (num cores). With
     # serialised inferences one run may use several threads without contention.
     torch_num_threads: int = 0
+
+    @model_validator(mode="after")
+    def require_secret_outside_dev(self) -> "Settings":
+        # #424: empty INTERNAL_SECRET is a no-op on /score. Fine in dev/tests;
+        # fatal in staging/production so a cloud bind cannot stay open.
+        if self.app_env in ("staging", "production") and not self.internal_secret.strip():
+            raise ValueError("INTERNAL_SECRET is required when APP_ENV is staging/production")
+        return self
 
 
 @lru_cache

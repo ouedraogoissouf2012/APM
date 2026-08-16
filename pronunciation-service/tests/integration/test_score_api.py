@@ -81,3 +81,21 @@ def test_score_rejects_empty_audio():
         files={"audio": ("speech.wav", b"", "audio/wav")},
     )
     assert resp.status_code == 422
+
+
+def test_score_rejects_oversized_upload_with_413(monkeypatch):
+    # #424: cap is enforced while reading, not after buffering the whole body.
+    from pronunciation.core.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("MAX_AUDIO_BYTES", "16")
+    try:
+        client = _client(per_frame=["a"], phonemes=["a"])
+        resp = client.post(
+            "/score",
+            data={"target_text": "a"},
+            files={"audio": ("speech.wav", b"x" * 64, "audio/wav")},
+        )
+        assert resp.status_code == 413, resp.text
+    finally:
+        get_settings.cache_clear()

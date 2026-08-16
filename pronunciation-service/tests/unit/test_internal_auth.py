@@ -51,6 +51,15 @@ def test_configured_secret_rejects_wrong_value(monkeypatch):
     assert resp.status_code == 401
 
 
+def test_staging_without_secret_fails_to_load_settings(monkeypatch):
+    # #424: empty INTERNAL_SECRET must not be a no-op outside dev.
+    get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.delenv("INTERNAL_SECRET", raising=False)
+    with pytest.raises(Exception, match="INTERNAL_SECRET"):
+        get_settings()
+
+
 def test_configured_secret_accepts_matching_header(monkeypatch):
     get_settings.cache_clear()
     monkeypatch.setenv("INTERNAL_SECRET", "s3cret-internal")
