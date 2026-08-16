@@ -108,6 +108,12 @@ async def _purge_loop() -> None:
     while True:
         await asyncio.sleep(settings.purge_interval_seconds)
         try:
+            from app.features.purge.task import try_acquire_purge_lock
+
+            if not await try_acquire_purge_lock(
+                settings.redis_url, settings.purge_interval_seconds
+            ):
+                continue
             async with SessionLocal() as session:
                 await purge_expired_entries(session)
         except Exception:
