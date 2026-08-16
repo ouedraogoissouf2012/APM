@@ -353,6 +353,19 @@ async def test_history_returns_recent_sessions_for_user_only():
     assert history[0].scenario_id == "restaurant"
 
 
+@pytest.mark.asyncio
+async def test_history_keyset_before_id_returns_the_older_page():
+    # #444: GET /sessions used to return a single 20-row page with no cursor.
+    service, user = await _service_with_user()
+    first = await service.start(user.id, "free", None)
+    await service.end(first.id, user.id)
+    second = await service.start(user.id, "scenario", "restaurant")
+    page = await service.history(user.id, limit=1)
+    assert [item.id for item in page] == [second.id]
+    older = await service.history(user.id, limit=1, before_id=second.id)
+    assert [item.id for item in older] == [first.id]
+
+
 class _LockTrackingUserRepo(InMemoryUserRepository):
     """Records whether a call took the row lock (FOR UPDATE) or a plain get."""
 

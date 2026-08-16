@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
+from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.domain.exceptions import NotFoundError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
@@ -21,8 +22,12 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 async def list_sessions(
     current_user: User = Depends(get_current_user),
     service: SessionService = Depends(get_session_service),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    before_id: int | None = Query(
+        None, ge=1, description="Keyset cursor: last session id seen; next older page."
+    ),
 ) -> list[SessionHistoryItemOut]:
-    sessions = await service.history(current_user.id)
+    sessions = await service.history(current_user.id, limit=limit, before_id=before_id)
     return [SessionHistoryItemOut.model_validate(session) for session in sessions]
 
 

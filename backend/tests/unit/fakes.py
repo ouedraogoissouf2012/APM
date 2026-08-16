@@ -84,13 +84,19 @@ class InMemorySessionRepository:
         )
 
     async def list_recent_for_user(
-        self, user_id: int, limit: int
+        self, user_id: int, limit: int, *, before_id: int | None = None
     ) -> list[tuple[ConversationSession, str | None]]:
         sessions = sorted(
             (s for s in self._by_id.values() if s.user_id == user_id),
             key=lambda s: (s.started_at, s.id),
             reverse=True,
         )
+        if before_id is not None:
+            cursor = self._by_id.get(before_id)
+            if cursor is not None:
+                sessions = [
+                    s for s in sessions if (s.started_at, s.id) < (cursor.started_at, cursor.id)
+                ]
         return [(session, None) for session in sessions[:limit]]
 
     async def add(self, session: ConversationSession) -> ConversationSession:
