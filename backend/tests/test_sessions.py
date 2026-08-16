@@ -32,6 +32,30 @@ async def test_cannot_start_two_active_sessions(client):
 
 
 @pytest.mark.asyncio
+async def test_db_rejects_a_second_active_session_row(client, db_session):
+    # #428: the unique partial index is the real invariant, not just start().
+    from sqlalchemy.exc import IntegrityError
+
+    from app.features.sessions.models import ConversationSession
+
+    headers = await _auth_header(client, email="uq-active@b.com")
+    first = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    assert first.status_code == 201
+    existing = await db_session.get(ConversationSession, first.json()["session_id"])
+    assert existing is not None
+    db_session.add(
+        ConversationSession(
+            user_id=existing.user_id,
+            mode="free",
+            voice_engine=existing.voice_engine,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
 async def test_end_closes_session_and_allows_restart(client):
     headers = await _auth_header(client, email="s3@b.com")
     start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
