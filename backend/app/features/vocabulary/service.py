@@ -29,7 +29,7 @@ class VocabularyService:
         """Persist the debrief's salient words. Best-effort per word: a blank word
         is skipped; capturing is never allowed to break the debrief that produced it."""
         for w in words:
-            word = w.word.strip()
+            word = w.word.strip().lower()
             if not word:
                 continue
             await self._repo.upsert(
