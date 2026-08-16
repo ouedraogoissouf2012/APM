@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/routes.dart';
+import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../view_model/placement_view_model.dart';
 
 /// The ~60 s spoken placement shown right after registration. The learner speaks
@@ -16,10 +17,21 @@ class PlacementScreen extends ConsumerStatefulWidget {
   ConsumerState<PlacementScreen> createState() => _PlacementScreenState();
 }
 
-class _PlacementScreenState extends ConsumerState<PlacementScreen> {
+class _PlacementScreenState extends ConsumerState<PlacementScreen>
+    with PracticeScreenLifecycle {
   final _interests = TextEditingController();
   final _goal = TextEditingController();
   bool _answeredAll = false;
+  late final PlacementViewModel _vm;
+
+  @override
+  void initState() {
+    super.initState();
+    _vm = ref.read(placementViewModelProvider.notifier);
+  }
+
+  @override
+  Future<void> stopPractice() => _vm.cancel();
 
   @override
   void dispose() {

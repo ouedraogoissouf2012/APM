@@ -21,6 +21,7 @@ class _MockCrashReporter extends Mock implements CrashReporter {}
 
 class _FakeRecorder implements AudioRecordingService {
   bool startResult = true;
+  int cancels = 0;
 
   @override
   Future<bool> start() async => startResult;
@@ -29,7 +30,9 @@ class _FakeRecorder implements AudioRecordingService {
   Future<Uint8List?> stop() async => Uint8List.fromList(const [1, 2, 3]);
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel() async {
+    cancels++;
+  }
 }
 
 ProviderContainer _container({
@@ -282,5 +285,21 @@ void main() {
     recorder.startResult = true;
     await vm.startRecording();
     expect(c.read(placementViewModelProvider).status, PlacementStatus.recording);
+  });
+
+  test('#425: cancel stops an in-progress recording and frees the mic', () async {
+    final recorder = _FakeRecorder();
+    final c = _container(
+      conv: _MockConversationRepository(),
+      onboarding: _MockOnboardingRepository(),
+      recorder: recorder,
+    );
+    final vm = c.read(placementViewModelProvider.notifier);
+
+    await vm.startRecording();
+    await vm.cancel();
+
+    expect(recorder.cancels, 1);
+    expect(c.read(placementViewModelProvider).status, PlacementStatus.idle);
   });
 }
