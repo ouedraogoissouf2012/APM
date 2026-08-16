@@ -109,24 +109,22 @@ DATABASE_URL_TEST=postgresql+asyncpg://apm:apm_dev_password@localhost:6544/apm_t
 
 JWT_SECRET=change-me-in-production-use-a-long-random-string
 JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=60
+ACCESS_TOKEN_EXPIRE_MINUTES=15
 REFRESH_TOKEN_EXPIRE_DAYS=30
 
 LOGIN_RATE_LIMIT_MAX=5
 LOGIN_RATE_LIMIT_WINDOW_SECONDS=60
 
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_API_KEY=devkey
-LIVEKIT_API_SECRET=devsecret-change-me
-LIVEKIT_TOKEN_TTL_SECONDS=120
-
 FREE_TIER_DAILY_MINUTES=10
 
 DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_MODEL=deepseek-v4-flash
+GROQ_API_KEY=
 VOICE_ENGINE=fake
 DEBRIEF_ENGINE=fake
+STT_ENGINE=device
+TTS_ENGINE=device
 ```
 
 `VOICE_ENGINE=fake` garde la conversation en mode fake. Pour utiliser DeepSeek
