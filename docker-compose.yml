@@ -20,6 +20,39 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: apm-redis
+    profiles: ["app"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Full API stack: `docker compose --profile app up`. Local `uvicorn` still
+  # works without this. Staging/production MUST set APP_ENV=production (#433).
+  api:
+    build:
+      context: ./backend
+    container_name: apm-api
+    profiles: ["app"]
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      DATABASE_URL: postgresql+asyncpg://apm:apm_dev_password@postgres:5432/apm
+      DATABASE_URL_TEST: postgresql+asyncpg://apm:apm_dev_password@postgres:5432/apm_test
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-a-long-random-string}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # Phoneme-level pronunciation scoring (GOP via wav2vec2). Heavy (~2-3 GB image),
   # so it is opt-in behind the `ml` profile: `docker compose --profile ml up`.
   # The main stack (postgres, backend) runs without it.
