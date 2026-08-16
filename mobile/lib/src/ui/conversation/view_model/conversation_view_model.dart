@@ -95,7 +95,12 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
         return;
       }
       // A session is already in progress (409): only one active session per user.
-      if (e.statusCode != 409) rethrow;
+      if (e.statusCode != 409) {
+        // #437: a 500/network must not stay an uncaught async error — the
+        // orb would sit on "préparation" with no message.
+        _failStart(e.message, e);
+        return;
+      }
       final active = await repo.getActiveSession();
       if (active == null) rethrow;
       // If the learner asked for a SPECIFIC target (a mission or scenario), do NOT
@@ -131,6 +136,9 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
               ]
             : [for (final t in active.turns) ConversationTurn(t.role, t.content)];
       }
+    } catch (e, s) {
+      _failStart('Impossible de démarrer la session', e, s);
+      return;
     }
 
     final speech = ref.read(speechServiceProvider);
@@ -143,6 +151,17 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
       turns: turns,
       error: speechReady ? null : 'Microphone is not available',
     );
+  }
+
+  void _failStart(String message, Object error, [StackTrace? stack]) {
+    if (ref.mounted) {
+      state = ConversationState(error: message);
+      ref.read(crashReporterProvider).captureError(
+        error,
+        stack ?? StackTrace.current,
+        context: 'ConversationViewModel.start',
+      );
+    }
   }
 
   /// The learner's practice locale from their profile accent ('us' | 'uk').
