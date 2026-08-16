@@ -48,7 +48,8 @@ async def test_no_proof_until_two_sessions(client, db_session):
         errors=[_err("verb_tense")],
     )
     resp = await client.get("/me/proof/job_interview", headers=headers)
-    assert resp.status_code == 404, resp.text
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["insufficient_data"] is True
 
 
 @pytest.mark.asyncio
@@ -172,7 +173,8 @@ async def test_proof_is_scoped_to_the_skill_and_user(client, db_session):
         client, db_session, headers, scenario="travel", cefr="B1", errors=[]
     )
     resp = await client.get("/me/proof/restaurant", headers=headers)
-    assert resp.status_code == 404, resp.text
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["insufficient_data"] is True
 
 
 @pytest.mark.asyncio
