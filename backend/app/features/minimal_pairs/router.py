@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.http.multipart import parse_bounded_multipart
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.database import get_db, release_request_connection
-from app.domain.exceptions import AuthorizationError
+from app.domain.exceptions import AuthorizationError, ValidationError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.minimal_pairs.dependencies import (
@@ -47,16 +47,13 @@ async def score_attempt(
     target = fields.get("target")
     other = fields.get("other")
     if not target or not other:
-        raise HTTPException(status_code=422, detail="Missing 'target' or 'other' field")
+        raise ValidationError("Missing 'target' or 'other' field")
     # #328: parse_bounded_multipart bounds the AUDIO part but not text fields — an
     # unbounded target/other would block the event loop in the sync word-normalize
     # step below and be injected into the coaching LLM prompt.
     for field_name, value in (("target", target), ("other", other)):
         if len(value) > MAX_WORD_CHARS:
-            raise HTTPException(
-                status_code=422,
-                detail=f"'{field_name}' must be at most {MAX_WORD_CHARS} characters",
-            )
+            raise ValidationError(f"'{field_name}' must be at most {MAX_WORD_CHARS} characters")
     # #426: every DB read is done (auth + consent). Release before STT + coach
     # — same idle-hold #415 closed on /shadowing/attempt. native_language is
     # already loaded.

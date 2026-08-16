@@ -1,6 +1,6 @@
 import base64
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -8,7 +8,7 @@ from app.core.http.multipart import parse_bounded_multipart
 from app.core.llm.interfaces import TtsProvider
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.database import get_db, release_request_connection
-from app.domain.exceptions import AuthorizationError
+from app.domain.exceptions import AuthorizationError, ValidationError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.conversation.dependencies import get_tts_provider
@@ -97,17 +97,14 @@ async def score_attempt(
     )
     target_text = fields.get("target_text")
     if not target_text:
-        raise HTTPException(status_code=422, detail="Missing 'target_text' field")
+        raise ValidationError("Missing 'target_text' field")
     # #328: parse_bounded_multipart bounds the AUDIO part but not text fields — an
     # unbounded target_text would block the event loop in the sync word-diff below
     # (target.split() over megabytes of text), amplify into the GOP call, and be
     # injected into the coaching LLM prompt. Same bound CoachIn.target_text uses
     # for the SAME string on the follow-up /shadowing/coach call.
     if len(target_text) > MAX_TARGET_TEXT_CHARS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"'target_text' must be at most {MAX_TARGET_TEXT_CHARS} characters",
-        )
+        raise ValidationError(f"'target_text' must be at most {MAX_TARGET_TEXT_CHARS} characters")
     # #415: every DB read is done (auth + consent). Release before STT + GOP —
     # the same idle-hold /transcribe closed for #399. Nothing below touches the DB.
     await release_request_connection(db)

@@ -83,7 +83,7 @@ async def test_transcribe_after_revoked_consent_returns_normalized_403(client):
         assert resp.status_code == 403, resp.text
         assert resp.json() == {
             "error": {
-                "code": "Forbidden",
+                "code": "AuthorizationError",
                 "message": "Transcription consent has been revoked",
             }
         }
