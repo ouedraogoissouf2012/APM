@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import metrics
 from app.features.analytics.domain import EVENT_ACTIVATION
 from app.features.analytics.models import AnalyticsEventRow
 from app.features.auth.models import RefreshToken
@@ -49,10 +50,14 @@ async def try_acquire_purge_lock(redis_url: str, ttl_seconds: int) -> bool:
 
         client = Redis.from_url(redis_url)
         try:
-            return bool(await client.set("apm:purge:lock", "1", nx=True, ex=max(1, ttl_seconds)))
+            won = bool(await client.set("apm:purge:lock", "1", nx=True, ex=max(1, ttl_seconds)))
+            if not won:
+                metrics.inc(metrics.PURGE_LOCK_SKIPS)
+            return won
         finally:
             await client.aclose()
     except Exception:
+        metrics.inc(metrics.PURGE_LOCK_SKIPS)
         _logger.warning("Purge lock unavailable; skipping this tick", exc_info=True)
         return False
 
@@ -98,6 +103,7 @@ async def purge_expired_entries(db: AsyncSession) -> dict[str, int]:
             _logger.info("Purged expired entries: %s", results)
     except Exception as exc:
         await db.rollback()
+        metrics.inc(metrics.PURGE_FAILURES)
         _logger.warning("Purge failed (best-effort): %s", exc)
 
     return results
