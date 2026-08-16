@@ -230,6 +230,33 @@ void main() {
       },
     );
 
+    test('#423: a 401 from A must not wipe tokens written by login B', () async {
+      final releaseRefresh = Completer<void>();
+      when(
+        () => api.postJson(
+          '/auth/refresh',
+          body: {'refresh_token': 'old-refresh'},
+        ),
+      ).thenAnswer((_) async {
+        await releaseRefresh.future;
+        throw const ApiException(
+          statusCode: 401,
+          code: 'InvalidRefreshTokenError',
+          message: 'invalid',
+        );
+      });
+
+      final pending = refresher.refresh();
+      await refresher.invalidateAndClear();
+      storage.access = 'b-access';
+      storage.refresh = 'b-refresh';
+      releaseRefresh.complete();
+
+      await expectLater(pending, throwsA(isA<ApiException>()));
+      expect(storage.access, 'b-access');
+      expect(storage.refresh, 'b-refresh');
+    });
+
     test('a refresh started after a logout works normally once a later login '
         'restores a valid refresh token', () async {
       await refresher.invalidateAndClear();
