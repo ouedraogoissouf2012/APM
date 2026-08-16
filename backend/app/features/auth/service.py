@@ -198,6 +198,9 @@ class AuthService:
         if not await verify_password(old_password, user.hashed_password):
             raise InvalidCredentialsError("Current password is incorrect")
         user.hashed_password = await hash_password(new_password)
+        # A pending reset token must die with the password (#audit7 P2-01).
+        user.reset_token_hash = None
+        user.reset_token_expires_at = None
         # #421: hash + revoke in ONE transaction. Two commits left a window
         # where the password was new but stolen refresh tokens still worked.
         try:

@@ -235,6 +235,22 @@ def test_staging_allows_safe_config():
     assert settings.app_env == "staging"
 
 
+def test_production_rejects_expose_reset_token():
+    with pytest.raises(ValidationError, match="EXPOSE_RESET_TOKEN"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            redis_url="redis://prod-redis:6379/0",
+            expose_reset_token=True,
+        )
+
+
+def test_dev_allows_expose_reset_token_for_tests():
+    settings = _settings(app_env="dev", jwt_secret=EXAMPLE_JWT_SECRET, expose_reset_token=True)
+    assert settings.expose_reset_token is True
+
+
 def test_dev_still_allows_the_example_jwt_secret():
     # Dev must stay frictionless: only staging/production enforce these checks.
     settings = _settings(app_env="dev", jwt_secret=EXAMPLE_JWT_SECRET)

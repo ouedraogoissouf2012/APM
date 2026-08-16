@@ -445,6 +445,33 @@ void main() {
     expect(state.turns.map((t) => t.content).toList(), ['hi', 'Hello again!']);
   });
 
+  test('#audit7: 409 then getActiveSession 500 surfaces state.error', () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenThrow(
+      const ApiException(
+        statusCode: 409,
+        code: 'ActiveSessionExistsError',
+        message: 'A session is already in progress',
+      ),
+    );
+    when(() => repo.getActiveSession()).thenThrow(
+      const ApiException(statusCode: 500, code: 'InternalError', message: 'db down'),
+    );
+    final reporter = _MockCrashReporter();
+    final c = _container(repo, _FakeSpeech(''), crashReporter: reporter);
+
+    await c.read(conversationViewModelProvider.notifier).start();
+
+    final state = c.read(conversationViewModelProvider);
+    expect(state.sessionId, isNull);
+    expect(state.error, 'db down');
+  });
+
   test('launching a specific mission on 409 ends the unrelated active session '
       'and starts the mission (does not resume the old chat)', () async {
     // #196: a mission the learner just prepared must not be swallowed by an

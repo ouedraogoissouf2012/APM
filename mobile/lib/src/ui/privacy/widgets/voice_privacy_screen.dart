@@ -187,24 +187,6 @@ class _BodyState extends ConsumerState<_Body> {
               ? null
               : (v) => _toggle(context, 'scoring', v),
         ),
-        SwitchListTile(
-          key: const Key('consent_b2b_share'),
-          title: const Text('Partage avec mon école / employeur'),
-          subtitle: const Text('Jamais sans ton choix explicite.'),
-          value: widget.consent.b2bShare,
-          onChanged: _togglePending
-              ? null
-              : (v) => _toggle(context, 'b2b_share', v),
-        ),
-        SwitchListTile(
-          key: const Key('consent_model_training'),
-          title: const Text('Amélioration des modèles'),
-          subtitle: const Text('Utiliser mes données pour entraîner les modèles.'),
-          value: widget.consent.modelTraining,
-          onChanged: _togglePending
-              ? null
-              : (v) => _toggle(context, 'model_training', v),
-        ),
         const Divider(height: 32),
         OutlinedButton.icon(
           key: const Key('export_voice_data'),

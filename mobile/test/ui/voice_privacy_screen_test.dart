@@ -60,7 +60,7 @@ Future<void> _pump(
 }
 
 void main() {
-  testWidgets('shows the four consent switches', (tester) async {
+  testWidgets('shows only the enforced consent switches', (tester) async {
     final repo = _MockRepo();
     when(repo.getConsent).thenAnswer((_) async => _consent());
 
@@ -68,8 +68,8 @@ void main() {
 
     expect(find.byKey(const Key('consent_transcription')), findsOneWidget);
     expect(find.byKey(const Key('consent_scoring')), findsOneWidget);
-    expect(find.byKey(const Key('consent_b2b_share')), findsOneWidget);
-    expect(find.byKey(const Key('consent_model_training')), findsOneWidget);
+    expect(find.byKey(const Key('consent_b2b_share')), findsNothing);
+    expect(find.byKey(const Key('consent_model_training')), findsNothing);
     // Honest statement that raw audio is not kept.
     expect(find.textContaining('jamais'), findsWidgets);
   });
