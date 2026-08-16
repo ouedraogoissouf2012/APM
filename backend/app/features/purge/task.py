@@ -39,6 +39,24 @@ ANALYTICS_EVENT_TTL_DAYS = 30
 ANALYTICS_RETENTION_EXEMPT_NAMES = frozenset({EVENT_ACTIVATION})
 
 
+async def try_acquire_purge_lock(redis_url: str, ttl_seconds: int) -> bool:
+    """#446: only one worker should DELETE. Empty redis_url = single-process
+    (dev/test) — always acquire. Redis SET NX; on Redis error skip this tick."""
+    if not redis_url.strip():
+        return True
+    try:
+        from redis.asyncio import Redis
+
+        client = Redis.from_url(redis_url)
+        try:
+            return bool(await client.set("apm:purge:lock", "1", nx=True, ex=max(1, ttl_seconds)))
+        finally:
+            await client.aclose()
+    except Exception:
+        _logger.warning("Purge lock unavailable; skipping this tick", exc_info=True)
+        return False
+
+
 async def purge_expired_entries(db: AsyncSession) -> dict[str, int]:
     """Purge expired/revoked refresh tokens, old idempotency keys, and old analytics events.
 
