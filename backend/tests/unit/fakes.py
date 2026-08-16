@@ -165,7 +165,7 @@ class InMemoryUserRepository:
     async def get_by_email(self, email: str) -> User | None:
         return next((u for u in self._by_id.values() if u.email == email), None)
 
-    async def create(self, user: User) -> User:
+    async def create(self, user: User, *, commit: bool = True) -> User:
         self._seq += 1
         user.id = self._seq
         self._by_id[user.id] = user

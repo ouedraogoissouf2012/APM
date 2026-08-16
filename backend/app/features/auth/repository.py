@@ -23,7 +23,7 @@ class UserRepository(Protocol):
 
     async def get_by_email(self, email: str) -> User | None: ...
 
-    async def create(self, user: User) -> User: ...
+    async def create(self, user: User, *, commit: bool = True) -> User: ...
 
     async def save(self, user: User, *, commit: bool = True) -> User:
         """Persist changes made to an already-loaded user aggregate.
@@ -48,10 +48,13 @@ class SqlAlchemyUserRepository:
     async def get_by_email(self, email: str) -> User | None:
         return await self._session.scalar(select(User).where(User.email == email))
 
-    async def create(self, user: User) -> User:
+    async def create(self, user: User, *, commit: bool = True) -> User:
         self._session.add(user)
         try:
-            await self._session.commit()
+            if commit:
+                await self._session.commit()
+            else:
+                await self._session.flush()
         except IntegrityError as exc:
             # A concurrent registration won the race for this email between the
             # service's pre-check and this commit (#232 TOCTOU): translate the DB

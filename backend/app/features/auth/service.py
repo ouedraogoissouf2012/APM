@@ -98,8 +98,14 @@ class AuthService:
             hashed_password=await hash_password(password),
             native_language=native_language,
         )
-        user = await self._users.create(user)
-        return await self._issue_tokens(user)
+        # #439: user + first refresh token in ONE transaction. A failed token
+        # insert used to leave an orphan account (retry → 409).
+        try:
+            user = await self._users.create(user, commit=False)
+            return await self._issue_tokens(user, commit=True)
+        except Exception:
+            await self._refresh.rollback()
+            raise
 
     async def login(self, email: str, password: str) -> AuthResult:
         email = normalize_email(email)
