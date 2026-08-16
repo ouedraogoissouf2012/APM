@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request
 
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.features.auth.dependencies import get_current_user
@@ -10,7 +10,7 @@ from app.features.debrief.service import DebriefService
 router = APIRouter(prefix="/sessions/{session_id}/debrief", tags=["debrief"])
 
 
-@router.post("", response_model=DebriefOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=DebriefOut)
 async def generate_debrief(
     session_id: int,
     request: Request,

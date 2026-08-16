@@ -273,7 +273,7 @@ async def test_debrief_feeds_the_review_schedule(client, db_session):
         ],
     )
     created = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
-    assert created.status_code == 201, created.text
+    assert created.status_code == 200, created.text
 
     # The fake analyzer returns no errors, so nothing is scheduled — but the hook
     # ran without breaking the debrief. Seed one error type to prove the wiring end

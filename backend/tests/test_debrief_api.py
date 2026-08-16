@@ -53,7 +53,7 @@ async def test_generate_and_get_debrief(client, db_session):
     app.dependency_overrides[get_debrief_service] = _override
     try:
         created = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
-        assert created.status_code == 201, created.text
+        assert created.status_code == 200, created.text
         body = created.json()
         assert body["cefr_estimate"] == "A2"
         assert body["errors"][0]["correction"] == "I am happy"
@@ -129,7 +129,7 @@ async def test_generate_debrief_is_rate_limited_per_user(client, db_session):
     app.dependency_overrides[get_debrief_service] = _override
     try:
         first = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
-        assert first.status_code == 201, first.text
+        assert first.status_code == 200, first.text
         blocked = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
         assert blocked.status_code == 429
     finally:
@@ -166,7 +166,7 @@ async def test_generate_debrief_rate_limit_is_not_bypassed_by_ip_rotation(client
             f"/sessions/{session_id}/debrief",
             headers={**headers, "X-Forwarded-For": "1.1.1.1"},
         )
-        assert first.status_code == 201, first.text
+        assert first.status_code == 200, first.text
         blocked = await client.post(
             f"/sessions/{session_id}/debrief",
             headers={**headers, "X-Forwarded-For": "2.2.2.2"},
@@ -237,7 +237,7 @@ async def test_concurrent_debrief_requests_run_the_analyzer_once(client, db_sess
         app.dependency_overrides.pop(get_debrief_service, None)
 
     for r in responses:
-        assert r.status_code == 201, r.text  # neither request 500s
+        assert r.status_code == 200, r.text  # neither request 500s
     bodies = [r.json() for r in responses]
     assert bodies[0]["summary"] == bodies[1]["summary"] == "Nice work"
     assert llm.calls == 1  # only the winner ran the (slow, costly) analysis
