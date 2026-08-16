@@ -155,7 +155,6 @@ async def test_debriefs_keyset_pagination_covers_every_row_exactly_once_in_order
             started_at=now + timedelta(seconds=i),
             ended_at=now + timedelta(seconds=i),
         )
-        )
         db_session.add(session)
         await db_session.flush()
         await SqlAlchemyDebriefRepository(db_session).save(session.id, "B1", f"summary {i}", [])

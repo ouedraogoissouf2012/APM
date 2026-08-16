@@ -36,7 +36,6 @@ async def _session_with_debrief(
         started_at=started_at,
         ended_at=started_at,
     )
-    )
     db_session.add(session)
     await db_session.flush()
     if learner_turns:
@@ -140,7 +139,6 @@ async def test_excludes_sessions_on_a_different_skill_or_without_a_debrief(db_se
         scenario_id="job_interview",
         started_at=now,
         ended_at=now,
-    )
     )
     db_session.add(no_debrief)
     await db_session.commit()
