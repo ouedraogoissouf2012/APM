@@ -162,7 +162,7 @@ class InMemoryUserRepository:
         self._by_id[user.id] = user
         return user
 
-    async def save(self, user: User) -> User:
+    async def save(self, user: User, *, commit: bool = True) -> User:
         self._by_id[user.id] = user
         return user
 

@@ -24,7 +24,7 @@ class _FakeUsers:
     async def get_by_id(self, user_id: int) -> User | None:
         return self._by_id.get(user_id)
 
-    async def save(self, user: User) -> User:
+    async def save(self, user: User, *, commit: bool = True) -> User:
         self.saved.append(user)
         return user
 
