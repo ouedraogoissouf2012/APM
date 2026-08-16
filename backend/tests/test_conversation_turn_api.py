@@ -119,6 +119,20 @@ async def test_turn_rejected_after_session_ended(client):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_http_end_and_turn_does_not_500(client):
+    # #450 / #427: HTTP-level gather of /end + /turn must not 500.
+    headers = await _auth_header(client, email="end-turn-race@b.com")
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+    end, turn = await asyncio.gather(
+        client.post(f"/sessions/{session_id}/end", headers=headers),
+        client.post(f"/sessions/{session_id}/turn", headers=headers, json={"text": "hello"}),
+    )
+    assert end.status_code == 200, end.text
+    assert turn.status_code in (200, 409), turn.text
+
+
+@pytest.mark.asyncio
 async def test_turn_refuses_a_second_turn_while_one_is_in_flight(client, db_session):
     # #299: /turn (non-streaming) now carries the SAME per-session lock as
     # /turn/stream (#256/#229) — a turn already in flight (its lock held)
