@@ -119,7 +119,7 @@ class InMemoryTranscriptRepository:
     def __init__(self) -> None:
         self._by_session: dict[int, Transcript] = {}
 
-    async def save(self, session_id: int, turns: list[dict]) -> Transcript:
+    async def save(self, session_id: int, turns: list[dict], *, commit: bool = True) -> Transcript:
         transcript = self._by_session.get(session_id)
         if transcript is None:
             transcript = Transcript(session_id=session_id, turns=turns)
@@ -130,6 +130,9 @@ class InMemoryTranscriptRepository:
 
     async def get_by_session(self, session_id: int) -> Transcript | None:
         return self._by_session.get(session_id)
+
+    async def commit(self) -> None:
+        return None
 
 
 class InMemoryProfileRepository:

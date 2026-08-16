@@ -43,7 +43,7 @@ class _FakeTranscripts:
 
         return _T()
 
-    async def save(self, session_id, turns):
+    async def save(self, session_id, turns, *, commit=True):
         self.saved = (session_id, turns)
 
         class _Saved:
@@ -52,6 +52,9 @@ class _FakeTranscripts:
         s = _Saved()
         s.turns = turns
         return s
+
+    async def commit(self):
+        return None
 
 
 class _FakeProfiles:
@@ -188,7 +191,7 @@ class _RecordingTranscripts:
     async def get_by_session(self, session_id):
         return None
 
-    async def save(self, session_id, turns):
+    async def save(self, session_id, turns, *, commit=True):
         self._events.append(f"save:{self._tag}")
         self.saved = (session_id, turns)
 
@@ -198,6 +201,9 @@ class _RecordingTranscripts:
         s = _Saved()
         s.turns = turns
         return s
+
+    async def commit(self):
+        return None
 
 
 def _io_boundary(events: list[str]):
@@ -502,9 +508,12 @@ class _StatefulFakeTranscripts:
         t.turns = turns
         return t
 
-    async def save(self, session_id, turns):
+    async def save(self, session_id, turns, *, commit=True):
         self._by_session[session_id] = turns
         self.save_sizes.append(len(turns))
+
+    async def commit(self):
+        return None
 
 
 @pytest.mark.asyncio
@@ -882,8 +891,11 @@ async def test_stream_turn_completes_when_the_final_persist_fails_after_full_del
         async def get_by_session(self, session_id):
             return None
 
-        async def save(self, session_id, turns):
+        async def save(self, session_id, turns, *, commit=True):
             raise RuntimeError("db commit failed")
+
+        async def commit(self):
+            return None
 
     service = _service(
         _FakeSessions(owner_id=7),

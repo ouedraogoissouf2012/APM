@@ -73,8 +73,11 @@ class _FakeTranscripts:
     async def get_by_session(self, session_id):
         return None
 
-    async def save(self, session_id, turns):
+    async def save(self, session_id, turns, *, commit=True):
         self.saved = (session_id, turns)
+
+    async def commit(self):
+        return None
 
 
 class _FakeProfiles:
