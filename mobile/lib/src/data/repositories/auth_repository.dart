@@ -67,6 +67,20 @@ class AuthRepository {
     return AppUser.fromJson(json['user'] as Map<String, dynamic>);
   }
 
+  Future<void> requestPasswordReset({required String email}) async {
+    await _api.postJson('/auth/forgot-password', body: {'email': email});
+  }
+
+  Future<void> resetPassword({
+    required String token,
+    required String newPassword,
+  }) async {
+    await _api.postJson(
+      '/auth/reset-password',
+      body: {'token': token, 'new_password': newPassword},
+    );
+  }
+
   Future<void> logout() async {
     final refreshToken = await _storage.readRefreshToken();
     try {

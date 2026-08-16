@@ -7,6 +7,8 @@ abstract final class Routes {
   static const placement = '/placement';
   static const login = '/login';
   static const register = '/register';
+  static const forgotPassword = '/forgot-password';
+  static const resetPassword = '/reset-password';
   static const home = '/home';
   static const history = '/history';
   static const conversation = '/conversation';

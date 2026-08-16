@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # explicitly — NEVER tie it to APP_ENV=test (a deploy with that env would
     # leak tokens and skip production guards). Forbidden in staging/production.
     expose_reset_token: bool = False
+    # Optional shared secret for GET /metrics in staging/production. Empty =
+    # the route 404s there (dev/test stay open for local scrapes).
+    metrics_token: str = ""
 
     database_url: str
     database_url_test: str = ""

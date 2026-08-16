@@ -216,10 +216,12 @@ class AuthService:
         hook; the HTTP layer never echoes it in production (#449). Unknown or
         deactivated emails return None — the router still answers 200."""
         user = await self._users.get_by_email(normalize_email(email))
+        # Same generate+hash work on a miss so timing does not enumerate emails.
+        raw = generate_refresh_token()
+        hashed = hash_token(raw)
         if user is None or _is_inactive(user):
             return None
-        raw = generate_refresh_token()
-        user.reset_token_hash = hash_token(raw)
+        user.reset_token_hash = hashed
         user.reset_token_expires_at = datetime.now(UTC) + timedelta(hours=1)
         await self._users.save(user)
         return raw
