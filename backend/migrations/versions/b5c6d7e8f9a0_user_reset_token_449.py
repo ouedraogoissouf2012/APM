@@ -19,10 +19,10 @@ def upgrade() -> None:
     op.add_column(
         "users", sa.Column("reset_token_expires_at", sa.DateTime(timezone=True), nullable=True)
     )
-    op.create_index("uq_users_reset_token_hash", "users", ["reset_token_hash"], unique=True)
+    op.create_unique_constraint("users_reset_token_hash_key", "users", ["reset_token_hash"])
 
 
 def downgrade() -> None:
-    op.drop_index("uq_users_reset_token_hash", table_name="users")
+    op.drop_constraint("users_reset_token_hash_key", "users", type_="unique")
     op.drop_column("users", "reset_token_expires_at")
     op.drop_column("users", "reset_token_hash")
