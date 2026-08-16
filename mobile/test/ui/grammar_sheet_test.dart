@@ -15,12 +15,15 @@ import 'package:mocktail/mocktail.dart';
 class _MockConv extends Mock implements ConversationRepository {}
 
 class _FakeRecorder implements AudioRecordingService {
+  int cancels = 0;
   @override
   Future<bool> start() async => true;
   @override
   Future<Uint8List?> stop() async => Uint8List.fromList(const [1, 2, 3]);
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel() async {
+    cancels++;
+  }
 }
 
 const _correction = TurnCorrection(
@@ -29,11 +32,15 @@ const _correction = TurnCorrection(
   rule: "Use 'am' with 'I'.",
 );
 
-Future<void> _openSheet(WidgetTester tester, ConversationRepository conv) async {
+Future<void> _openSheet(
+  WidgetTester tester,
+  ConversationRepository conv, {
+  AudioRecordingService? recorder,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        audioRecordingProvider.overrideWithValue(_FakeRecorder()),
+        audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
         conversationRepositoryProvider.overrideWithValue(conv),
       ],
       child: MaterialApp(
@@ -82,5 +89,23 @@ void main() {
     await _reformulate(tester);
 
     expect(find.byKey(const Key('reformulation_retry')), findsOneWidget);
+  });
+
+  testWidgets('#425: dismissing the sheet mid-recording cancels the mic', (
+    tester,
+  ) async {
+    final rec = _FakeRecorder();
+    final conv = _MockConv();
+    await _openSheet(tester, conv, recorder: rec);
+
+    await tester.tap(find.byKey(const Key('reformulation_button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('grammar_sheet')), findsOneWidget);
+
+    Navigator.of(tester.element(find.byKey(const Key('grammar_sheet')))).pop();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('grammar_sheet')), findsNothing);
+    expect(rec.cancels, greaterThanOrEqualTo(1));
   });
 }

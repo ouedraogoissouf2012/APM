@@ -109,6 +109,14 @@ class _ReformulationTileState extends ConsumerState<_ReformulationTile> {
   _ReformStatus _status = _ReformStatus.idle;
   bool? _matched; // null = couldn't verify (mic/STT failed or silence)
   String _heard = '';
+  // Cached: dispose() cannot use `ref` (#425).
+  late final _recorder = ref.read(audioRecordingProvider);
+
+  @override
+  void dispose() {
+    _recorder.cancel();
+    super.dispose();
+  }
 
   Future<void> _onTap() async {
     if (_status == _ReformStatus.recording) {
@@ -119,8 +127,12 @@ class _ReformulationTileState extends ConsumerState<_ReformulationTile> {
   }
 
   Future<void> _startRecording() async {
-    final started = await ref.read(audioRecordingProvider).start();
-    if (!mounted) return;
+    final started = await _recorder.start();
+    if (!mounted) {
+      // #425: start() succeeded after dismiss — drop the hot mic.
+      if (started) await _recorder.cancel();
+      return;
+    }
     if (!started) {
       setState(() {
         _status = _ReformStatus.done;
@@ -134,7 +146,7 @@ class _ReformulationTileState extends ConsumerState<_ReformulationTile> {
 
   Future<void> _stopAndCheck() async {
     setState(() => _status = _ReformStatus.checking);
-    final bytes = await ref.read(audioRecordingProvider).stop();
+    final bytes = await _recorder.stop();
     String heard = '';
     try {
       if (bytes != null && bytes.isNotEmpty) {

@@ -35,8 +35,14 @@ class PushToTalkController {
 
   /// Starts recording the learner's voice.
   Future<void> startRecording() async {
-    final started = await _ref.read(audioRecordingProvider).start();
-    if (!_host.mounted) return;
+    final recorder = _ref.read(audioRecordingProvider);
+    final started = await recorder.start();
+    if (!_host.mounted) {
+      // #425: start() finished after the screen left — cancel so the mic
+      // does not stay hot. `_recording` was never set, so cancel() would no-op.
+      if (started) await recorder.cancel();
+      return;
+    }
     if (!started) {
       _host.state = _host.state.copyWith(error: 'Microphone is not available');
       return;

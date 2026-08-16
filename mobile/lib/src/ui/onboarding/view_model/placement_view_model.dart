@@ -73,12 +73,28 @@ class PlacementViewModel extends Notifier<PlacementState> {
     if (state.status != PlacementStatus.idle && state.status != PlacementStatus.failed) {
       return;
     }
-    final started = await ref.read(audioRecordingProvider).start();
+    final recorder = ref.read(audioRecordingProvider);
+    final started = await recorder.start();
     if (!started) {
-      state = state.copyWith(status: PlacementStatus.failed);
+      if (ref.mounted) state = state.copyWith(status: PlacementStatus.failed);
+      return;
+    }
+    if (!ref.mounted) {
+      // #425: the screen left while start() was in flight.
+      await recorder.cancel();
       return;
     }
     state = state.copyWith(status: PlacementStatus.recording);
+  }
+
+  /// Stops (discarding) an in-progress recording when the learner leaves or
+  /// backgrounds the placement (#425). Idempotent.
+  Future<void> cancel() async {
+    if (!ref.mounted) return;
+    if (state.status == PlacementStatus.recording) {
+      await ref.read(audioRecordingProvider).cancel();
+      if (ref.mounted) state = state.copyWith(status: PlacementStatus.idle);
+    }
   }
 
   /// Stops recording, transcribes the answer, and advances to the next question
