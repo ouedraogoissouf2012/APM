@@ -17,6 +17,7 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.core import metrics
 from app.core.llm.interfaces import LlmProvider, TtsProvider
 from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER, Message
 from app.domain.exceptions import ConflictError
@@ -454,6 +455,7 @@ class ConversationTurnService:
                 except TypeError:
                     await scope.meter(session_id, user.id)
             except Exception:
+                metrics.inc(metrics.METER_FAILURES)
                 logging.getLogger(__name__).warning(
                     "Per-turn quota metering failed for session %s", session_id, exc_info=True
                 )

@@ -117,6 +117,9 @@ async def _purge_loop() -> None:
             async with SessionLocal() as session:
                 await purge_expired_entries(session)
         except Exception:
+            from app.core import metrics
+
+            metrics.inc(metrics.PURGE_FAILURES)
             log.warning("Periodic purge iteration failed", exc_info=True)
 
 
@@ -238,6 +241,14 @@ async def health(db: AsyncSession = Depends(get_db)) -> JSONResponse:
         logging.getLogger("apm").warning("Health check failed: DB unreachable", exc_info=True)
         return JSONResponse(status_code=503, content={"status": "unavailable"})
     return JSONResponse(content={"status": "ok"})
+
+
+@app.get("/metrics", tags=["meta"])
+async def metrics_snapshot() -> dict[str, int]:
+    """In-process counters for best-effort failures (#435)."""
+    from app.core import metrics
+
+    return metrics.snapshot()
 
 
 @app.get("/config", tags=["meta"])
