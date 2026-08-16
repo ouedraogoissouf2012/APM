@@ -66,7 +66,9 @@ async def take_turn(
         if not await idempotency.acquire_turn_lock(current_user.id, session_id):
             raise ConflictError(_TURN_LOCK_CONFLICT_MESSAGE)
         try:
-            result = await service.take_turn(session_id, current_user, payload.text)
+            result = await service.take_turn(
+                session_id, current_user, payload.text, practiced_at=payload.practiced_at
+            )
             return result.reply
         finally:
             try:

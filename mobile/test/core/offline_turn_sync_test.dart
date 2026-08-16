@@ -36,7 +36,10 @@ void main() {
   late _MockCrashReporter crashReporter;
   late OfflineTurnSync sync;
 
-  setUpAll(() => registerFallbackValue(StackTrace.empty));
+  setUpAll(() {
+    registerFallbackValue(StackTrace.empty);
+    registerFallbackValue(DateTime.utc(2026));
+  });
 
   setUp(() {
     conv = _MockConversation();
@@ -49,22 +52,23 @@ void main() {
     await queue.enqueue(_turn('a'));
     await queue.enqueue(_turn('b'));
     when(
-      () => conv.sendTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')),
+      () => conv.sendTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey'),
+          practicedAt: any(named: 'practicedAt')),
     ).thenAnswer((_) async => 'reply');
 
     final sent = await sync.sync();
 
     expect(sent, 2);
     expect(await queue.pending(), isEmpty);
-    verify(() => conv.sendTurn(1, 'hi', idempotencyKey: 'a')).called(1);
-    verify(() => conv.sendTurn(1, 'hi', idempotencyKey: 'b')).called(1);
+    verify(() => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'a')).called(1);
+    verify(() => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'b')).called(1);
   });
 
   test('a network error stops the run and keeps the rest queued', () async {
     await queue.enqueue(_turn('a'));
     await queue.enqueue(_turn('b'));
     when(
-      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+      () => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'a'),
     ).thenThrow(const ApiException(statusCode: 0, code: 'network', message: 'offline'));
 
     final sent = await sync.sync();
@@ -78,10 +82,10 @@ void main() {
     await queue.enqueue(_turn('a'));
     await queue.enqueue(_turn('b'));
     when(
-      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+      () => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'a'),
     ).thenThrow(const ApiException(statusCode: 422, code: 'validation', message: 'bad'));
     when(
-      () => conv.sendTurn(1, 'hi', idempotencyKey: 'b'),
+      () => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'b'),
     ).thenAnswer((_) async => 'reply');
 
     final sent = await sync.sync();
@@ -94,7 +98,7 @@ void main() {
       'lost without a trace (#236)', () async {
     await queue.enqueue(_turn('a'));
     when(
-      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+      () => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'a'),
     ).thenThrow(const ApiException(statusCode: 422, code: 'validation', message: 'bad'));
 
     await sync.sync();
@@ -113,7 +117,7 @@ void main() {
       () async {
     await queue.enqueue(_turn('a'));
     when(
-      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+      () => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'a'),
     ).thenThrow(const ApiException(statusCode: 503, code: 'server', message: 'down'));
 
     await sync.sync();
@@ -132,7 +136,7 @@ void main() {
     await queue.enqueue(_turn('a'));
     await queue.enqueue(_turn('b'));
     when(
-      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+      () => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'a'),
     ).thenThrow(const ApiException(statusCode: 503, code: 'server', message: 'down'));
 
     final sent = await sync.sync();
@@ -145,7 +149,7 @@ void main() {
   test('a 409 (in progress) keeps the turn queued rather than losing it', () async {
     await queue.enqueue(_turn('a'));
     when(
-      () => conv.sendTurn(1, 'hi', idempotencyKey: 'a'),
+      () => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'a'),
     ).thenThrow(const ApiException(statusCode: 409, code: 'ConflictError', message: 'in progress'));
 
     final sent = await sync.sync();
@@ -160,12 +164,12 @@ void main() {
     await queue.enqueue(_turn('a'));
     await queue.enqueue(_turn('b'));
     final hold = Completer<void>();
-    when(() => conv.sendTurn(1, 'hi', idempotencyKey: 'a')).thenAnswer((_) async {
+    when(() => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'a')).thenAnswer((_) async {
       await hold.future;
       return 'reply';
     });
     when(
-      () => conv.sendTurn(1, 'hi', idempotencyKey: 'b'),
+      () => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'b'),
     ).thenAnswer((_) async => 'reply');
 
     final pending = sync.sync();
@@ -174,6 +178,6 @@ void main() {
     final sent = await pending;
 
     expect(sent, 0);
-    verifyNever(() => conv.sendTurn(1, 'hi', idempotencyKey: 'b'));
+    verifyNever(() => conv.sendTurn(1, 'hi', practicedAt: any(named: 'practicedAt'), idempotencyKey: 'b'));
   });
 }

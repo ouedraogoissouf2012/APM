@@ -97,10 +97,14 @@ class ConversationRepository {
     int sessionId,
     String text, {
     String? idempotencyKey,
+    DateTime? practicedAt,
   }) async {
     final json = await _api.postJson(
       '/sessions/$sessionId/turn',
-      body: {'text': text},
+      body: {
+        'text': text,
+        if (practicedAt != null) 'practiced_at': practicedAt.toUtc().toIso8601String(),
+      },
       headers: idempotencyKey == null
           ? null
           : {'Idempotency-Key': idempotencyKey},
