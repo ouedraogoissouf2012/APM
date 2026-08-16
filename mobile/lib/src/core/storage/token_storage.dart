@@ -10,12 +10,10 @@ abstract class TokenStorage {
   Future<void> clear();
 }
 
-/// Web limitation (#318, evaluated — not fixed here): the access/refresh
-/// tokens this stores are protected by the SAME underlying
-/// `flutter_secure_storage` AES key as [SecureKeyValueStore] — see that
-/// class's doc comment for the verified, detailed explanation of why no
-/// `WebOptions(wrapKey: ...)` was added and what web actually protects
-/// against today (passive access, not DevTools/XSS).
+/// Web limitation (#318 / #436): access/refresh tokens share
+/// `flutter_secure_storage`'s AES key in localStorage. XSS or DevTools
+/// unwraps the session. Native Keystore/Keychain is fine. httpOnly cookies
+/// are the real web fix; voice takes no longer persist on web (#436).
 class SecureTokenStorage implements TokenStorage {
   SecureTokenStorage([FlutterSecureStorage? storage])
     : _storage = storage ?? const FlutterSecureStorage();
