@@ -133,6 +133,9 @@ dans le backend, renseigner `DEEPSEEK_API_KEY` puis mettre `VOICE_ENGINE=deepsee
 `DEBRIEF_ENGINE=fake` retourne un bilan de demonstration valide. Pour un vrai
 bilan LLM, renseigner `DEEPSEEK_API_KEY` puis mettre `DEBRIEF_ENGINE=deepseek`.
 
+L'image API : `docker compose --profile app up --build` (postgres + redis + backend).
+En staging/production, `APP_ENV=production` est obligatoire (sinon `/docs`, CORS `*`, JWT exemple).
+
 ## Lancer le projet en local
 
 ### 1. Base de donnees
