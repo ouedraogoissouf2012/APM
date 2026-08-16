@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -16,9 +17,11 @@ class _RawStore implements VoiceTakeStore {
   final Map<String, Uint8List> _latest = {};
   final List<String> deleteSkillCalls = [];
   int eraseAllCalls = 0;
+  Completer<void>? saveGate;
 
   @override
   Future<void> saveTake(String skill, Uint8List bytes) async {
+    if (saveGate != null) await saveGate!.future;
     _baseline.putIfAbsent(skill, () => bytes);
     _latest[skill] = bytes;
   }
@@ -177,6 +180,20 @@ void main() {
       // brand-new key — the old ciphertext no longer decrypts under it.
       final afterErase = EncryptedVoiceTakeStore(raw, keyStorage: keyStorage);
       expect(await afterErase.takesFor('a'), isNull);
+    });
+
+    test('#430: a saveTake started before eraseAll does not recreate files',
+        () async {
+      await store.saveTake('a', _b([1]));
+      raw.saveGate = Completer<void>();
+      final pending = store.saveTake('a', _b([2]));
+      await Future<void>.delayed(Duration.zero);
+      await store.eraseAll();
+      raw.saveGate!.complete();
+      await pending;
+
+      expect(raw.peekBaseline('a'), isNull);
+      expect(await store.takesFor('a'), isNull);
     });
 
     test('deleteSkill forwards to the inner store', () async {
