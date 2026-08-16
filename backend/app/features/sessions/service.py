@@ -258,6 +258,8 @@ class SessionService:
         if session.ended_at is not None:
             return
         session.last_activity_at = now
+        if minutes > 0:
+            session.duration_minutes = (session.duration_minutes or 0.0) + minutes
         if user is not None:
             if minutes > 0:
                 quota.record_usage(user, minutes, today)
@@ -276,9 +278,9 @@ class SessionService:
         last recorded activity."""
         residual = elapsed_minutes(_as_utc(session.last_activity_at), now, cap=self._turn_meter_cap)
         session.ended_at = now
-        session.duration_minutes = max(
-            0.0, (now - _as_utc(session.started_at)).total_seconds() / 60.0
-        )
+        # #432: duration_minutes is metered practice time (same definition as
+        # quota), not wall-clock. A 25 min idle session with one turn is ~5 min.
+        session.duration_minutes = (session.duration_minutes or 0.0) + residual
         if user is not None and residual > 0:
             quota.record_usage(user, residual, now.date())
 

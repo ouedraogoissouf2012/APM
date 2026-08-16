@@ -293,6 +293,19 @@ async def test_end_computes_server_side_duration_and_records_usage():
 
 
 @pytest.mark.asyncio
+async def test_end_duration_matches_metered_minutes_not_wall_clock():
+    # #432: 25 min idle with no turns bills the cap (5), not 25.
+    service, user = await _service_with_user()
+    started = await service.start(user.id, "free", None)
+    past = datetime.now(UTC) - timedelta(minutes=25)
+    started.started_at = past
+    started.last_activity_at = past
+    ended = await service.end(started.id, user.id)
+    assert ended.duration_minutes == pytest.approx(5.0, abs=0.2)
+    assert user.minutes_used_today == pytest.approx(5.0, abs=0.2)
+
+
+@pytest.mark.asyncio
 async def test_end_is_idempotent_and_does_not_double_count():
     service, user = await _service_with_user()
     started = await service.start(user.id, "free", None)
