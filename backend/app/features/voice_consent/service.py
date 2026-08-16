@@ -33,5 +33,19 @@ class VoiceConsentService:
     async def may_transcribe(self, user_id: int) -> bool:
         """Whether the learner currently allows server-side transcription. A
         missing record means the protective default (transcription on)."""
+        transcription, _ = await self.transcription_and_scoring(user_id)
+        return transcription
+
+    async def may_score(self, user_id: int) -> bool:
+        """Whether the learner currently allows pronunciation/GOP scoring (#419).
+        A missing record means the protective default (scoring off)."""
+        _, scoring = await self.transcription_and_scoring(user_id)
+        return scoring
+
+    async def transcription_and_scoring(self, user_id: int) -> tuple[bool, bool]:
+        """One read for both flags so a request that needs both does not hit
+        the consent row twice (#419). Missing record = protective defaults."""
         consent = await self._consents.get_by_user_id(user_id)
-        return consent.transcription if consent is not None else True
+        if consent is None:
+            return True, False
+        return consent.transcription, consent.scoring

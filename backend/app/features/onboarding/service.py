@@ -10,6 +10,7 @@ no new estimation logic. The placement is optional — a learner who skips it ju
 keeps the A1 default and their level self-adjusts through later debriefs.
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from app.core.llm.messages import ROLE_USER
@@ -20,6 +21,8 @@ from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.domain import VALID_CEFR
 from app.features.profile.repository import ProfileRepository
 from app.features.profile.service import ProfileService
+
+IoBoundaryHook = Callable[[], Awaitable[None]]
 
 # Bounds so a placement submission cannot bloat the profile or the analyzer call.
 _MAX_ANSWERS = 6
@@ -40,10 +43,12 @@ class OnboardingService:
         analyzer: DebriefAnalyzer,
         profiles: ProfileRepository,
         users: UserRepository,
+        io_boundary: IoBoundaryHook | None = None,
     ) -> None:
         self._analyzer = analyzer
         self._profiles = profiles
         self._users = users
+        self._io_boundary = io_boundary
 
     async def place(
         self,
@@ -56,16 +61,28 @@ class OnboardingService:
         the profile with interests/goal. The level is SET (not nudged): this is the
         starting point, not an adjustment. With no usable spoken answer the level
         is left at the account default (self-adjusts later via debriefs)."""
+        # Snapshot already-loaded columns before any connection release (#415):
+        # expunge detaches `user`, so later writes must re-load by id.
+        user_id = user.id
+        native_language = user.native_language
+        fallback_cefr = user.cefr_level
         clean_answers = [a.strip()[:_MAX_ANSWER_CHARS] for a in answers[:_MAX_ANSWERS] if a.strip()]
 
         if clean_answers:
+            # Analyzer is the long external I/O. Release first so the pool
+            # connection isn't held idle across the LLM call.
+            if self._io_boundary is not None:
+                await self._io_boundary()
             turns = [{"role": ROLE_USER, "content": a} for a in clean_answers]
             result = await self._analyzer.analyze(
-                turns, user.native_language, fallback_cefr=user.cefr_level
+                turns, native_language, fallback_cefr=fallback_cefr
             )
-            cefr = result.cefr_estimate if result.cefr_estimate in VALID_CEFR else user.cefr_level
+            cefr = result.cefr_estimate if result.cefr_estimate in VALID_CEFR else fallback_cefr
+            persisted = await self._users.get_by_id(user_id)
+            if persisted is not None:
+                user = persisted
         else:
-            cefr = user.cefr_level
+            cefr = fallback_cefr
 
         user.cefr_level = cefr
         await self._users.save(user)

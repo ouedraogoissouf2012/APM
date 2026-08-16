@@ -91,3 +91,16 @@ async def test_may_transcribe_reflects_revocation():
     service = _service()
     await service.update(1, {"transcription": False})
     assert await service.may_transcribe(1) is False
+
+
+@pytest.mark.asyncio
+async def test_may_score_defaults_false_without_a_record():
+    service = _service()
+    assert await service.may_score(999) is False
+
+
+@pytest.mark.asyncio
+async def test_may_score_reflects_opt_in():
+    service = _service()
+    await service.update(1, {"scoring": True})
+    assert await service.may_score(1) is True

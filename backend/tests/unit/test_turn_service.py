@@ -282,6 +282,32 @@ async def test_take_turn_meters_on_the_fresh_scope_not_the_request_meter():
 
 
 @pytest.mark.asyncio
+async def test_take_turn_swallows_fresh_meter_failure_and_logs_it(caplog):
+    # #418: a broken fresh-session meter must not fail the turn (transcript is
+    # already saved) but the best-effort failure must stay observable.
+    events: list[str] = []
+    fresh_transcripts = _RecordingTranscripts(events, "fresh")
+
+    async def _exploding_meter(session_id: int, user_id: int) -> None:
+        raise RuntimeError("fresh meter exploded")
+
+    service = ConversationTurnService(
+        _FakeSessions(owner_id=7),
+        _FakeTranscripts(),
+        _FakeProfiles(),
+        _CannedLlm(),
+        io_boundary=_io_boundary(events),
+        persistence=_fresh_scope(fresh_transcripts, events, meter=_exploding_meter),
+    )
+
+    result = await service.take_turn(1, _user(), "hello")
+
+    assert result.reply  # turn still succeeded
+    assert fresh_transcripts.saved is not None
+    assert any("Per-turn quota metering failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_stream_turn_releases_connection_before_llm_then_persists_on_fresh_scope():
     # #399, streaming path: same guarantee as take_turn — release, stream the LLM,
     # then persist the full reply on a fresh scope.

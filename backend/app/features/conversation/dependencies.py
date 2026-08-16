@@ -10,7 +10,7 @@ from app.core.llm.factory import build_feature_llm
 from app.core.llm.interfaces import SttProvider, TtsProvider
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
-from app.database import get_db, release_request_connection
+from app.database import bind_io_boundary, get_db
 from app.domain.exceptions import NotFoundError
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.correction import TurnCorrector
@@ -123,13 +123,10 @@ def _release_request_connection(db: AsyncSession) -> Callable[[], Awaitable[None
     """The I/O-boundary hook that hands the request's DB connection back to the pool
     before the LLM/TTS I/O (#399). Binds `db` into a no-arg callable so the turn
     service (which knows nothing of AsyncSession) can invoke it. See
-    release_request_connection for why it detaches ORM objects before releasing —
-    notably the authenticated User, whose columns the corrector reads afterwards."""
-
-    async def _release() -> None:
-        await release_request_connection(db)
-
-    return _release
+    bind_io_boundary / release_request_connection for why it detaches ORM objects
+    before releasing — notably the authenticated User, whose columns the corrector
+    reads afterwards."""
+    return bind_io_boundary(db)
 
 
 def get_conversation_turn_service(

@@ -89,3 +89,27 @@ async def test_get_rejects_another_users_mission():
 async def test_get_missing_mission_raises_not_found():
     with pytest.raises(NotFoundError):
         await _service(_FakeMissionRepo()).get(999, _user(1))
+
+
+@pytest.mark.asyncio
+async def test_create_releases_connection_before_compile():
+    events: list[str] = []
+
+    class _OrderLlm:
+        async def complete(self, system_prompt, history):
+            events.append("compile")
+            return (
+                '{"persona": "A recruiter", "goal": "Introduce yourself", '
+                '"likely_questions": ["Tell me about yourself"]}'
+            )
+
+    async def _release() -> None:
+        events.append("release")
+
+    service = MissionService(
+        missions=_FakeMissionRepo(),
+        compiler=MissionCompiler(_OrderLlm()),
+        io_boundary=_release,
+    )
+    await service.create(_user(), "offer", "Backend engineer offer")
+    assert events == ["release", "compile"]

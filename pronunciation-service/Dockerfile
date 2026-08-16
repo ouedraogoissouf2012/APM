@@ -10,16 +10,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# uv for reproducible installs (same tool as the main backend).
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# uv for reproducible installs (same tool as the main backend). Pin the image
+# tag — `:latest` would silently change the resolver across rebuilds (#417).
+COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /uvx /bin/
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 # Install core + the `ml` extra (torch CPU + transformers + librosa + phonemizer).
-# torch from the CPU index keeps the image smaller; the rest from PyPI. Single
-# source of truth for versions = pyproject/uv.lock (no duplicated dep list).
+# `uv sync --frozen` honours uv.lock (and UV_TORCH_BACKEND=cpu). `uv pip install
+# ".[ml]"` would re-resolve and ignore the lock (#417).
 ENV UV_TORCH_BACKEND=cpu
-RUN uv pip install --system ".[ml]"
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV PATH="/app/.venv/bin:$PATH"
+RUN uv sync --frozen --extra ml --no-dev
 
 COPY src ./src
 ENV PYTHONPATH=/app/src

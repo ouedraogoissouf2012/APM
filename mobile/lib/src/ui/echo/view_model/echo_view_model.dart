@@ -6,6 +6,7 @@ import '../../../core/network/providers.dart';
 import '../../../core/observability/ref_report_error.dart';
 import '../../../data/models/echo.dart';
 import '../../../data/repositories/echo_repository.dart';
+import '../../privacy/view_model/voice_privacy_view_model.dart';
 import 'echo_state.dart';
 
 final echoRepositoryProvider = Provider<EchoRepository>(
@@ -145,6 +146,14 @@ class EchoViewModel extends Notifier<EchoState> {
       if (!ref.mounted) return;
       if (bytes == null || bytes.isEmpty) {
         state = state.copyWith(phase: EchoPhase.idle);
+        return;
+      }
+      // #419: don't upload if transcription consent is off. Server also 403s;
+      // checking here keeps the audio on-device.
+      final consent = await ref.read(voiceConsentProvider.future);
+      if (!ref.mounted) return;
+      if (!consent.transcription) {
+        _fail('Transcription consent has been revoked');
         return;
       }
       state = state.copyWith(

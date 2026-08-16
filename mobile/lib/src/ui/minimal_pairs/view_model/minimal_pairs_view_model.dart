@@ -8,6 +8,7 @@ import '../../../core/network/providers.dart';
 import '../../../core/observability/ref_report_error.dart';
 import '../../../data/models/minimal_pairs.dart';
 import '../../../data/repositories/minimal_pairs_repository.dart';
+import '../../privacy/view_model/voice_privacy_view_model.dart';
 import 'minimal_pairs_state.dart';
 
 final minimalPairsRepositoryProvider = Provider<MinimalPairsRepository>(
@@ -137,6 +138,13 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
       final pair = state.pair!;
       final target = state.spokenWord!;
       final other = target == pair.wordA ? pair.wordB : pair.wordA;
+      // #419: don't upload if transcription consent is off. Server also 403s.
+      final consent = await ref.read(voiceConsentProvider.future);
+      if (!ref.mounted) return;
+      if (!consent.transcription) {
+        _fail('Transcription consent has been revoked');
+        return;
+      }
       state = state.copyWith(phase: PairPhase.scoring, myRecording: bytes);
       final attempt = await _repo.scoreAttempt(
         audioBytes: bytes,

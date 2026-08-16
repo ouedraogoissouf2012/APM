@@ -124,3 +124,42 @@ async def test_answers_are_capped_before_analysis():
 
     assert analyzer.analyzed_turns is not None
     assert len(analyzer.analyzed_turns) <= 6
+
+
+@pytest.mark.asyncio
+async def test_placement_releases_connection_before_analyzer():
+    users, profiles = InMemoryUserRepository(), InMemoryProfileRepository()
+    user = await _user(users)
+    analyzer = _StubAnalyzer("B1")
+    events: list[str] = []
+
+    async def _release() -> None:
+        events.append("release")
+
+    original_analyze = analyzer.analyze
+
+    async def _recording_analyze(*args, **kwargs):
+        events.append("analyze")
+        return await original_analyze(*args, **kwargs)
+
+    analyzer.analyze = _recording_analyze  # type: ignore[method-assign]
+    service = OnboardingService(
+        analyzer=analyzer, profiles=profiles, users=users, io_boundary=_release
+    )
+    await service.place(user, answers=["hello"], interests=[], goal="")
+    assert events == ["release", "analyze"]
+
+
+@pytest.mark.asyncio
+async def test_placement_skips_release_when_there_is_no_analyzer_call():
+    users, profiles = InMemoryUserRepository(), InMemoryProfileRepository()
+    user = await _user(users)
+    events: list[str] = []
+
+    async def _release() -> None:
+        events.append("release")
+
+    service = _service(_StubAnalyzer("C2"), users, profiles)
+    service._io_boundary = _release
+    await service.place(user, answers=[], interests=["travel"], goal="fun")
+    assert events == []

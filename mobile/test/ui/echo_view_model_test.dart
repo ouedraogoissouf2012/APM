@@ -7,9 +7,11 @@ import 'package:apm/src/core/audio/providers.dart';
 import 'package:apm/src/core/observability/crash_reporter.dart';
 import 'package:apm/src/core/observability/providers.dart';
 import 'package:apm/src/data/models/echo.dart';
+import 'package:apm/src/data/models/voice_consent.dart';
 import 'package:apm/src/data/repositories/echo_repository.dart';
 import 'package:apm/src/ui/echo/view_model/echo_state.dart';
 import 'package:apm/src/ui/echo/view_model/echo_view_model.dart';
+import 'package:apm/src/ui/privacy/view_model/voice_privacy_view_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -122,12 +124,19 @@ ProviderContainer _container({
   AudioPlaybackService? audio,
   _FakeRecorder? recorder,
   CrashReporter? crashReporter,
+  VoiceConsent consent = const VoiceConsent(
+    transcription: true,
+    scoring: false,
+    b2bShare: false,
+    modelTraining: false,
+  ),
 }) {
   final c = ProviderContainer(
     overrides: [
       echoRepositoryProvider.overrideWithValue(repo),
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
+      voiceConsentProvider.overrideWith((ref) async => consent),
       if (crashReporter != null)
         crashReporterProvider.overrideWithValue(crashReporter),
     ],
@@ -454,6 +463,34 @@ void main() {
       expect(_state(c).canReplayMine, isTrue); // recording kept for A/B
     },
   );
+
+  test('stopAndScore does not upload when transcription consent is off', () async {
+    final repo = _MockEchoRepository();
+    when(repo.nextPhrase).thenAnswer((_) async => phrase);
+    when(
+      () => repo.synthesize(any()),
+    ).thenAnswer((_) async => const AudioClip('MODELB64', 'audio/mpeg'));
+    final c = _container(
+      repo: repo,
+      consent: const VoiceConsent(
+        transcription: false,
+        scoring: false,
+        b2bShare: false,
+        modelTraining: false,
+      ),
+    );
+    await _vm(c).loadPhrase();
+    await _vm(c).record();
+    await _vm(c).stopAndScore();
+
+    verifyNever(
+      () => repo.scoreAttempt(
+        audioBytes: any(named: 'audioBytes'),
+        targetText: any(named: 'targetText'),
+      ),
+    );
+    expect(_state(c).error, contains('consent'));
+  });
 
   test('playMine replays the learner recording, not the model', () async {
     final repo = _MockEchoRepository();

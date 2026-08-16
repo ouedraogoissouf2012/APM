@@ -1,9 +1,13 @@
+from collections.abc import Awaitable, Callable
+
 from app.domain.exceptions import NotFoundError
 from app.features.auth.models import User
 from app.features.missions.compiler import MissionCompiler
 from app.features.missions.domain import SourceType
 from app.features.missions.models import Mission
 from app.features.missions.repository import MissionRepository
+
+IoBoundaryHook = Callable[[], Awaitable[None]]
 
 
 class MissionService:
@@ -14,13 +18,24 @@ class MissionService:
     every read so one learner can never load another's mission.
     """
 
-    def __init__(self, missions: MissionRepository, compiler: MissionCompiler) -> None:
+    def __init__(
+        self,
+        missions: MissionRepository,
+        compiler: MissionCompiler,
+        io_boundary: IoBoundaryHook | None = None,
+    ) -> None:
         self._missions = missions
         self._compiler = compiler
+        self._io_boundary = io_boundary
 
     async def create(
         self, user: User, source_type: SourceType, content: str, *, directive: str = ""
     ) -> Mission:
+        # #415: hand the request connection back before the compile LLM, then
+        # persist on the same session (it checkouts a short-lived connection for
+        # the write). user.id is an already-loaded column — safe after expunge.
+        if self._io_boundary is not None:
+            await self._io_boundary()
         brief = await self._compiler.compile(
             source_type=source_type, content=content, directive=directive
         )
