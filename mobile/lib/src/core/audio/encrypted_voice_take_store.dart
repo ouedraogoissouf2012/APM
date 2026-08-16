@@ -53,6 +53,8 @@ class EncryptedVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
   static const _keyStorageKey = 'voice_take_encryption_key_v1';
 
   SecretKey? _cachedKey;
+  // #430: a saveTake that started before eraseAll must not write after it.
+  int _epoch = 0;
 
   // Serialises key read-or-create against key erase. Without this, two
   // concurrent FIRST-EVER calls (e.g. takesFor for two different skills at a
@@ -76,9 +78,20 @@ class EncryptedVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
 
   @override
   Future<void> saveTake(String skill, Uint8List bytes) async {
+    // Snapshot before any await: if eraseAll commits while we encrypt or
+    // wait, we must not leave files behind (#430).
+    final epoch = _epoch;
     final key = await _keyOrCreate();
-    final box = await _algorithm.encrypt(bytes, secretKey: key, aad: _aad(skill));
+    if (_epoch != epoch) return;
+    final box = await _algorithm.encrypt(
+      bytes,
+      secretKey: key,
+      aad: _aad(skill),
+    );
+    if (_epoch != epoch) return;
     await _inner.saveTake(skill, box.concatenation());
+    // Write raced past eraseAll's delete — drop this skill again.
+    if (_epoch != epoch) await _inner.deleteSkill(skill);
   }
 
   @override
@@ -101,11 +114,14 @@ class EncryptedVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
 
   @override
   Future<void> eraseAll() async {
+    // Bump first so in-flight saveTakes abort even if they hold the lock
+    // on the subsequent write (#430).
+    _epoch++;
     await _synchronized(() async {
       _cachedKey = null;
       await _keyStorage.delete(_keyStorageKey);
+      await _inner.eraseAll();
     });
-    await _inner.eraseAll();
   }
 
   @override
@@ -125,20 +141,21 @@ class EncryptedVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
   Future<SecretKey> _keyOrCreate() {
     final cached = _cachedKey;
     if (cached != null) return Future.value(cached);
-    return _synchronized(() async {
-      // Re-check: another caller may have resolved the key while this one
-      // was waiting for the lock.
-      final cached = _cachedKey;
-      if (cached != null) return cached;
-      final stored = await _keyStorage.read(_keyStorageKey);
-      if (stored != null) {
-        return _cachedKey = SecretKey(base64Decode(stored));
-      }
-      final fresh = await _algorithm.newSecretKey();
-      final bytes = await fresh.extractBytes();
-      await _keyStorage.write(_keyStorageKey, base64Encode(bytes));
-      return _cachedKey = fresh;
-    });
+    return _synchronized(_resolveKey);
+  }
+
+  /// Assumes the caller already holds [_keyLock] (or is inside [_synchronized]).
+  Future<SecretKey> _resolveKey() async {
+    final cached = _cachedKey;
+    if (cached != null) return cached;
+    final stored = await _keyStorage.read(_keyStorageKey);
+    if (stored != null) {
+      return _cachedKey = SecretKey(base64Decode(stored));
+    }
+    final fresh = await _algorithm.newSecretKey();
+    final bytes = await fresh.extractBytes();
+    await _keyStorage.write(_keyStorageKey, base64Encode(bytes));
+    return _cachedKey = fresh;
   }
 
   Future<Uint8List?> _decryptOrNull(

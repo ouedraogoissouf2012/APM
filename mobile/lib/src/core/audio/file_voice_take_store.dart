@@ -15,6 +15,7 @@ class FileVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
 
   final Future<Directory> Function() _openDir;
   Directory? _dir;
+  int _epoch = 0;
 
   Future<Directory> _dir_() async {
     final dir = _dir ??= await _openDir();
@@ -27,12 +28,15 @@ class FileVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
 
   @override
   Future<void> saveTake(String skill, Uint8List bytes) async {
+    final epoch = _epoch;
     final dir = await _dir_();
+    if (_epoch != epoch) return;
     final baseline = _baseline(dir, skill);
     // The FIRST take becomes the baseline (written once); every take updates latest.
     if (!await baseline.exists()) {
       await baseline.writeAsBytes(bytes, flush: true);
     }
+    if (_epoch != epoch) return;
     await _latest(dir, skill).writeAsBytes(bytes, flush: true);
   }
 
@@ -52,6 +56,9 @@ class FileVoiceTakeStore implements VoiceTakeStore, SkillEnumerator {
 
   @override
   Future<void> eraseAll() async {
+    // #430: bump first so an in-flight saveTake aborts instead of recreating
+    // the directory after this delete.
+    _epoch++;
     // Delete the whole takes directory (raw WAV files) — #219. Don't create it
     // first: resolve the handle and remove it only if it exists; a later saveTake
     // recreates it lazily via _dir_().
