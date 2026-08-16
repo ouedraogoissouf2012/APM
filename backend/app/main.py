@@ -191,6 +191,36 @@ for _router in _ROUTERS:
     app.include_router(_router)
 
 
+@app.get("/health/live", tags=["meta"])
+async def health_live() -> JSONResponse:
+    """Liveness: the process is up. No dependency checks (#447)."""
+    return JSONResponse(content={"status": "ok"})
+
+
+@app.get("/health/ready", tags=["meta"])
+async def health_ready(db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    """Readiness: DB (and Redis when configured) accept connections (#447)."""
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception:
+        logging.getLogger("apm").warning("Ready check failed: DB unreachable", exc_info=True)
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
+    settings = get_settings()
+    if settings.redis_url.strip():
+        try:
+            from redis.asyncio import Redis
+
+            client = Redis.from_url(settings.redis_url)
+            try:
+                await client.ping()
+            finally:
+                await client.aclose()
+        except Exception:
+            logging.getLogger("apm").warning("Ready check failed: Redis unreachable", exc_info=True)
+            return JSONResponse(status_code=503, content={"status": "unavailable"})
+    return JSONResponse(content={"status": "ok"})
+
+
 @app.get("/health", tags=["meta"])
 async def health(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     """Readiness check that actually pings the DB (#235): an instance whose database
