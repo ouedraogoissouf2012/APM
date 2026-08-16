@@ -39,6 +39,16 @@ class AuthResult:
     refresh_token: str
 
 
+def _is_inactive(user: User | None) -> bool:
+    """True iff the account exists and has been deactivated (#416).
+
+    The is_active invariant is enforced here so login / refresh /
+    get_authenticated_user cannot drift. None (never persisted) and True both
+    count as active — matching the documented model default.
+    """
+    return user is not None and user.is_active is False
+
+
 def normalize_email(email: str) -> str:
     """Canonical form for BOTH storage and lookup: trimmed + lowercased (#220).
 
@@ -106,7 +116,11 @@ class AuthService:
         # leaks email existence — exactly what #239's stable dummy hash exists to close.
         # Verifying the dummy hash makes the miss cost the same one argon2 op.
         password_ok = await verify_password(password, hashed_password)
-        if user is None or not password_ok:
+        # #416: a deactivated account must not receive tokens. Folded into the same
+        # InvalidCredentialsError as a miss / wrong password so login does not
+        # reveal "this email is banned". Evaluated AFTER the argon2 verify so the
+        # banned-and-correct-password path costs the same as any other real user.
+        if user is None or not password_ok or _is_inactive(user):
             raise InvalidCredentialsError("Invalid credentials")
         return await self._issue_tokens(user)
 
@@ -142,7 +156,7 @@ class AuthService:
             if expires_at <= now:
                 raise InvalidRefreshTokenError("Refresh token expired")
             user = await self._users.get_by_id(record.user_id)
-            if user is None or user.is_active is False:
+            if user is None or _is_inactive(user):
                 raise InvalidRefreshTokenError("Invalid refresh token")
 
             # Single transaction: lock old token, revoke it, create replacement, commit.
@@ -167,7 +181,7 @@ class AuthService:
         user = await self._users.get_by_id(int(subject))
         if user is None:
             raise AuthenticationError("User not found")
-        if user.is_active is False:  # None (never persisted) / True both count as active
+        if _is_inactive(user):  # None (never persisted) / True both count as active
             raise AuthenticationError("Account is deactivated")
         return user
 

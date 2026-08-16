@@ -9,7 +9,7 @@ from app.core.llm.interfaces import (
 )
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
-from app.database import get_db
+from app.database import bind_io_boundary, get_db
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.fake_llm import FakeDebriefLlm
@@ -51,4 +51,5 @@ def get_onboarding_service(db: AsyncSession = Depends(get_db)) -> OnboardingServ
         ),
         profiles=SqlAlchemyProfileRepository(db),
         users=SqlAlchemyUserRepository(db),
+        io_boundary=bind_io_boundary(db) if db is not None else None,
     )

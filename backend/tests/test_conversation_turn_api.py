@@ -9,12 +9,14 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 from fastapi import Depends
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.llm.providers.fakes import FakeLlm
 from app.core.rate_limit import InMemoryRateLimiter, user_rate_limit_key
 from app.database import get_db
+from app.features.auth.models import User
 from app.features.conversation.correction import TurnCorrection
 from app.features.conversation.dependencies import (
     get_conversation_rate_limiter,
@@ -23,6 +25,7 @@ from app.features.conversation.dependencies import (
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.conversation.turn_service import ConversationTurnService
 from app.features.profile.repository import SqlAlchemyProfileRepository
+from app.features.sessions.models import ConversationSession
 from app.features.sessions.repository import SqlAlchemySessionRepository
 from app.main import app
 
@@ -69,6 +72,39 @@ async def test_turn_returns_reply_and_persists_transcript(client):
     )
     assert second.status_code == 200
     assert second.json()["reply"] == "You said: how are you"
+
+
+@pytest.mark.asyncio
+async def test_turn_meters_quota_and_streak_on_fresh_session(client, db_session):
+    """#418: POST /turn through the real DI (fresh-session meter) must advance
+    quota + streak. Existing /turn tests only assert the transcript, which is
+    saved BEFORE the meter and independently of it."""
+    email = "meter-fresh@b.com"
+    headers = await _auth_header(client, email=email)
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+
+    past = datetime.now(UTC) - timedelta(minutes=2)
+    await db_session.execute(
+        update(ConversationSession)
+        .where(ConversationSession.id == session_id)
+        .values(last_activity_at=past)
+    )
+    await db_session.commit()
+
+    resp = await client.post(
+        f"/sessions/{session_id}/turn", headers=headers, json={"text": "hello"}
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    user = await db_session.scalar(select(User).where(User.email == email))
+    session = await db_session.get(ConversationSession, session_id)
+    assert user is not None and session is not None
+    assert user.minutes_used_today == pytest.approx(2.0, abs=0.2)
+    assert user.current_streak == 1
+    assert user.last_active_date == datetime.now(UTC).date()
+    assert session.last_activity_at > past
 
 
 @pytest.mark.asyncio
