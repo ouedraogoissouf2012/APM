@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends
 
-from app.domain.exceptions import NotFoundError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.proof.dependencies import get_proof_service
@@ -17,12 +16,12 @@ async def get_proof(
     service: ProofService = Depends(get_proof_service),
 ) -> ProofOut:
     """Before/after proof for a skill (scenario): the factual delta between the
-    learner's first and latest session on it. 404 when there aren't yet two
-    sessions to compare — the client shows a 'keep practising' state, not a
-    fabricated result."""
+    learner's first and latest session on it. 200 + insufficient_data when there
+    aren't yet two sessions to compare (#443) — 404 is reserved for a missing
+    resource, not an empty state."""
     proof = await service.proof(current_user.id, skill)
     if proof is None:
-        raise NotFoundError("Not enough sessions on this skill yet")
+        return ProofOut(skill=skill, insufficient_data=True)
     return ProofOut(
         skill=proof.skill,
         baseline_session_id=proof.baseline_session_id,

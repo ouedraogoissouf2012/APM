@@ -3,12 +3,14 @@ from pydantic import BaseModel
 
 class ProofOut(BaseModel):
     skill: str
-    baseline_session_id: int
-    latest_session_id: int
-    baseline_started_at: str
-    latest_started_at: str
-    baseline_cefr: str
-    latest_cefr: str
+    # #443: not enough sessions is a 200 empty state, not a 404.
+    insufficient_data: bool = False
+    baseline_session_id: int | None = None
+    latest_session_id: int | None = None
+    baseline_started_at: str | None = None
+    latest_started_at: str | None = None
+    baseline_cefr: str | None = None
+    latest_cefr: str | None = None
     # Learner-turn counts at each end, so the client can show the comparison's basis
     # (a shorter session isn't spun as progress — the deltas below are per-turn).
     baseline_turns: int

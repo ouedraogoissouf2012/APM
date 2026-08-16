@@ -13,9 +13,10 @@ class ProofRepository {
   Future<Proof?> forSkill(String skill) async {
     try {
       final json = await _api.getJson('/me/proof/$skill');
+      if (json['insufficient_data'] == true) return null;
       return Proof.fromJson(json);
     } on ApiException catch (e) {
-      if (e.statusCode == 404) return null; // not enough sessions yet
+      if (e.statusCode == 404) return null;
       rethrow;
     }
   }
