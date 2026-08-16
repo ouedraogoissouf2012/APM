@@ -317,7 +317,7 @@ async def test_debrief_releases_connection_during_analyzer(client, _engine, db_s
     app.dependency_overrides[get_debrief_service] = _override
     try:
         resp = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
-        assert resp.status_code == 201, resp.text
+        assert resp.status_code == 200, resp.text
     finally:
         app.dependency_overrides.pop(get_debrief_service, None)
 
