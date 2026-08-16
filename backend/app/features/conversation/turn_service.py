@@ -10,19 +10,23 @@ learner's utterance is computed in parallel and streamed last. No LiveKit.
 
 import asyncio
 import base64
-import contextlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.core import metrics
 from app.core.llm.interfaces import LlmProvider, TtsProvider
-from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER, Message
+from app.core.llm.messages import ROLE_USER, Message
 from app.domain.exceptions import ConflictError
 from app.features.auth.models import User
 from app.features.conversation.correction import TurnCorrection, TurnCorrector
+from app.features.conversation.persist import (
+    PersistenceScopeFactory,
+    TurnPersistence,
+    null_persistence,
+    persist_turn,
+)
 from app.features.conversation.prompt import PromptContext, build_system_prompt
 from app.features.conversation.repository import TranscriptRepository
 from app.features.missions.repository import MissionRepository
@@ -30,29 +34,9 @@ from app.features.profile.repository import ProfileRepository
 from app.features.sessions.models import ConversationSession
 from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
-from app.features.sessions.service import clamp_practiced_at
 
-
-@dataclass(frozen=True)
-class TurnPersistence:
-    """A fresh, short-lived unit of work for the TERMINAL write of a turn (#399).
-
-    The hot conversation paths (take_turn, stream_prepared) hold no DB connection
-    across the multi-second LLM/TTS I/O: the request's connection is released at the
-    I/O boundary, and the transcript save + quota meter run afterwards against a
-    FRESH connection opened here. Bundles the transcript repository and the meter so
-    both write on the SAME fresh session (one connection, not two)."""
-
-    transcripts: TranscriptRepository
-    meter: Callable[[int, int], Awaitable[None]] | None
-
-
-# A factory that opens a fresh, short-lived persistence scope for the terminal
-# write. Injected (DIP) so the service never touches an AsyncSession directly and
-# stays unit-testable with an in-memory fake. None => reuse the request-scoped
-# repositories passed to the constructor (the pre-#399 behaviour, kept for callers
-# — and unit tests — that don't need connection release).
-PersistenceScopeFactory = Callable[[], AbstractAsyncContextManager[TurnPersistence]]
+# Re-export so existing importers (dependencies, tests) keep working (#448).
+__all__ = ["ConversationTurnService", "TurnPersistence", "PersistenceScopeFactory"]
 
 # Called once per turn at the boundary between the DB reads (prepare) and the
 # external I/O (LLM/TTS), to RELEASE the request's DB connection back to the pool
@@ -413,7 +397,7 @@ class ConversationTurnService:
         don't need connection release. Either way the caller writes inside `async with`."""
         if self._persistence is not None:
             return self._persistence()
-        return _null_persistence(TurnPersistence(self._transcripts, self._meter))
+        return null_persistence(TurnPersistence(self._transcripts, self._meter))
 
     async def _release_connection_for_io(self) -> None:
         """Release the request's DB connection back to the pool before external I/O
@@ -424,7 +408,7 @@ class ConversationTurnService:
 
     async def _persist(
         self,
-        scope: "TurnPersistence",
+        scope: TurnPersistence,
         session_id: int,
         user: User,
         turns: list[dict],
@@ -432,42 +416,13 @@ class ConversationTurnService:
         reply: str,
         practiced_at: datetime | None = None,
     ) -> list[dict]:
-        turns = [
-            *turns,
-            {"role": ROLE_USER, "content": text},
-            {"role": ROLE_ASSISTANT, "content": reply},
-        ]
-        # Bound the PERSISTED transcript (#364): this exchange is always kept even
-        # if `turns` was already at the cap; the oldest messages age out instead.
-        if self._transcript_max_messages > 0 and len(turns) > self._transcript_max_messages:
-            turns = turns[-self._transcript_max_messages :]
-        # #399: write on the fresh persistence scope (own short-lived connection),
-        # not the request repo whose connection was handed back at the I/O boundary.
-        # #438: flush the transcript, then let the meter commit both on the
-        # same fresh session. If the meter is missing or blows up, still commit
-        # the transcript so the turn is not lost.
-        await scope.transcripts.save(session_id, turns, commit=False)
-        if scope.meter is not None:
-            try:
-                now = clamp_practiced_at(practiced_at)
-                try:
-                    await scope.meter(session_id, user.id, now=now)  # type: ignore[call-arg]
-                except TypeError:
-                    await scope.meter(session_id, user.id)
-            except Exception:
-                metrics.inc(metrics.METER_FAILURES)
-                logging.getLogger(__name__).warning(
-                    "Per-turn quota metering failed for session %s", session_id, exc_info=True
-                )
-                await scope.transcripts.commit()
-        else:
-            await scope.transcripts.commit()
-        return turns
-
-
-@contextlib.asynccontextmanager
-async def _null_persistence(scope: TurnPersistence) -> AsyncIterator[TurnPersistence]:
-    """Wrap already-constructed request-scoped repositories as a persistence scope
-    with no setup/teardown — so _persist has a single, uniform `async with` path
-    whether or not a fresh-connection factory is injected."""
-    yield scope
+        return await persist_turn(
+            scope,
+            session_id,
+            user,
+            turns,
+            text,
+            reply,
+            practiced_at=practiced_at,
+            transcript_max_messages=self._transcript_max_messages,
+        )
