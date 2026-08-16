@@ -87,9 +87,7 @@ class _PoolProbingAnalyzer:
         return DebriefResult(cefr_estimate="B1", summary="", errors=[])
 
 
-_PHRASE_JSON = json.dumps(
-    {"text": "The ship is sinking.", "focus": "ship_sheep", "tip": "short i"}
-)
+_PHRASE_JSON = json.dumps({"text": "The ship is sinking.", "focus": "ship_sheep", "tip": "short i"})
 _COACH_JSON = json.dumps({"coaching": "Say ship with a short i."})
 _MISSION_JSON = json.dumps(
     {
