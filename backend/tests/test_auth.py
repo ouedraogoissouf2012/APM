@@ -314,3 +314,24 @@ async def test_change_password_rate_limit_is_keyed_by_user_id_not_token_or_ip(cl
     )
     headers2 = {"Authorization": f"Bearer {reg2.json()['access_token']}"}
     assert (await client.post("/auth/password", json=attempt, headers=headers2)).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_forgot_password_always_200_and_never_echoes_token(client):
+    await client.post("/auth/register", json={"email": "rst@b.com", "password": "s3cret!pass"})
+    known = await client.post("/auth/forgot-password", json={"email": "rst@b.com"})
+    unknown = await client.post("/auth/forgot-password", json={"email": "ghost@b.com"})
+    assert known.status_code == 200, known.text
+    assert unknown.status_code == 200, unknown.text
+    assert "token" not in known.json()
+    assert "token" not in unknown.json()
+    assert known.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_reset_password_rejects_a_garbage_token(client):
+    resp = await client.post(
+        "/auth/reset-password",
+        json={"token": "not-a-real-token-xx", "new_password": "n3w!password"},
+    )
+    assert resp.status_code == 401, resp.text

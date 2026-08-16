@@ -4,7 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -244,11 +244,21 @@ async def health(db: AsyncSession = Depends(get_db)) -> JSONResponse:
 
 
 @app.get("/metrics", tags=["meta"])
-async def metrics_snapshot() -> dict[str, int]:
-    """In-process counters for best-effort failures (#435)."""
+async def metrics_snapshot(request: Request) -> JSONResponse:
+    """In-process counters for best-effort failures (#435).
+
+    Open in dev/test. Staging/production require X-Metrics-Token == METRICS_TOKEN
+    (404 otherwise — do not advertise the route).
+    """
     from app.core import metrics
 
-    return metrics.snapshot()
+    settings = get_settings()
+    if settings.app_env in ("staging", "production"):
+        expected = settings.metrics_token.strip()
+        got = request.headers.get("x-metrics-token", "")
+        if not expected or got != expected:
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return JSONResponse(content=metrics.snapshot())
 
 
 @app.get("/config", tags=["meta"])

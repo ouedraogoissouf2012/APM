@@ -259,4 +259,31 @@ void main() {
     expect(storage.access, isNull);
     expect(storage.refresh, isNull);
   });
+
+  test('requestPasswordReset posts /auth/forgot-password', () async {
+    when(
+      () => api.postJson('/auth/forgot-password', body: any(named: 'body')),
+    ).thenAnswer((_) async => {'status': 'ok'});
+
+    await repo.requestPasswordReset(email: 'a@b.com');
+
+    verify(
+      () => api.postJson('/auth/forgot-password', body: {'email': 'a@b.com'}),
+    ).called(1);
+  });
+
+  test('resetPassword posts /auth/reset-password', () async {
+    when(
+      () => api.postJson('/auth/reset-password', body: any(named: 'body')),
+    ).thenAnswer((_) async => {});
+
+    await repo.resetPassword(token: 'tok', newPassword: 'n3w!password');
+
+    verify(
+      () => api.postJson(
+        '/auth/reset-password',
+        body: {'token': 'tok', 'new_password': 'n3w!password'},
+      ),
+    ).called(1);
+  });
 }
