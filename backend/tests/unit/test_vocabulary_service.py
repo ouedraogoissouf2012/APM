@@ -107,6 +107,17 @@ async def test_reseeing_a_word_updates_not_duplicates():
 
 
 @pytest.mark.asyncio
+async def test_capture_normalizes_case_so_hello_and_Hello_are_one_card():
+    # #441: unique (user, word) is case-sensitive at the DB; canonicalize.
+    service, repo = _service()
+    await service.capture(1, 1, [VocabularyWord(word="Hello")])
+    await service.capture(1, 2, [VocabularyWord(word="hello")])
+    entries = await service.list_notebook(1)
+    assert len(entries) == 1
+    assert entries[0].word == "hello"
+
+
+@pytest.mark.asyncio
 async def test_mark_known_and_review():
     service, repo = _service()
     await service.capture(1, 1, [VocabularyWord(word="handle")])
