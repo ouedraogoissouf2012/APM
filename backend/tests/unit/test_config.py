@@ -98,6 +98,19 @@ def test_production_rejects_gop_engine_without_service_url():
         )
 
 
+def test_production_rejects_gop_engine_without_service_secret():
+    with pytest.raises(ValidationError, match="GOP_SERVICE_SECRET is required"):
+        _settings(
+            app_env="production",
+            jwt_secret="a-secure-production-secret-32-bytes",
+            cors_allow_origins="https://app.example.com",
+            redis_url="redis://prod-redis:6379/0",
+            pronunciation_engine="gop",
+            gop_service_url="http://pronunciation:8100",
+            gop_service_secret="",
+        )
+
+
 def test_production_allows_gop_engine_with_service_url():
     settings = _settings(
         app_env="production",
@@ -106,6 +119,7 @@ def test_production_allows_gop_engine_with_service_url():
         redis_url="redis://prod-redis:6379/0",
         pronunciation_engine="gop",
         gop_service_url="http://pronunciation:8100",
+        gop_service_secret="shared-gop-secret",
     )
 
     assert settings.pronunciation_engine == "gop"

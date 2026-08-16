@@ -13,6 +13,27 @@ from pronunciation.services.scoring_service import ScoringService
 
 router = APIRouter()
 
+_READ_CHUNK = 64 * 1024
+
+
+async def _read_bounded_audio(audio: UploadFile, max_bytes: int) -> bytes:
+    """Read the upload in chunks and 413 as soon as it exceeds `max_bytes` (#424).
+
+    `await audio.read()` would buffer the entire body first — a multi-GB POST
+    would hit disk/RAM before `to_pcm_16k_mono` could reject it.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await audio.read(_READ_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="Audio upload too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 @router.get("/health")
 def health() -> dict[str, str]:
@@ -33,7 +54,7 @@ async def score(
     it runs through the InferenceGate: off the event loop (a worker thread) and
     serialised, to keep the server responsive and the cores un-thrashed."""
     settings = get_settings()
-    data = await audio.read()
+    data = await _read_bounded_audio(audio, settings.max_audio_bytes)
 
     def _score() -> list:
         # Transcode + inference together on the worker thread: transcode (librosa)
