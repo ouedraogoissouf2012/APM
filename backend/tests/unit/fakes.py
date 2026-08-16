@@ -175,6 +175,9 @@ class InMemoryUserRepository:
         self._by_id[user.id] = user
         return user
 
+    async def get_by_reset_hash(self, token_hash: str) -> User | None:
+        return next((u for u in self._by_id.values() if u.reset_token_hash == token_hash), None)
+
     async def lock(self, user_id: int) -> User | None:
         # No real locking in memory; behaves like get_by_id.
         return self._by_id.get(user_id)

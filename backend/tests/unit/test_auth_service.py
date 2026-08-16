@@ -319,6 +319,32 @@ async def test_change_password_rolls_back_when_revoke_fails():
 
 
 @pytest.mark.asyncio
+async def test_forgot_unknown_email_returns_none():
+    service = _service()
+    assert await service.request_password_reset("ghost@b.com") is None
+
+
+@pytest.mark.asyncio
+async def test_reset_password_with_issued_token_then_old_password_fails():
+    service = _service()
+    await service.register("rst@b.com", "s3cret!pass", "fr")
+    raw = await service.request_password_reset("rst@b.com")
+    assert raw
+    await service.reset_password(raw, "n3w!password")
+    with pytest.raises(InvalidCredentialsError):
+        await service.login("rst@b.com", "s3cret!pass")
+    tokens = await service.login("rst@b.com", "n3w!password")
+    assert tokens.access_token
+
+
+@pytest.mark.asyncio
+async def test_reset_password_rejects_unknown_token():
+    service = _service()
+    with pytest.raises(InvalidCredentialsError):
+        await service.reset_password("not-a-real-token-xx", "n3w!password")
+
+
+@pytest.mark.asyncio
 async def test_change_password_wrong_old_raises():
     service = _service()
     reg = await service.register("cp2@b.com", "s3cret!pass", "fr")

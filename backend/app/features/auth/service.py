@@ -208,6 +208,40 @@ class AuthService:
             await self._refresh.rollback()
             raise
 
+    async def request_password_reset(self, email: str) -> str | None:
+        """Issue a one-hour reset token. Returns the raw token for the test/dev
+        hook; the HTTP layer never echoes it in production (#449). Unknown or
+        deactivated emails return None — the router still answers 200."""
+        user = await self._users.get_by_email(normalize_email(email))
+        if user is None or _is_inactive(user):
+            return None
+        raw = generate_refresh_token()
+        user.reset_token_hash = hash_token(raw)
+        user.reset_token_expires_at = datetime.now(UTC) + timedelta(hours=1)
+        await self._users.save(user)
+        return raw
+
+    async def reset_password(self, raw_token: str, new_password: str) -> None:
+        user = await self._users.get_by_reset_hash(hash_token(raw_token))
+        now = datetime.now(UTC)
+        if (
+            user is None
+            or user.reset_token_expires_at is None
+            or user.reset_token_expires_at < now
+            or _is_inactive(user)
+        ):
+            raise InvalidCredentialsError("Invalid reset token")
+        user.hashed_password = await hash_password(new_password)
+        user.reset_token_hash = None
+        user.reset_token_expires_at = None
+        try:
+            await self._users.save(user, commit=False)
+            await self._refresh.revoke_all_for_user(user.id, now, commit=False)
+            await self._refresh.commit()
+        except Exception:
+            await self._refresh.rollback()
+            raise
+
     async def set_active(self, user_id: int, active: bool) -> None:
         """Admin: (de)activate an account without destroying its data (#232).
         Deactivating also revokes every refresh token so existing sessions die."""

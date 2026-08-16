@@ -50,6 +50,12 @@ class User(Base):
         Integer, default=DEFAULT_WEEKLY_GOAL_MINUTES, nullable=False
     )
 
+    # One-shot password reset (#449). Hash only; raw token never stored.
+    reset_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    reset_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

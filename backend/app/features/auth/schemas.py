@@ -52,3 +52,12 @@ class ChangePasswordIn(BaseModel):
 
 class SetActiveIn(BaseModel):
     is_active: bool
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=8, max_length=1024)
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)

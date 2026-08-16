@@ -33,6 +33,8 @@ class UserRepository(Protocol):
         """
         ...
 
+    async def get_by_reset_hash(self, token_hash: str) -> User | None: ...
+
     async def lock(self, user_id: int) -> User | None:
         """Fetch the user with a row lock (SELECT ... FOR UPDATE) for atomic updates."""
         ...
@@ -71,6 +73,9 @@ class SqlAlchemyUserRepository:
         else:
             await self._session.flush()
         return user
+
+    async def get_by_reset_hash(self, token_hash: str) -> User | None:
+        return await self._session.scalar(select(User).where(User.reset_token_hash == token_hash))
 
     async def lock(self, user_id: int) -> User | None:
         result = await self._session.execute(

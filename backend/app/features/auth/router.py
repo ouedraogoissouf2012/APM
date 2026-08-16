@@ -18,10 +18,12 @@ from app.features.auth.dependencies import (
 from app.features.auth.models import User
 from app.features.auth.schemas import (
     ChangePasswordIn,
+    ForgotPasswordIn,
     LoginIn,
     LogoutIn,
     RefreshIn,
     RegisterIn,
+    ResetPasswordIn,
     SetActiveIn,
     TokenOut,
     UserOut,
@@ -117,6 +119,33 @@ async def change_password(
     # place the "per-user, no IP" invariant lives (#356).
     await limiter.check(user_rate_limit_key("change_password", current_user.id))
     await service.change_password(current_user, payload.old_password, payload.new_password)
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    payload: ForgotPasswordIn,
+    request: Request,
+    service: AuthService = Depends(get_auth_service),
+    limiter: RateLimiter = Depends(get_login_rate_limiter),
+) -> dict[str, str]:
+    """Always 200 — does not reveal whether the email exists (#449)."""
+    await limiter.check(f"forgot:{_client_host(request)}")
+    raw = await service.request_password_reset(payload.email)
+    body: dict[str, str] = {"status": "ok"}
+    if raw is not None and get_settings().app_env == "test":
+        body["token"] = raw
+    return body
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_password(
+    payload: ResetPasswordIn,
+    request: Request,
+    service: AuthService = Depends(get_auth_service),
+    limiter: RateLimiter = Depends(get_login_rate_limiter),
+) -> None:
+    await limiter.check(f"reset:{_client_host(request)}")
+    await service.reset_password(payload.token, payload.new_password)
 
 
 @router.post("/admin/users/{user_id}/active", status_code=status.HTTP_204_NO_CONTENT)
