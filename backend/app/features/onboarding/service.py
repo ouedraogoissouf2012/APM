@@ -85,7 +85,9 @@ class OnboardingService:
             cefr = fallback_cefr
 
         user.cefr_level = cefr
-        await self._users.save(user)
+        # #440: flush CEFR then let profile.update commit both. A failed
+        # profile write must not leave a half-applied placement.
+        await self._users.save(user, commit=False)
 
         # Pre-fill the profile via its service so the same sanitisation/validation
         # applies as a manual profile edit. Goal is sanitised (it feeds prompts).
