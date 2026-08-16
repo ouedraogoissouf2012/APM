@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +7,7 @@ from app.core.http.multipart import read_bounded_audio
 from app.core.llm.interfaces import SttProvider
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
 from app.database import get_db, release_request_connection
+from app.domain.exceptions import AuthorizationError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
 from app.features.conversation.dependencies import (
@@ -49,7 +50,7 @@ async def transcribe(
     # multipart body is parsed, so the audio is never read, parsed, or spooled — it
     # is not touched at all (see read_bounded_audio, which parses on demand here).
     if not await consent.may_transcribe(current_user.id):
-        raise HTTPException(status_code=403, detail="Transcription consent has been revoked")
+        raise AuthorizationError("Transcription consent has been revoked")
 
     # Reject an oversized upload (#120) and parse fully in memory, never spooled to
     # disk (#227): spool threshold raised to the global body cap, so anything that

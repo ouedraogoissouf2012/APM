@@ -54,6 +54,10 @@ class RateLimitedError(DomainError):
     """The caller made too many requests in the allowed window."""
 
 
+class ValidationError(DomainError):
+    """A field failed a domain pre-check (missing/too long). Maps to 422 (#445)."""
+
+
 class PayloadTooLargeError(DomainError):
     """The request body exceeded the allowed maximum size (#221)."""
 

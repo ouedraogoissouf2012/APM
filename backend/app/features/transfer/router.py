@@ -1,8 +1,9 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, Path, Request
 
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
+from app.domain.exceptions import ValidationError
 from app.features.analytics.dependencies import get_analytics_service
 from app.features.analytics.service import AnalyticsService
 from app.features.auth.dependencies import get_current_user
@@ -36,7 +37,7 @@ async def create_transfer_challenge(
     Reuses the mission rate-limit (it is an LLM compilation)."""
     skill = skill.strip()
     if not skill:
-        raise HTTPException(status_code=422, detail="skill must not be blank")
+        raise ValidationError("skill must not be blank")
     await limiter.check(user_rate_limit_key("transfer", current_user.id))
     mission = await TransferService(missions).challenge(current_user, skill)
     # Product analytics (#129): a transfer challenge was started. Best-effort.
