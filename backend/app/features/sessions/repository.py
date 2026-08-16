@@ -19,7 +19,7 @@ class SessionRepository(Protocol):
     async def get_active_for_user(self, user_id: int) -> ConversationSession | None: ...
 
     async def list_recent_for_user(
-        self, user_id: int, limit: int
+        self, user_id: int, limit: int, *, before_id: int | None = None
     ) -> list[tuple[ConversationSession, str | None]]: ...
 
     async def add(self, session: ConversationSession) -> ConversationSession: ...
@@ -48,14 +48,27 @@ class SqlAlchemySessionRepository:
         )
 
     async def list_recent_for_user(
-        self, user_id: int, limit: int
+        self, user_id: int, limit: int, *, before_id: int | None = None
     ) -> list[tuple[ConversationSession, str | None]]:
-        result = await self._session.execute(
+        q = (
             select(ConversationSession, Debrief.cefr_estimate)
             .outerjoin(Debrief, Debrief.session_id == ConversationSession.id)
             .where(ConversationSession.user_id == user_id)
-            .order_by(ConversationSession.started_at.desc(), ConversationSession.id.desc())
-            .limit(limit)
+        )
+        if before_id is not None:
+            cursor = await self.get(before_id)
+            if cursor is not None and cursor.user_id == user_id:
+                q = q.where(
+                    (ConversationSession.started_at < cursor.started_at)
+                    | (
+                        (ConversationSession.started_at == cursor.started_at)
+                        & (ConversationSession.id < cursor.id)
+                    )
+                )
+        result = await self._session.execute(
+            q.order_by(ConversationSession.started_at.desc(), ConversationSession.id.desc()).limit(
+                limit
+            )
         )
         return [(session, cefr) for session, cefr in result.all()]
 

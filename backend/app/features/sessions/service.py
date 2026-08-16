@@ -282,9 +282,13 @@ class SessionService:
         if user is not None and residual > 0:
             quota.record_usage(user, residual, now.date())
 
-    async def history(self, user_id: int, limit: int | None = None) -> list[SessionHistoryItem]:
+    async def history(
+        self, user_id: int, limit: int | None = None, *, before_id: int | None = None
+    ) -> list[SessionHistoryItem]:
         page_size = limit if limit is not None else self._history_page_size
-        rows = await self._sessions.list_recent_for_user(user_id=user_id, limit=page_size)
+        rows = await self._sessions.list_recent_for_user(
+            user_id=user_id, limit=page_size, before_id=before_id
+        )
         return [
             SessionHistoryItem(
                 id=session.id,
