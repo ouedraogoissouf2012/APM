@@ -16,7 +16,11 @@ from app.core.llm.interfaces import TranscriptWord, VerboseTranscript
 from app.database import bind_io_boundary, get_db
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.dependencies import get_tts_provider
+from app.features.conversation.repository import SqlAlchemyTranscriptRepository
+from app.features.debrief.dependencies import get_debrief_service
 from app.features.debrief.domain import DebriefResult
+from app.features.debrief.repository import SqlAlchemyDebriefRepository
+from app.features.debrief.service import DebriefService
 from app.features.minimal_pairs.coach import PairCoach
 from app.features.minimal_pairs.dependencies import get_minimal_pairs_service
 from app.features.minimal_pairs.service import MinimalPairsService
@@ -27,6 +31,7 @@ from app.features.missions.service import MissionService
 from app.features.onboarding.dependencies import get_onboarding_service
 from app.features.onboarding.service import OnboardingService
 from app.features.profile.repository import SqlAlchemyProfileRepository
+from app.features.sessions.repository import SqlAlchemySessionRepository
 from app.features.shadowing.coach import ShadowingCoach
 from app.features.shadowing.dependencies import (
     get_shadowing_service,
@@ -283,3 +288,37 @@ async def test_minimal_pairs_attempt_releases_connection_during_stt(client, _eng
     assert all(n == 0 for n in observed), (
         f"connection held during pairs STT/coach (checkedout={observed})"
     )
+
+
+@pytest.mark.asyncio
+async def test_debrief_releases_connection_during_analyzer(client, _engine, db_session):
+    # #422: advisory xact lock used to pin the pool slot for the whole LLM.
+    observed: list[int] = []
+
+    def _override(db: AsyncSession = Depends(get_db)) -> DebriefService:
+        return DebriefService(
+            sessions=SqlAlchemySessionRepository(db),
+            transcripts=SqlAlchemyTranscriptRepository(db),
+            debriefs=SqlAlchemyDebriefRepository(db),
+            analyzer=_PoolProbingAnalyzer(_engine, observed),
+            profiles=SqlAlchemyProfileRepository(db),
+            users=SqlAlchemyUserRepository(db),
+            io_boundary=bind_io_boundary(db),
+        )
+
+    headers = await _auth_header(client, "release-debrief@b.com")
+    start = await client.post("/sessions/start", headers=headers, json={"mode": "free"})
+    session_id = start.json()["session_id"]
+    await SqlAlchemyTranscriptRepository(db_session).save(
+        session_id, [{"role": "user", "content": "i is happy"}]
+    )
+    await db_session.commit()
+
+    app.dependency_overrides[get_debrief_service] = _override
+    try:
+        resp = await client.post(f"/sessions/{session_id}/debrief", headers=headers)
+        assert resp.status_code == 201, resp.text
+    finally:
+        app.dependency_overrides.pop(get_debrief_service, None)
+
+    assert observed == [0], f"connection held during debrief LLM (checkedout={observed})"

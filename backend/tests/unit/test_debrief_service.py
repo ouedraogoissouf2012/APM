@@ -184,6 +184,29 @@ async def test_generate_returns_existing_debrief_without_regenerating():
 
 
 @pytest.mark.asyncio
+async def test_generate_releases_connection_before_analyzer():
+    events: list[str] = []
+
+    class _OrderLlm:
+        async def complete(self, system_prompt, history):
+            events.append("analyze")
+            return '{"cefr_estimate": "B1", "summary": "ok", "errors": []}'
+
+    async def _release() -> None:
+        events.append("release")
+
+    service = DebriefService(
+        sessions=_FakeSessions(owner_id=7),
+        transcripts=_FakeTranscripts(turns=[{"role": "user", "content": "i is happy"}]),
+        debriefs=_FakeDebriefs(),
+        analyzer=DebriefAnalyzer(_OrderLlm()),
+        io_boundary=_release,
+    )
+    await service.generate(session_id=1, user=_user())
+    assert events == ["release", "analyze"]
+
+
+@pytest.mark.asyncio
 async def test_generate_rejects_session_not_owned_by_user():
     service = _service(
         owner_id=999, turns=[{"role": "user", "content": "x"}], debriefs=_FakeDebriefs()

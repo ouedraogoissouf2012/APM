@@ -1,6 +1,7 @@
 from typing import Protocol
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistence import advisory_xact_lock
@@ -51,7 +52,16 @@ class SqlAlchemyDebriefRepository:
             existing.cefr_estimate = cefr_estimate
             existing.summary = summary
             existing.errors = errors
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError:
+            # #422: a sibling worker won the unique session_id while we were
+            # in the LLM. Recover their row instead of 500.
+            await self._session.rollback()
+            recovered = await self.get_by_session(session_id)
+            if recovered is None:
+                raise
+            return recovered
         await self._session.refresh(existing)
         return existing
 

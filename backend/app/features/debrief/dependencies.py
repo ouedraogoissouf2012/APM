@@ -9,10 +9,11 @@ from app.core.llm.interfaces import (
 )
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
-from app.database import get_db
+from app.database import bind_io_boundary, get_db
 from app.features.analytics.repository import SqlAlchemyAnalyticsCounter
 from app.features.analytics.service import AnalyticsService
 from app.features.analytics.sinks import SqlAlchemyAnalyticsSink
+from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.repository import SqlAlchemyTranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.enrichment import PostDebriefEnrichment
@@ -66,6 +67,8 @@ def get_debrief_service(db: AsyncSession = Depends(get_db)) -> DebriefService:
             max_learner_turns=settings.debrief_max_learner_turns,
         ),
         profiles=SqlAlchemyProfileRepository(db),
+        users=SqlAlchemyUserRepository(db),
+        io_boundary=bind_io_boundary(db) if db is not None else None,
         # Best-effort side-effects, run after the core debrief commit (ADR 0001).
         enrichment=PostDebriefEnrichment(
             vocabulary=VocabularyService(SqlAlchemyVocabularyRepository(db)),

@@ -1,8 +1,11 @@
+import asyncio
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from app.core.prompt_safety import strip_persistent_instructions
 from app.domain.exceptions import NotFoundError
 from app.features.auth.models import User
+from app.features.auth.repository import UserRepository
 from app.features.conversation.repository import TranscriptRepository
 from app.features.debrief.analyzer import DebriefAnalyzer
 from app.features.debrief.cefr import next_cefr_level
@@ -19,6 +22,23 @@ if TYPE_CHECKING:
 
 # How many recurring error types persist into the learner's memory summary.
 _MAX_RECURRING_FOCUS = 3
+
+IoBoundaryHook = Callable[[], Awaitable[None]]
+
+# In-process lock: serialises generate() for the same session WITHOUT holding a
+# DB connection across the LLM (#422). Multi-worker races fall through to the
+# unique constraint + IntegrityError handler.
+_generation_locks: dict[int, asyncio.Lock] = {}
+_generation_locks_mu = asyncio.Lock()
+
+
+async def _generation_lock(session_id: int) -> asyncio.Lock:
+    async with _generation_locks_mu:
+        lock = _generation_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _generation_locks[session_id] = lock
+        return lock
 
 
 class DebriefService:
@@ -38,6 +58,8 @@ class DebriefService:
         analyzer: DebriefAnalyzer,
         profiles: ProfileRepository | None = None,
         enrichment: "PostDebriefEnrichment | None" = None,
+        users: UserRepository | None = None,
+        io_boundary: IoBoundaryHook | None = None,
     ) -> None:
         self._sessions = sessions
         self._transcripts = transcripts
@@ -47,20 +69,21 @@ class DebriefService:
         # Best-effort side-effects run AFTER the core is durable (ADR 0001). Injected
         # (DIP), optional so the debrief works without any enrichment wired.
         self._enrichment = enrichment
+        self._users = users
+        self._io_boundary = io_boundary
 
     async def generate(self, session_id: int, user: User) -> Debrief:
         await get_owned_session(self._sessions, session_id, user.id)
-        # Serialise concurrent debrief requests for the SAME session (#302):
-        # without this, two concurrent calls both read `existing is None`, both
-        # run the slow/costly LLM analysis, and the second `save()` then
-        # violates debriefs.session_id's unique constraint with an uncaught
-        # IntegrityError (500). An advisory lock (see DebriefRepository) rather
-        # than a row lock on `sessions`/`users`, which start()/end() already
-        # lock in a fixed order and which this call would otherwise hold for
-        # the whole multi-second analysis. The second request blocks here until
-        # the first's save() commits (which releases the advisory lock), then
-        # the re-check below sees the persisted debrief and returns it
-        # directly, without ever calling the analyzer.
+        # #302: serialise same-session generate() in-process so the loser never
+        # starts a second LLM. Held across the analyze call on purpose — it is
+        # NOT a DB connection. #422: the request connection is released before
+        # the LLM so the pool is not starved. Multi-worker losers hit the unique
+        # constraint and return the winner's row.
+        lock = await _generation_lock(session_id)
+        async with lock:
+            return await self._generate_locked(session_id, user)
+
+    async def _generate_locked(self, session_id: int, user: User) -> Debrief:
         await self._debriefs.lock_for_session(session_id)
         existing = await self._debriefs.get_by_session(session_id)
         if existing is not None:
@@ -83,10 +106,22 @@ class DebriefService:
         # Honour the learner's correction_intensity (#114); default gentle when no
         # profile.
         intensity = profile.correction_intensity if profile is not None else "gentle"
+        # Snapshot already-loaded columns: expunge detaches `user` / `profile`.
+        user_id = user.id
+        native_language = user.native_language
+        if self._io_boundary is not None:
+            await self._io_boundary()
         result = await self._analyzer.analyze(
-            transcript.turns, native_language=user.native_language, intensity=intensity
+            transcript.turns, native_language=native_language, intensity=intensity
         )
         errors = _serialise_errors(result)
+
+        if self._users is not None:
+            persisted = await self._users.get_by_id(user_id)
+            if persisted is not None:
+                user = persisted
+        if self._profiles is not None:
+            profile = await self._profiles.get_by_user_id(user_id)
 
         debrief = await self._persist_core(session_id, user, profile, result, errors)
 
