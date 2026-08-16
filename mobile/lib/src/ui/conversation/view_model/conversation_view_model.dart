@@ -101,40 +101,54 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
         _failStart(e.message, e);
         return;
       }
-      final active = await repo.getActiveSession();
-      if (active == null) rethrow;
-      // If the learner asked for a SPECIFIC target (a mission or scenario), do NOT
-      // silently resume an unrelated active session — that swallows the mission
-      // they just launched and dumps them back in an old chat. End the active one
-      // and start the requested target. Only a target-less "just talk" resumes.
-      final wantsSpecificTarget = missionId != null || scenarioId != null;
-      if (wantsSpecificTarget) {
-        await repo.endSession(active.sessionId);
-        sessionId = await repo.startSession(
-          mode: mode,
-          scenarioId: scenarioId,
-          missionId: missionId,
-        );
-        turns = [
-          ConversationTurn(
-            kRoleAssistant,
-            ConversationScript.openingMessage(mode: mode, scenarioId: scenarioId),
-          ),
-        ];
-      } else {
-        sessionId = active.sessionId;
-        effectiveScenarioId = active.scenarioId;
-        turns = active.turns.isEmpty
-            ? [
-                ConversationTurn(
-                  kRoleAssistant,
-                  ConversationScript.openingMessage(
-                    mode: active.mode,
-                    scenarioId: active.scenarioId,
+      // A throw inside `on ApiException` is NOT caught by the sibling catch
+      // (#audit7 P2-03). Keep the 409 resume path inside its own try.
+      try {
+        final active = await repo.getActiveSession();
+        if (active == null) {
+          _failStart(e.message, e);
+          return;
+        }
+        // If the learner asked for a SPECIFIC target (a mission or scenario), do NOT
+        // silently resume an unrelated active session — that swallows the mission
+        // they just launched and dumps them back in an old chat. End the active one
+        // and start the requested target. Only a target-less "just talk" resumes.
+        final wantsSpecificTarget = missionId != null || scenarioId != null;
+        if (wantsSpecificTarget) {
+          await repo.endSession(active.sessionId);
+          sessionId = await repo.startSession(
+            mode: mode,
+            scenarioId: scenarioId,
+            missionId: missionId,
+          );
+          turns = [
+            ConversationTurn(
+              kRoleAssistant,
+              ConversationScript.openingMessage(mode: mode, scenarioId: scenarioId),
+            ),
+          ];
+        } else {
+          sessionId = active.sessionId;
+          effectiveScenarioId = active.scenarioId;
+          turns = active.turns.isEmpty
+              ? [
+                  ConversationTurn(
+                    kRoleAssistant,
+                    ConversationScript.openingMessage(
+                      mode: active.mode,
+                      scenarioId: active.scenarioId,
+                    ),
                   ),
-                ),
-              ]
-            : [for (final t in active.turns) ConversationTurn(t.role, t.content)];
+                ]
+              : [for (final t in active.turns) ConversationTurn(t.role, t.content)];
+        }
+      } catch (inner, s) {
+        _failStart(
+          inner is ApiException ? inner.message : 'Impossible de démarrer la session',
+          inner,
+          s,
+        );
+        return;
       }
     } catch (e, s) {
       _failStart('Impossible de démarrer la session', e, s);

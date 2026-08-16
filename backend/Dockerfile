@@ -13,5 +13,9 @@ COPY app ./app
 COPY alembic.ini ./
 COPY migrations ./migrations
 
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin apm \
+    && chown -R apm:apm /app
+USER apm
+
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

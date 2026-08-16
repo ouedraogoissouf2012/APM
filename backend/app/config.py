@@ -26,6 +26,10 @@ class Settings(BaseSettings):
         default="dev",
         validation_alias=AliasChoices("APP_ENV", "ENV"),
     )
+    # Echo the raw reset token in POST /auth/forgot-password. Tests set this
+    # explicitly — NEVER tie it to APP_ENV=test (a deploy with that env would
+    # leak tokens and skip production guards). Forbidden in staging/production.
+    expose_reset_token: bool = False
 
     database_url: str
     database_url_test: str = ""
@@ -217,6 +221,8 @@ class Settings(BaseSettings):
         # Staging is reachable over the network exactly like production (#231): a
         # staging instance left with the example JWT secret (public in this repo)
         # lets anyone forge access tokens. Guard both, not just "production".
+        if self.expose_reset_token and self.app_env in ("staging", "production"):
+            raise ValueError("EXPOSE_RESET_TOKEN cannot be set in staging/production")
         if self.app_env not in ("staging", "production"):
             return self
 

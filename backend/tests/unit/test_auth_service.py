@@ -253,6 +253,19 @@ async def test_change_password_requires_old_and_revokes_sessions():
 
 
 @pytest.mark.asyncio
+async def test_change_password_invalidates_an_outstanding_reset_token():
+    service = _service()
+    await service.register("rst-chg@b.com", "s3cret!pass", "fr")
+    tokens = await service.login("rst-chg@b.com", "s3cret!pass")
+    raw = await service.request_password_reset("rst-chg@b.com")
+    assert raw
+    await service.change_password(tokens.user, "s3cret!pass", "n3w!password")
+    with pytest.raises(InvalidCredentialsError):
+        await service.reset_password(raw, "another!pass")
+    await service.login("rst-chg@b.com", "n3w!password")
+
+
+@pytest.mark.asyncio
 async def test_change_password_stages_hash_and_revoke_then_one_commit():
     # #421: both writes must be uncommitted until a single commit.
     users = InMemoryUserRepository()

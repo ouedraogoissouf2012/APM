@@ -132,7 +132,7 @@ async def forgot_password(
     await limiter.check(f"forgot:{_client_host(request)}")
     raw = await service.request_password_reset(payload.email)
     body: dict[str, str] = {"status": "ok"}
-    if raw is not None and get_settings().app_env == "test":
+    if raw is not None and get_settings().expose_reset_token:
         body["token"] = raw
     return body
 
