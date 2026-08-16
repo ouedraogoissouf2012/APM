@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.engines import ENGINE_FAKE
@@ -13,7 +13,17 @@ class ConversationSession(Base):
     # match while also covering list_recent_for_user's ORDER BY started_at DESC
     # (satisfiable via a backward index scan) — replaces the old single-column
     # ix_sessions_user_id, on the model of #288 (#359).
-    __table_args__ = (Index("ix_sessions_user_id_started_at", "user_id", "started_at"),)
+    __table_args__ = (
+        Index("ix_sessions_user_id_started_at", "user_id", "started_at"),
+        # #428: "one active session per user" is otherwise only enforced in
+        # start() + User.lock. A partial unique index is the real invariant.
+        Index(
+            "uq_sessions_one_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(

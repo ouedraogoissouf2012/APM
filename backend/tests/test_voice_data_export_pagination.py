@@ -29,7 +29,9 @@ async def _user(db_session, email="vd-page@b.com") -> User:
 
 
 async def _session_with_turns(db_session, user_id, *, started_at, texts):
-    session = ConversationSession(user_id=user_id, mode="free", started_at=started_at)
+    session = ConversationSession(
+        user_id=user_id, mode="free", started_at=started_at, ended_at=started_at
+    )
     db_session.add(session)
     await db_session.flush()
     turns = []
@@ -148,7 +150,10 @@ async def test_debriefs_keyset_pagination_covers_every_row_exactly_once_in_order
     now = datetime.now(UTC)
     for i in range(5):
         session = ConversationSession(
-            user_id=user.id, mode="free", started_at=now + timedelta(seconds=i)
+            user_id=user.id,
+            mode="free",
+            started_at=now + timedelta(seconds=i),
+            ended_at=now + timedelta(seconds=i),
         )
         db_session.add(session)
         await db_session.flush()
