@@ -197,6 +197,19 @@ async def test_deactivated_user_cannot_refresh():
 
 
 @pytest.mark.asyncio
+async def test_deactivated_user_cannot_login():
+    # #416: login must refuse a deactivated account with the same error as a
+    # wrong password — and must not mint a fresh living refresh token.
+    service = _service()
+    reg = await service.register("d3@b.com", "s3cret!pass", "fr")
+    await service.set_active(reg.user.id, False)
+    tokens_before = len(service._refresh._by_hash)
+    with pytest.raises(InvalidCredentialsError):
+        await service.login("d3@b.com", "s3cret!pass")
+    assert len(service._refresh._by_hash) == tokens_before
+
+
+@pytest.mark.asyncio
 async def test_refresh_reuse_beyond_grace_revokes_the_whole_family():
     # Re-presenting a rotated token LONG after rotation is a theft replay: EVERY
     # session (incl. the attacker's freshly-rotated one) must die (#232).

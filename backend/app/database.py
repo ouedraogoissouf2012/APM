@@ -1,9 +1,11 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
+
+IoBoundaryHook = Callable[[], Awaitable[None]]
 
 
 class Base(DeclarativeBase):
@@ -52,3 +54,17 @@ async def release_request_connection(session: AsyncSession) -> None:
     already-loaded column values afterwards (never a lazy relationship)."""
     session.expunge_all()
     await session.rollback()
+
+
+def bind_io_boundary(session: AsyncSession) -> IoBoundaryHook:
+    """Bind `session` into a no-arg hook that hands its connection back to the pool.
+
+    Call after the last DB read and before a long external I/O (#399, #415). The
+    session must have no pending writes; afterwards only already-loaded column
+    values are safe to read (never a lazy relationship).
+    """
+
+    async def _release() -> None:
+        await release_request_connection(session)
+
+    return _release

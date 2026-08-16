@@ -9,7 +9,7 @@ from app.core.llm.interfaces import (
 )
 from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
-from app.database import get_db
+from app.database import bind_io_boundary, get_db
 from app.features.missions.compiler import MissionCompiler
 from app.features.missions.fake_llm import FakeMissionLlm
 from app.features.missions.repository import SqlAlchemyMissionRepository
@@ -49,4 +49,5 @@ def get_mission_service(db: AsyncSession = Depends(get_db)) -> MissionService:
     return MissionService(
         missions=SqlAlchemyMissionRepository(db),
         compiler=MissionCompiler(llm),
+        io_boundary=bind_io_boundary(db) if db is not None else None,
     )
