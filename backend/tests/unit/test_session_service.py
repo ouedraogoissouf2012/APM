@@ -398,3 +398,34 @@ async def test_end_locks_the_user_row_for_the_quota_write():
 
     assert user.id in users.locked_ids  # end() locked the user for the quota write
     assert user.id not in users.got_ids  # and did NOT read it with an unlocked get
+
+
+@pytest.mark.asyncio
+async def test_record_turn_activity_aborts_if_session_ended_after_lock():
+    # #427: /end billed the residual between our first read and the user lock.
+    users = InMemoryUserRepository()
+    sessions = InMemorySessionRepository()
+    user = await users.create(
+        User(
+            email="ended@b.com",
+            hashed_password="x",
+            native_language="fr",
+            tier="free",
+            quota_date=date.today(),
+            minutes_used_today=0.0,
+        )
+    )
+    service = SessionService(sessions, users, free_daily_minutes=10)
+    started = await service.start(user.id, "free", None)
+    past = datetime.now(UTC) - timedelta(minutes=2)
+    started.last_activity_at = past
+    orig = sessions.refresh
+
+    async def _ended_on_refresh(session):
+        session.ended_at = datetime.now(UTC)
+        await orig(session)
+
+    sessions.refresh = _ended_on_refresh  # type: ignore[method-assign]
+    await service.record_turn_activity(started.id, user.id)
+    assert user.minutes_used_today == 0.0
+    assert started.last_activity_at == past

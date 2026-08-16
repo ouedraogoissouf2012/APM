@@ -235,6 +235,11 @@ class SessionService:
         # deadlock: locking the user here first, before any session mutation,
         # keeps every path on the same USER->SESSION order.
         user = await self._users.lock(user_id)
+        # #427: same as end() (#258) — a concurrent /end may have billed the
+        # residual and set ended_at between our first read and this lock.
+        await self._sessions.refresh(session)
+        if session.ended_at is not None:
+            return
         session.last_activity_at = now
         if user is not None:
             if minutes > 0:
