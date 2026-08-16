@@ -192,8 +192,15 @@ class AuthService:
         if not await verify_password(old_password, user.hashed_password):
             raise InvalidCredentialsError("Current password is incorrect")
         user.hashed_password = await hash_password(new_password)
-        await self._users.save(user)
-        await self._refresh.revoke_all_for_user(user.id, datetime.now(UTC))
+        # #421: hash + revoke in ONE transaction. Two commits left a window
+        # where the password was new but stolen refresh tokens still worked.
+        try:
+            await self._users.save(user, commit=False)
+            await self._refresh.revoke_all_for_user(user.id, datetime.now(UTC), commit=False)
+            await self._refresh.commit()
+        except Exception:
+            await self._refresh.rollback()
+            raise
 
     async def set_active(self, user_id: int, active: bool) -> None:
         """Admin: (de)activate an account without destroying its data (#232).
@@ -202,6 +209,14 @@ class AuthService:
         if user is None:
             raise NotFoundError("User not found")
         user.is_active = active
-        await self._users.save(user)
-        if not active:
-            await self._refresh.revoke_all_for_user(user_id, datetime.now(UTC))
+        if active:
+            await self._users.save(user)
+            return
+        # #421: same atomicity as change_password — deactivate + revoke together.
+        try:
+            await self._users.save(user, commit=False)
+            await self._refresh.revoke_all_for_user(user_id, datetime.now(UTC), commit=False)
+            await self._refresh.commit()
+        except Exception:
+            await self._refresh.rollback()
+            raise

@@ -253,6 +253,72 @@ async def test_change_password_requires_old_and_revokes_sessions():
 
 
 @pytest.mark.asyncio
+async def test_change_password_stages_hash_and_revoke_then_one_commit():
+    # #421: both writes must be uncommitted until a single commit.
+    users = InMemoryUserRepository()
+    refresh = InMemoryRefreshTokenRepository()
+    save_commits: list[bool] = []
+    revoke_commits: list[bool] = []
+    commits = 0
+
+    orig_save = users.save
+
+    async def _save(user, *, commit=True):
+        save_commits.append(commit)
+        return await orig_save(user, commit=commit)
+
+    users.save = _save  # type: ignore[method-assign]
+    orig_revoke = refresh.revoke_all_for_user
+
+    async def _revoke(user_id, revoked_at, *, commit=True):
+        revoke_commits.append(commit)
+        return await orig_revoke(user_id, revoked_at, commit=commit)
+
+    refresh.revoke_all_for_user = _revoke  # type: ignore[method-assign]
+    orig_commit = refresh.commit
+
+    async def _commit():
+        nonlocal commits
+        commits += 1
+        await orig_commit()
+
+    refresh.commit = _commit  # type: ignore[method-assign]
+
+    service = AuthService(users, refresh, refresh_ttl_days=30)
+    reg = await service.register("cp-atomic@b.com", "s3cret!pass", "fr")
+    save_commits.clear()
+    revoke_commits.clear()
+    commits = 0
+    await service.change_password(reg.user, "s3cret!pass", "n3w!password")
+    assert save_commits == [False]
+    assert revoke_commits == [False]
+    assert commits == 1
+
+
+@pytest.mark.asyncio
+async def test_change_password_rolls_back_when_revoke_fails():
+    # #421: a failed revoke must not leave a committed new hash (SQL path).
+    users = InMemoryUserRepository()
+    refresh = InMemoryRefreshTokenRepository()
+    rolled_back = False
+
+    async def _explode(user_id, revoked_at, *, commit=True):
+        raise RuntimeError("revoke failed")
+
+    async def _rollback():
+        nonlocal rolled_back
+        rolled_back = True
+
+    refresh.revoke_all_for_user = _explode  # type: ignore[method-assign]
+    refresh.rollback = _rollback  # type: ignore[method-assign]
+    service = AuthService(users, refresh, refresh_ttl_days=30)
+    reg = await service.register("cp-fail@b.com", "s3cret!pass", "fr")
+    with pytest.raises(RuntimeError, match="revoke failed"):
+        await service.change_password(reg.user, "s3cret!pass", "n3w!password")
+    assert rolled_back is True
+
+
+@pytest.mark.asyncio
 async def test_change_password_wrong_old_raises():
     service = _service()
     reg = await service.register("cp2@b.com", "s3cret!pass", "fr")

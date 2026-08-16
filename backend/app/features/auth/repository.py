@@ -25,8 +25,12 @@ class UserRepository(Protocol):
 
     async def create(self, user: User) -> User: ...
 
-    async def save(self, user: User) -> User:
-        """Persist changes made to an already-loaded user aggregate."""
+    async def save(self, user: User, *, commit: bool = True) -> User:
+        """Persist changes made to an already-loaded user aggregate.
+
+        `commit=False` flushes only, so a caller can stage a user write with
+        another write (e.g. refresh-token revoke) in one transaction (#421).
+        """
         ...
 
     async def lock(self, user_id: int) -> User | None:
@@ -57,9 +61,12 @@ class SqlAlchemyUserRepository:
         await self._session.refresh(user)
         return user
 
-    async def save(self, user: User) -> User:
-        await self._session.commit()
-        await self._session.refresh(user)
+    async def save(self, user: User, *, commit: bool = True) -> User:
+        if commit:
+            await self._session.commit()
+            await self._session.refresh(user)
+        else:
+            await self._session.flush()
         return user
 
     async def lock(self, user_id: int) -> User | None:
