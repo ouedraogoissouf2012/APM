@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProofOut(BaseModel):
@@ -13,9 +13,9 @@ class ProofOut(BaseModel):
     latest_cefr: str | None = None
     # Learner-turn counts at each end, so the client can show the comparison's basis
     # (a shorter session isn't spun as progress — the deltas below are per-turn).
-    baseline_turns: int
-    latest_turns: int
+    baseline_turns: int = 0
+    latest_turns: int = 0
     # Factual, from debriefs — never an invented score.
-    resolved: list[str]  # made before, entirely gone now
-    improved: list[str]  # still made, but less often per turn
-    new_or_worse: list[str]  # appeared or more frequent per turn
+    resolved: list[str] = Field(default_factory=list)
+    improved: list[str] = Field(default_factory=list)
+    new_or_worse: list[str] = Field(default_factory=list)
