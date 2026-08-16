@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -54,13 +56,15 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen>
       if (!mounted) return;
       final params = GoRouterState.of(context).uri.queryParameters;
       final missionId = int.tryParse(params['mission'] ?? '');
-      ref
-          .read(conversationViewModelProvider.notifier)
-          .start(
-            mode: params['mode'] ?? kSessionModeFree,
-            scenarioId: params['scenario'],
-            missionId: missionId,
-          );
+      unawaited(
+        ref
+            .read(conversationViewModelProvider.notifier)
+            .start(
+              mode: params['mode'] ?? kSessionModeFree,
+              scenarioId: params['scenario'],
+              missionId: missionId,
+            ),
+      );
     });
   }
 

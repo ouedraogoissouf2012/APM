@@ -515,7 +515,7 @@ void main() {
     verifyNever(() => repo.getActiveSession());
   });
 
-  test('start rethrows non-quota, non-409 errors (e.g. 500)', () async {
+  test('#437: start surfaces a 500 as state.error instead of throwing', () async {
     final repo = _MockConversationRepository();
     when(
       () => repo.startSession(
@@ -529,12 +529,20 @@ void main() {
         message: 'boom',
       ),
     );
-    final c = _container(repo, _FakeSpeech(''));
+    final reporter = _MockCrashReporter();
+    final c = _container(repo, _FakeSpeech(''), crashReporter: reporter);
 
-    await expectLater(
-      c.read(conversationViewModelProvider.notifier).start(),
-      throwsA(isA<ApiException>()),
-    );
+    await c.read(conversationViewModelProvider.notifier).start();
+    final state = c.read(conversationViewModelProvider);
+    expect(state.sessionId, isNull);
+    expect(state.error, 'boom');
+    verify(
+      () => reporter.captureError(
+        any(),
+        any(),
+        context: any(named: 'context'),
+      ),
+    ).called(1);
   });
 
   test("start applies the learner's accent to the speech service", () async {
