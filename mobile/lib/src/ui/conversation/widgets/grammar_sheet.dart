@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/audio/audio_recording_service.dart';
 import '../../../core/audio/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/turn_correction.dart';
@@ -109,8 +110,16 @@ class _ReformulationTileState extends ConsumerState<_ReformulationTile> {
   _ReformStatus _status = _ReformStatus.idle;
   bool? _matched; // null = couldn't verify (mic/STT failed or silence)
   String _heard = '';
-  // Cached: dispose() cannot use `ref` (#425).
-  late final _recorder = ref.read(audioRecordingProvider);
+  // Cached in initState: a lazy `late final = ref.read(...)` first runs in
+  // dispose() if the learner never tapped record — and `ref` is already
+  // unmounted then (CI: conversation_screen_test opens/closes the sheet).
+  late final AudioRecordingService _recorder;
+
+  @override
+  void initState() {
+    super.initState();
+    _recorder = ref.read(audioRecordingProvider);
+  }
 
   @override
   void dispose() {

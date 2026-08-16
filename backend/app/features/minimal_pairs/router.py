@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.http.multipart import parse_bounded_multipart
 from app.core.rate_limit import RateLimiter, user_rate_limit_key
+from app.database import get_db, release_request_connection
 from app.domain.exceptions import AuthorizationError
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.models import User
@@ -25,6 +27,7 @@ async def score_attempt(
     limiter: RateLimiter = Depends(get_minimal_pairs_rate_limiter),
     service: MinimalPairsService = Depends(get_minimal_pairs_service),
     consent: VoiceConsentService = Depends(get_voice_consent_service),
+    db: AsyncSession = Depends(get_db),
 ) -> PairAttemptOut:
     """Score a spoken minimal-pair attempt: did the learner say the target word,
     or the other (confused) word of the pair? The audio is used then discarded."""
@@ -54,6 +57,10 @@ async def score_attempt(
                 status_code=422,
                 detail=f"'{field_name}' must be at most {MAX_WORD_CHARS} characters",
             )
+    # #426: every DB read is done (auth + consent). Release before STT + coach
+    # — same idle-hold #415 closed on /shadowing/attempt. native_language is
+    # already loaded.
+    await release_request_connection(db)
     result = await service.score_attempt(
         target=target,
         other=other,

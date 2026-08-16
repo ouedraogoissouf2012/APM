@@ -17,6 +17,9 @@ from app.database import bind_io_boundary, get_db
 from app.features.auth.repository import SqlAlchemyUserRepository
 from app.features.conversation.dependencies import get_tts_provider
 from app.features.debrief.domain import DebriefResult
+from app.features.minimal_pairs.coach import PairCoach
+from app.features.minimal_pairs.dependencies import get_minimal_pairs_service
+from app.features.minimal_pairs.service import MinimalPairsService
 from app.features.missions.compiler import MissionCompiler
 from app.features.missions.dependencies import get_mission_service
 from app.features.missions.repository import SqlAlchemyMissionRepository
@@ -254,3 +257,29 @@ async def test_placement_releases_connection_during_analyzer(client, _engine):
         app.dependency_overrides.pop(get_onboarding_service, None)
 
     assert observed == [0], f"connection held during placement LLM (checkedout={observed})"
+
+
+@pytest.mark.asyncio
+async def test_minimal_pairs_attempt_releases_connection_during_stt(client, _engine):
+    # #426: last sibling of #415 — STT + optional coach must not hold the pool.
+    observed: list[int] = []
+    app.dependency_overrides[get_minimal_pairs_service] = lambda: MinimalPairsService(
+        coach=PairCoach(_PoolProbingLlm(_engine, observed, _COACH_JSON)),
+        stt=_PoolProbingStt(_engine, observed),
+    )
+    try:
+        headers = await _auth_header(client, "release-pairs@b.com")
+        resp = await client.post(
+            "/minimal-pairs/attempt",
+            headers=headers,
+            files={"audio": ("clip.webm", b"not-really-audio", "audio/webm")},
+            data={"target": "sheep", "other": "ship"},
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        app.dependency_overrides.pop(get_minimal_pairs_service, None)
+
+    assert observed, "STT/coach never ran"
+    assert all(n == 0 for n in observed), (
+        f"connection held during pairs STT/coach (checkedout={observed})"
+    )
