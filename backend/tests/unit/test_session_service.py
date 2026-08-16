@@ -8,7 +8,7 @@ from app.domain.exceptions import (
     QuotaExhaustedError,
 )
 from app.features.auth.models import User
-from app.features.sessions.service import SessionService, _as_utc
+from app.features.sessions.service import SessionService, _as_utc, clamp_practiced_at
 from tests.unit.fakes import (
     InMemorySessionRepository,
     InMemoryTranscriptRepository,
@@ -429,3 +429,12 @@ async def test_record_turn_activity_aborts_if_session_ended_after_lock():
     await service.record_turn_activity(started.id, user.id)
     assert user.minutes_used_today == 0.0
     assert started.last_activity_at == past
+
+
+def test_clamp_practiced_at_accepts_recent_past_and_rejects_skew():
+    now = datetime(2026, 8, 16, 12, 0, tzinfo=UTC)
+    recent = now - timedelta(hours=12)
+    assert clamp_practiced_at(recent, now=now) == recent
+    assert clamp_practiced_at(now + timedelta(minutes=5), now=now) == now
+    assert clamp_practiced_at(now - timedelta(hours=72), now=now) == now
+    assert clamp_practiced_at(None, now=now) == now

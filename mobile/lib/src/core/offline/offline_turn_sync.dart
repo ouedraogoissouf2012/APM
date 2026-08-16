@@ -34,6 +34,7 @@ class OfflineTurnSync {
           turn.sessionId,
           turn.text,
           idempotencyKey: turn.idempotencyKey,
+          practicedAt: turn.practicedAt,
         );
         if (_generation != generation) return sent;
         await _queue.remove(turn.idempotencyKey);

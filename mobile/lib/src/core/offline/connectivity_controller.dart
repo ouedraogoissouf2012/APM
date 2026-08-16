@@ -94,6 +94,7 @@ class ConnectivityController extends Notifier<ConnectivityState> {
         sessionId: sessionId,
         text: text,
         idempotencyKey: idempotencyKey,
+        practicedAt: DateTime.now().toUtc(),
       ),
     );
     final count = (await _queue.pending()).length;

@@ -6,7 +6,7 @@
 """
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from app.core import quota
 from app.core.engines import ENGINE_FAKE
@@ -26,6 +26,23 @@ from app.features.sessions.repository import SessionRepository
 from app.features.streaks.logic import StreakState, register_active_day
 
 DEFAULT_HISTORY_PAGE_SIZE = 20
+# Offline replay (#431): a client-supplied practice instant older than this
+# (or in the future) is ignored so a clock-skewed or hostile client cannot
+# rewrite last week’s streak.
+_MAX_PRACTICE_SKEW = timedelta(hours=48)
+
+
+def clamp_practiced_at(raw: datetime | None, *, now: datetime | None = None) -> datetime:
+    """Accept a client practice instant only if it is in [now-48h, now]."""
+    now = now or datetime.now(UTC)
+    if raw is None:
+        return now
+    if raw.tzinfo is None:
+        raw = raw.replace(tzinfo=UTC)
+    raw = raw.astimezone(UTC)
+    if raw > now or now - raw > _MAX_PRACTICE_SKEW:
+        return now
+    return raw
 
 
 @dataclass(frozen=True)

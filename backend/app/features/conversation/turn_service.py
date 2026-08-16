@@ -15,6 +15,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.core.llm.interfaces import LlmProvider, TtsProvider
 from app.core.llm.messages import ROLE_ASSISTANT, ROLE_USER, Message
@@ -28,6 +29,7 @@ from app.features.profile.repository import ProfileRepository
 from app.features.sessions.models import ConversationSession
 from app.features.sessions.ownership import get_owned_session
 from app.features.sessions.repository import SessionRepository
+from app.features.sessions.service import clamp_practiced_at
 
 
 @dataclass(frozen=True)
@@ -161,14 +163,23 @@ class ConversationTurnService:
         self._io_boundary = io_boundary
         self._persistence = persistence
 
-    async def take_turn(self, session_id: int, user: User, text: str) -> TurnResult:
+    async def take_turn(
+        self,
+        session_id: int,
+        user: User,
+        text: str,
+        *,
+        practiced_at: datetime | None = None,
+    ) -> TurnResult:
         turns, system_prompt, history, _intensity = await self._prepare(session_id, user, text)
         # #399: hand the request's DB connection back to the pool before the seconds
         # of LLM I/O below, then persist on a fresh one. All reads are done.
         await self._release_connection_for_io()
         reply = await self._llm.complete(system_prompt, history)
         async with self._open_persistence() as scope:
-            turns = await self._persist(scope, session_id, user, turns, text, reply)
+            turns = await self._persist(
+                scope, session_id, user, turns, text, reply, practiced_at=practiced_at
+            )
         return TurnResult(reply=reply, turns=turns)
 
     async def stream_turn(
@@ -418,6 +429,7 @@ class ConversationTurnService:
         turns: list[dict],
         text: str,
         reply: str,
+        practiced_at: datetime | None = None,
     ) -> list[dict]:
         turns = [
             *turns,
@@ -435,7 +447,11 @@ class ConversationTurnService:
         # fails — the transcript is already saved.
         if scope.meter is not None:
             try:
-                await scope.meter(session_id, user.id)
+                now = clamp_practiced_at(practiced_at)
+                try:
+                    await scope.meter(session_id, user.id, now=now)  # type: ignore[call-arg]
+                except TypeError:
+                    await scope.meter(session_id, user.id)
             except Exception:
                 logging.getLogger(__name__).warning(
                     "Per-turn quota metering failed for session %s", session_id, exc_info=True
