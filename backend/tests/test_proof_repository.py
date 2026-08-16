@@ -30,7 +30,12 @@ async def _session_with_debrief(
     db_session, user_id, *, scenario, started_at, cefr, errors, learner_turns=0
 ):
     session = ConversationSession(
-        user_id=user_id, mode="scenario", scenario_id=scenario, started_at=started_at
+        user_id=user_id,
+        mode="scenario",
+        scenario_id=scenario,
+        started_at=started_at,
+        ended_at=started_at,
+    )
     )
     db_session.add(session)
     await db_session.flush()
@@ -130,7 +135,12 @@ async def test_excludes_sessions_on_a_different_skill_or_without_a_debrief(db_se
     )
     # No debrief at all (the INNER join on Debrief excludes it).
     no_debrief = ConversationSession(
-        user_id=user.id, mode="scenario", scenario_id="job_interview", started_at=now
+        user_id=user.id,
+        mode="scenario",
+        scenario_id="job_interview",
+        started_at=now,
+        ended_at=now,
+    )
     )
     db_session.add(no_debrief)
     await db_session.commit()
