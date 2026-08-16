@@ -105,7 +105,13 @@ class TokenRefresher {
       // definitive rejection (401: the refresh token itself is invalid or
       // already used) means the session is actually over.
       if (e is ApiException && e.statusCode == 401) {
-        await _storage.clear();
+        // #423: only wipe if THIS refresh still owns the session. Logout +
+        // login B bumps _generation; clearing here would delete B's tokens.
+        await _exclusive(() async {
+          if (_generation == generation) {
+            await _storage.clear();
+          }
+        });
       }
       rethrow;
     }
