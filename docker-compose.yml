@@ -76,7 +76,7 @@ services:
       INTERNAL_SECRET: ${PRONUNCIATION_INTERNAL_SECRET:-}
     # Cache HuggingFace weights across restarts so the model downloads only once.
     volumes:
-      - apm_hf_cache:/root/.cache/huggingface
+      - apm_hf_cache:/app/.cache/huggingface
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8100/health')\""]
       interval: 10s

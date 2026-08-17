@@ -54,10 +54,17 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            const Text(
+              key: Key('forgot_honest'),
+              'No reset email is sent yet. If an operator gave you a token, '
+              'paste it on the next screen. You can still record a request '
+              'below so the server issues a token they can retrieve in dev.',
+            ),
+            const SizedBox(height: 16),
             if (_done)
               const Text(
                 key: Key('forgot_sent'),
-                'If an account exists for that email, follow the reset steps.',
+                'Request recorded. Ask an operator for the token, then paste it.',
               )
             else ...[
               TextField(
@@ -73,7 +80,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                 onPressed: _sending ? null : _submit,
                 child: _sending
                     ? const CircularProgressIndicator()
-                    : const Text('Send reset'),
+                    : const Text('Record reset request'),
               ),
             ],
             TextButton(

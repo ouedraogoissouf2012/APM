@@ -27,13 +27,20 @@ RUN uv sync --frozen --extra ml --no-dev
 
 COPY src ./src
 ENV PYTHONPATH=/app/src
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
 
 # Pre-download the model at build time so the first request is fast and the
 # container has no runtime network dependency for weights.
 ARG MODEL_ID=facebook/wav2vec2-xlsr-53-espeak-cv-ft
-RUN python -c "from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor; \
+RUN mkdir -p /app/.cache/huggingface \
+    && python -c "from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor; \
     Wav2Vec2Processor.from_pretrained('${MODEL_ID}'); \
     Wav2Vec2ForCTC.from_pretrained('${MODEL_ID}')"
+
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin apm \
+    && chown -R apm:apm /app
+USER apm
 
 EXPOSE 8100
 CMD ["uvicorn", "pronunciation.main:app", "--host", "0.0.0.0", "--port", "8100"]
