@@ -47,8 +47,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   String? _emailError(String? value) {
     final v = value?.trim() ?? '';
     if (v.isEmpty) return 'Entre ton email.';
-    if (!v.contains('@') || !v.contains('.'))
+    if (!v.contains('@') || !v.contains('.')) {
       return 'Cet email ne semble pas valide.';
+    }
     return null;
   }
 
@@ -59,8 +60,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   String? _confirmError(String? value) {
-    if (value != _password.text)
+    if (value != _password.text) {
       return 'Les mots de passe ne correspondent pas.';
+    }
     return null;
   }
 
