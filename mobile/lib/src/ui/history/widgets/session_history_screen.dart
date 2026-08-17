@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../data/models/progress_snapshot.dart';
 import '../../../data/models/scenarios.dart';
 import '../../../data/models/session_summary.dart';
@@ -15,7 +16,10 @@ class SessionHistoryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(progressProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('History')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('History'),
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
@@ -251,7 +255,9 @@ class _SessionTile extends StatelessWidget {
               ),
         onTap: session.cefrEstimate == null
             ? null
-            : () => context.go(Routes.debrief(session.id, scenarioId: session.scenarioId)),
+            : () => context.go(
+                Routes.debrief(session.id, scenarioId: session.scenarioId),
+              ),
       ),
     );
   }

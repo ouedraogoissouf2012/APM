@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../../core/ui/app_back_leading.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/vocabulary_entry.dart';
@@ -14,11 +16,17 @@ class VocabularyScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(vocabularyViewModelProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Mon carnet')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Mon carnet'),
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
-          child: Text('Impossible de charger ton carnet.', key: Key('vocab_error')),
+          child: Text(
+            'Impossible de charger ton carnet.',
+            key: Key('vocab_error'),
+          ),
         ),
         data: (entries) {
           if (entries.isEmpty) {

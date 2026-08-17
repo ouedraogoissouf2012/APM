@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/audio/providers.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../data/models/voice_consent.dart';
 import '../view_model/voice_privacy_view_model.dart';
 
@@ -15,11 +16,17 @@ class VoicePrivacyScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(voiceConsentProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Ma voix & confidentialité')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Ma voix & confidentialité'),
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
-          child: Text('Impossible de charger tes réglages.', key: Key('privacy_error')),
+          child: Text(
+            'Impossible de charger tes réglages.',
+            key: Key('privacy_error'),
+          ),
         ),
         data: (consent) => _Body(consent: consent),
       ),
@@ -41,23 +48,17 @@ class _BodyState extends ConsumerState<_Body> {
   bool _exportPending = false;
   bool _erasePending = false;
 
-  Future<void> _toggle(
-    BuildContext context,
-    String field,
-    bool value,
-  ) async {
+  Future<void> _toggle(BuildContext context, String field, bool value) async {
     if (_togglePending) return;
     _togglePending = true;
     try {
-      await ref
-          .read(voicePrivacyRepositoryProvider)
-          .setConsent(field, value);
+      await ref.read(voicePrivacyRepositoryProvider).setConsent(field, value);
       ref.invalidate(voiceConsentProvider);
     } catch (_) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Échec — réessaie')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Échec — réessaie')));
       }
     } finally {
       _togglePending = false;
@@ -181,7 +182,9 @@ class _BodyState extends ConsumerState<_Body> {
         SwitchListTile(
           key: const Key('consent_scoring'),
           title: const Text('Analyse de prononciation'),
-          subtitle: const Text('Scores de prononciation (désactivé par défaut).'),
+          subtitle: const Text(
+            'Scores de prononciation (désactivé par défaut).',
+          ),
           value: widget.consent.scoring,
           onChanged: _togglePending
               ? null

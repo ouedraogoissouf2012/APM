@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/network/providers.dart';
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../../../data/models/scenarios.dart';
@@ -151,6 +152,7 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
+        const AppBackLeading(),
         SessionStatusPill(
           key: const Key('status_pill'),
           topic: topic,

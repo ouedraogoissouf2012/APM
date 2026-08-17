@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../data/models/review_item.dart';
 import '../error_type_label.dart';
 import '../view_model/review_view_model.dart';
@@ -18,15 +19,20 @@ class ReviewScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(reviewProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('À réviser')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('À réviser'),
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
-          child: Text('Impossible de charger ta révision.', key: Key('review_error')),
+          child: Text(
+            'Impossible de charger ta révision.',
+            key: Key('review_error'),
+          ),
         ),
-        data: (items) => items.isEmpty
-            ? const _EmptyReview()
-            : _ReviewList(items: items),
+        data: (items) =>
+            items.isEmpty ? const _EmptyReview() : _ReviewList(items: items),
       ),
     );
   }

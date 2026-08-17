@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
+import '../../../core/ui/app_back_leading.dart';
+import '../../../data/models/echo.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../../../design_system/atoms/app_button.dart';
@@ -53,7 +55,10 @@ class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen>
     final colors = context.colors;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Paires minimales')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Paires minimales'),
+      ),
       backgroundColor: colors.surface,
       body: SafeArea(
         child: Padding(
@@ -61,8 +66,8 @@ class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen>
           child: state.unavailable
               ? const _Unavailable()
               : !state.hasPair
-                  ? const Center(child: CircularProgressIndicator())
-                  : _RoundView(state: state),
+              ? const Center(child: CircularProgressIndicator())
+              : _RoundView(state: state),
         ),
       ),
     );
@@ -131,21 +136,21 @@ class _RoundView extends ConsumerWidget {
   }
 
   static VoiceOrbState _orbFor(PairPhase phase) => switch (phase) {
-        PairPhase.playing => VoiceOrbState.speaking,
-        PairPhase.recording => VoiceOrbState.listening,
-        PairPhase.scoring => VoiceOrbState.thinking,
-        _ => VoiceOrbState.idle,
-      };
+    PairPhase.playing => VoiceOrbState.speaking,
+    PairPhase.recording => VoiceOrbState.listening,
+    PairPhase.scoring => VoiceOrbState.thinking,
+    _ => VoiceOrbState.idle,
+  };
 
   static String _labelFor(PairPhase phase) => switch (phase) {
-        PairPhase.playing => 'écoute Ava',
-        PairPhase.guessing => 'quel mot as-tu entendu ?',
-        PairPhase.guessed => 'à ton tour de le dire',
-        PairPhase.recording => 'je t’écoute — touche pour arrêter',
-        PairPhase.scoring => 'analyse…',
-        PairPhase.reviewing => 'résultat',
-        PairPhase.idle => '',
-      };
+    PairPhase.playing => 'écoute Ava',
+    PairPhase.guessing => 'quel mot as-tu entendu ?',
+    PairPhase.guessed => 'à ton tour de le dire',
+    PairPhase.recording => 'je t’écoute — touche pour arrêter',
+    PairPhase.scoring => 'analyse…',
+    PairPhase.reviewing => 'résultat',
+    PairPhase.idle => '',
+  };
 }
 
 /// The interactive body: choice buttons during discrimination, the record orb
@@ -173,9 +178,13 @@ class _Body extends ConsumerWidget {
             const SizedBox(height: AppSpacing.sm),
             Row(
               children: [
-                Expanded(child: _ChoiceButton(word: pair.wordA, onTap: vm.guess)),
+                Expanded(
+                  child: _ChoiceButton(word: pair.wordA, onTap: vm.guess),
+                ),
                 const SizedBox(width: AppSpacing.md),
-                Expanded(child: _ChoiceButton(word: pair.wordB, onTap: vm.guess)),
+                Expanded(
+                  child: _ChoiceButton(word: pair.wordB, onTap: vm.guess),
+                ),
               ],
             ),
           ],
@@ -266,7 +275,8 @@ class _Result extends ConsumerWidget {
     final String verdict;
     final Color verdictColor;
     if (attempt.saidTarget) {
-      verdict = 'Bien prononcé — « ${state.spokenWord} » est passé clairement !';
+      verdict =
+          'Bien prononcé — « ${state.spokenWord} » est passé clairement !';
       verdictColor = colors.positive;
     } else if (attempt.saidOther) {
       final pair = state.pair!;
@@ -287,7 +297,7 @@ class _Result extends ConsumerWidget {
           textAlign: TextAlign.center,
           style: AppType.body(verdictColor),
         ),
-        if (attempt.coaching.isNotEmpty) ...[
+        if (isLearnerFacingTip(attempt.coaching)) ...[
           const SizedBox(height: AppSpacing.md),
           Container(
             padding: const EdgeInsets.all(AppSpacing.md),
@@ -325,7 +335,8 @@ class _Result extends ConsumerWidget {
                 // button's enabled-ness honest with the same rule the VM
                 // enforces, instead of relying solely on this widget only
                 // ever being built while `state.phase == reviewing`.
-                onPressed: state.isLastRound || state.phase != PairPhase.reviewing
+                onPressed:
+                    state.isLastRound || state.phase != PairPhase.reviewing
                     ? null
                     : vm.nextRound,
               ),

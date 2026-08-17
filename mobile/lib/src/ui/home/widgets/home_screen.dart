@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/debounced_push.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../design_system/atoms/overline_text.dart';
@@ -33,24 +34,24 @@ class HomeScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _TopRow(onLogout: () {
-                ref.read(authViewModelProvider.notifier).logout();
-              }),
+              _TopRow(
+                onLogout: () {
+                  ref.read(authViewModelProvider.notifier).logout();
+                },
+              ),
               const SizedBox(height: AppSpacing.xl),
               _Greeting(greeting: greetingForHour(now.hour), name: name),
               const SizedBox(height: AppSpacing.sm),
               const _StreakPill(),
               const SizedBox(height: AppSpacing.lg),
-              _ResumeCard(
-                onTap: () => context.go(Routes.scenarios),
-              ),
+              _ResumeCard(onTap: () => context.debouncedPush(Routes.scenarios)),
               const SizedBox(height: AppSpacing.md),
               _DrillCard(
                 key: const Key('start_echo_button'),
                 overline: 'entraîne ton accent',
                 title: 'Mode Écho',
                 icon: Icons.graphic_eq,
-                onTap: () => context.go(Routes.echo),
+                onTap: () => context.debouncedPush(Routes.echo),
               ),
               const SizedBox(height: AppSpacing.md),
               _DrillCard(
@@ -58,7 +59,7 @@ class HomeScreen extends ConsumerWidget {
                 overline: 'sons qui piègent',
                 title: 'Paires minimales',
                 icon: Icons.hearing,
-                onTap: () => context.go(Routes.minimalPairs),
+                onTap: () => context.debouncedPush(Routes.minimalPairs),
               ),
               const Spacer(),
             ],
@@ -173,10 +174,10 @@ class _ResumeCard extends StatelessWidget {
   }
 
   Widget _circle(double size, Color color) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-      );
+    width: size,
+    height: size,
+    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+  );
 }
 
 /// A secondary practice-mode card (Écho, Paires minimales, ...): a surface card

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/router/debounced_push.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../core/router/routes.dart';
 import '../../../data/models/profile.dart';
 import '../view_model/profile_view_model.dart';
@@ -52,7 +53,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          saved ? 'Profil enregistré' : 'Impossible d’enregistrer ton profil — réessaie',
+          saved
+              ? 'Profil enregistré'
+              : 'Impossible d’enregistrer ton profil — réessaie',
         ),
       ),
     );
@@ -62,7 +65,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget build(BuildContext context) {
     final async = ref.watch(profileViewModelProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Profil')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Profil'),
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(

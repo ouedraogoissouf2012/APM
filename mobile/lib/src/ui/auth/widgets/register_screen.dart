@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../view_model/auth_view_model.dart';
 import 'auth_fields.dart';
 
@@ -28,7 +29,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authViewModelProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Create account')),
+      appBar: AppBar(
+        leading: const AppBackLeading(fallback: Routes.onboarding),
+        title: const Text('Create account'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

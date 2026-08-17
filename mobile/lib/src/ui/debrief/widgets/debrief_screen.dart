@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/debounced_push.dart';
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/debrief.dart';
 import '../../../design_system/atoms/overline_text.dart';
@@ -35,6 +36,7 @@ class DebriefScreen extends ConsumerWidget {
       backgroundColor: colors.background,
       appBar: AppBar(
         backgroundColor: colors.background,
+        leading: const AppBackLeading(),
         title: Text('Ton bilan', style: AppType.displayMd(colors.textPrimary)),
         actions: [
           IconButton(
@@ -57,7 +59,8 @@ class DebriefScreen extends ConsumerWidget {
             ),
           ),
         ),
-        data: (debrief) => _DebriefBody(debrief: debrief, scenarioId: scenarioId),
+        data: (debrief) =>
+            _DebriefBody(debrief: debrief, scenarioId: scenarioId),
       ),
     );
   }
@@ -174,7 +177,9 @@ class _PriorityFocus extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.xs),
                 Text(
                   '· « ${top.latestCorrection} »',
-                  style: AppType.body(colors.textSecondary).copyWith(fontSize: 13),
+                  style: AppType.body(
+                    colors.textSecondary,
+                  ).copyWith(fontSize: 13),
                 ),
               ],
             ],
@@ -220,7 +225,9 @@ class _NextStepButton extends StatelessWidget {
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     subtitle,
-                    style: AppType.label(colors.textSecondary).copyWith(fontSize: 13),
+                    style: AppType.label(
+                      colors.textSecondary,
+                    ).copyWith(fontSize: 13),
                   ),
                 ],
               ),
@@ -301,10 +308,12 @@ class _ToReview extends StatelessWidget {
             style: AppType.body(colors.textPrimary),
           )
         else
-          ...errors.map((e) => Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                child: _CorrectionPanel(error: e),
-              )),
+          ...errors.map(
+            (e) => Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: _CorrectionPanel(error: e),
+            ),
+          ),
       ],
     );
   }
@@ -337,7 +346,10 @@ class _CorrectionPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.xs),
-          Text(error.correction, style: AppType.displayItalic(colors.correction, fontSize: 18)),
+          Text(
+            error.correction,
+            style: AppType.displayItalic(colors.correction, fontSize: 18),
+          ),
           if (error.rule.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.sm),
             Text(

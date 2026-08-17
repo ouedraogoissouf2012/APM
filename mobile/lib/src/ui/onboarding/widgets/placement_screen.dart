@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../view_model/placement_view_model.dart';
 
@@ -69,7 +70,9 @@ class _PlacementScreenState extends ConsumerState<PlacementScreen>
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Impossible d’enregistrer — tu peux réessayer ou passer'),
+          content: Text(
+            'Impossible d’enregistrer — tu peux réessayer ou passer',
+          ),
         ),
       );
     }
@@ -80,6 +83,7 @@ class _PlacementScreenState extends ConsumerState<PlacementScreen>
     final state = ref.watch(placementViewModelProvider);
     return Scaffold(
       appBar: AppBar(
+        leading: const AppBackLeading(),
         title: const Text('Petit échauffement'),
         actions: [
           TextButton(
