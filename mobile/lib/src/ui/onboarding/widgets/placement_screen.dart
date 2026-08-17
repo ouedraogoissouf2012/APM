@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/routes.dart';
-import '../../../core/ui/app_back_leading.dart';
 import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../view_model/placement_view_model.dart';
 
@@ -41,7 +40,11 @@ class _PlacementScreenState extends ConsumerState<PlacementScreen>
     super.dispose();
   }
 
-  void _skip() => context.go(Routes.home);
+  Future<void> _leave() async {
+    await _vm.cancel();
+    if (!mounted) return;
+    context.go(Routes.home);
+  }
 
   Future<void> _onMicTap(PlacementState state) async {
     final vm = ref.read(placementViewModelProvider.notifier);
@@ -83,12 +86,17 @@ class _PlacementScreenState extends ConsumerState<PlacementScreen>
     final state = ref.watch(placementViewModelProvider);
     return Scaffold(
       appBar: AppBar(
-        leading: const AppBackLeading(),
+        leading: IconButton(
+          key: const Key('app_back'),
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Retour',
+          onPressed: _leave,
+        ),
         title: const Text('Petit échauffement'),
         actions: [
           TextButton(
             key: const Key('placement_skip'),
-            onPressed: _skip,
+            onPressed: _leave,
             child: const Text('Passer'),
           ),
         ],
