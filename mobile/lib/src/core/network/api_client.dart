@@ -200,6 +200,25 @@ class ApiClient {
     Duration? sendTimeout,
   }) => Options(headers: _headers(bearer, extra), sendTimeout: sendTimeout);
 
+  static String _networkMessage(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionError:
+      case DioExceptionType.connectionTimeout:
+        return 'Le serveur ne répond pas. Vérifie qu’il tourne (port 8010).';
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'La connexion a mis trop longtemps. Réessaie.';
+      default:
+        final raw = (e.message ?? '').toLowerCase();
+        if (raw.contains('connection refused') ||
+            raw.contains('failed host lookup') ||
+            raw.contains('xmlhttprequest')) {
+          return 'Le serveur ne répond pas. Vérifie qu’il tourne (port 8010).';
+        }
+        return 'Problème de réseau. Réessaie.';
+    }
+  }
+
   ApiException _toApiException(DioException e) {
     final status = e.response?.statusCode ?? 0;
     final data = e.response?.data;
@@ -214,7 +233,7 @@ class ApiClient {
     return ApiException(
       statusCode: status,
       code: 'network',
-      message: e.message ?? 'Network error',
+      message: _networkMessage(e),
     );
   }
 }
