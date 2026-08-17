@@ -187,6 +187,24 @@ void main() {
     expect(_state(c).phase, PairPhase.guessed);
   });
 
+  test('a guess during playback is accepted (not a dead tap)', () async {
+    final repo = _MockRepo();
+    when(() => repo.synthesize(any()))
+        .thenAnswer((_) async => const AudioClip('WORDB64', 'audio/mpeg'));
+    final audio = _GatedAudio();
+    final c = _container(repo, audio: audio);
+    await _vm(c).loadPair();
+    final spoken = _state(c).spokenWord!;
+
+    final playing = _vm(c).playWord();
+    expect(_state(c).phase, PairPhase.playing);
+    _vm(c).guess(spoken);
+    expect(_state(c).phase, PairPhase.guessed);
+
+    audio.release();
+    await playing;
+  });
+
   test('playWord plays the synthesized word clip', () async {
     final repo = _MockRepo();
     when(() => repo.synthesize(any()))

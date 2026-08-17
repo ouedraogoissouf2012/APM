@@ -42,7 +42,9 @@ class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen>
       final stt = await ref.read(serverSttProvider.future);
       if (!mounted) return;
       if (tts && stt) {
-        await ref.read(minimalPairsViewModelProvider.notifier).loadPair();
+        final vm = ref.read(minimalPairsViewModelProvider.notifier);
+        await vm.loadPair();
+        if (mounted) await vm.playWord();
       } else {
         ref.read(minimalPairsViewModelProvider.notifier).markUnavailable();
       }
@@ -106,6 +108,7 @@ class _RoundView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final vm = ref.read(minimalPairsViewModelProvider.notifier);
     final colors = context.colors;
     final pair = state.pair!;
 
@@ -117,7 +120,15 @@ class _RoundView extends ConsumerWidget {
         Center(child: Text(pair.sound, style: AppType.label(colors.textMuted))),
         const SizedBox(height: AppSpacing.lg),
         const Spacer(),
-        Center(child: VoiceOrb(state: _orbFor(state.phase))),
+        Center(
+          child: GestureDetector(
+            onTap: state.phase == PairPhase.guessing ||
+                    state.phase == PairPhase.playing
+                ? vm.playWord
+                : null,
+            child: VoiceOrb(state: _orbFor(state.phase)),
+          ),
+        ),
         const SizedBox(height: AppSpacing.md),
         Center(child: OverlineText(_labelFor(state.phase))),
         const Spacer(),
@@ -179,11 +190,19 @@ class _Body extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
-                  child: _ChoiceButton(word: pair.wordA, onTap: vm.guess),
+                  child: _ChoiceButton(
+                    word: pair.wordA,
+                    onTap: vm.guess,
+                    primary: true,
+                  ),
                 ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
-                  child: _ChoiceButton(word: pair.wordB, onTap: vm.guess),
+                  child: _ChoiceButton(
+                    word: pair.wordB,
+                    onTap: vm.guess,
+                    primary: true,
+                  ),
                 ),
               ],
             ),
@@ -209,13 +228,25 @@ class _Body extends ConsumerWidget {
 }
 
 class _ChoiceButton extends StatelessWidget {
-  const _ChoiceButton({required this.word, required this.onTap});
+  const _ChoiceButton({
+    required this.word,
+    required this.onTap,
+    this.primary = false,
+  });
 
   final String word;
   final void Function(String) onTap;
+  final bool primary;
 
   @override
   Widget build(BuildContext context) {
+    if (primary) {
+      return AppButton.primary(
+        key: Key('choice_$word'),
+        label: word,
+        onPressed: () => onTap(word),
+      );
+    }
     return AppButton.outlined(
       key: Key('choice_$word'),
       label: word,
