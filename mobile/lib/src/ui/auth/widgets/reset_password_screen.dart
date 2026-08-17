@@ -7,9 +7,7 @@ import '../../../core/router/routes.dart';
 import '../view_model/auth_view_model.dart';
 
 class ResetPasswordScreen extends ConsumerStatefulWidget {
-  const ResetPasswordScreen({super.key, this.initialToken});
-
-  final String? initialToken;
+  const ResetPasswordScreen({super.key});
 
   @override
   ConsumerState<ResetPasswordScreen> createState() =>
@@ -17,7 +15,8 @@ class ResetPasswordScreen extends ConsumerStatefulWidget {
 }
 
 class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
-  late final _token = TextEditingController(text: widget.initialToken ?? '');
+  // Token is pasted, never taken from ?token= (logs / Referer).
+  final _token = TextEditingController();
   final _password = TextEditingController();
   var _sending = false;
   var _done = false;

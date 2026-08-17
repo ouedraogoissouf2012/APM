@@ -56,6 +56,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
       if (!signedIn && !atPublicEntry) return Routes.onboarding;
       if (signedIn && atPublicEntry) {
+        // Reset must stay reachable while signed in (#audit8): otherwise a
+        // still-logged-in learner is bounced to /home and loses the flow.
+        if (state.matchedLocation == Routes.resetPassword ||
+            state.matchedLocation == Routes.forgotPassword) {
+          return null;
+        }
         // A just-registered learner goes through the spoken placement first
         // (skippable); a returning learner from login/onboarding goes home.
         return state.matchedLocation == Routes.register
@@ -77,9 +83,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: Routes.resetPassword,
-        builder: (_, state) => ResetPasswordScreen(
-          initialToken: state.uri.queryParameters['token'],
-        ),
+        builder: (_, _) => const ResetPasswordScreen(),
       ),
       GoRoute(path: Routes.home, builder: (_, _) => const HomeScreen()),
       GoRoute(
