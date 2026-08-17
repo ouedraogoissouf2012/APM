@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/router/debounced_push.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../design_system/atoms/overline_text.dart';
@@ -19,6 +20,7 @@ class LearnScreen extends StatelessWidget {
     final colors = context.colors;
     return Scaffold(
       appBar: AppBar(
+        leading: const AppBackLeading(),
         title: Text('Apprendre', style: AppType.displayMd(colors.textPrimary)),
       ),
       body: ListView(
@@ -99,7 +101,9 @@ class _LearnCard extends StatelessWidget {
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     subtitle,
-                    style: AppType.label(colors.textSecondary).copyWith(fontSize: 13),
+                    style: AppType.label(
+                      colors.textSecondary,
+                    ).copyWith(fontSize: 13),
                   ),
                 ],
               ),

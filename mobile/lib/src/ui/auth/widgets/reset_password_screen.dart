@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../view_model/auth_view_model.dart';
 
 class ResetPasswordScreen extends ConsumerStatefulWidget {
@@ -54,7 +55,10 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Reset password')),
+      appBar: AppBar(
+        leading: const AppBackLeading(fallback: Routes.login),
+        title: const Text('Reset password'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

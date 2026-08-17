@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/audio/providers.dart';
 import '../../../core/observability/ref_report_error.dart';
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../data/models/proof.dart';
 import '../../review/error_type_label.dart';
 import '../view_model/proof_view_model.dart';
@@ -24,7 +25,10 @@ class ProofScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(proofProvider(skill));
     return Scaffold(
-      appBar: AppBar(title: const Text('Ma preuve')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Ma preuve'),
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(
@@ -254,7 +258,11 @@ class _AudibleProof extends ConsumerWidget {
   /// this ticket (these bytes are already on-device, so failures should be
   /// rarer — decode errors, not network drops) but the same swallow-and-say-
   /// nothing pattern, so still worth surfacing.
-  Future<void> _play(BuildContext context, WidgetRef ref, Uint8List bytes) async {
+  Future<void> _play(
+    BuildContext context,
+    WidgetRef ref,
+    Uint8List bytes,
+  ) async {
     try {
       await ref.read(audioPlaybackProvider).playBytes(bytes, 'audio/wav');
     } catch (e, s) {
@@ -266,7 +274,9 @@ class _AudibleProof extends ConsumerWidget {
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Impossible de lire cet enregistrement')),
+          const SnackBar(
+            content: Text('Impossible de lire cet enregistrement'),
+          ),
         );
       }
     }

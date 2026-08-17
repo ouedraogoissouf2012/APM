@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
+import '../../../core/ui/app_back_leading.dart';
+import '../../../data/models/echo.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../../../design_system/atoms/app_button.dart';
@@ -40,7 +42,9 @@ class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen>
       final stt = await ref.read(serverSttProvider.future);
       if (!mounted) return;
       if (tts && stt) {
-        await ref.read(minimalPairsViewModelProvider.notifier).loadPair();
+        final vm = ref.read(minimalPairsViewModelProvider.notifier);
+        await vm.loadPair();
+        if (mounted) await vm.playWord();
       } else {
         ref.read(minimalPairsViewModelProvider.notifier).markUnavailable();
       }
@@ -53,7 +57,10 @@ class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen>
     final colors = context.colors;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Paires minimales')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Paires minimales'),
+      ),
       backgroundColor: colors.surface,
       body: SafeArea(
         child: Padding(
@@ -61,8 +68,8 @@ class _MinimalPairsScreenState extends ConsumerState<MinimalPairsScreen>
           child: state.unavailable
               ? const _Unavailable()
               : !state.hasPair
-                  ? const Center(child: CircularProgressIndicator())
-                  : _RoundView(state: state),
+              ? const Center(child: CircularProgressIndicator())
+              : _RoundView(state: state),
         ),
       ),
     );
@@ -101,6 +108,7 @@ class _RoundView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final vm = ref.read(minimalPairsViewModelProvider.notifier);
     final colors = context.colors;
     final pair = state.pair!;
 
@@ -112,7 +120,15 @@ class _RoundView extends ConsumerWidget {
         Center(child: Text(pair.sound, style: AppType.label(colors.textMuted))),
         const SizedBox(height: AppSpacing.lg),
         const Spacer(),
-        Center(child: VoiceOrb(state: _orbFor(state.phase))),
+        Center(
+          child: GestureDetector(
+            onTap: state.phase == PairPhase.guessing ||
+                    state.phase == PairPhase.playing
+                ? vm.playWord
+                : null,
+            child: VoiceOrb(state: _orbFor(state.phase)),
+          ),
+        ),
         const SizedBox(height: AppSpacing.md),
         Center(child: OverlineText(_labelFor(state.phase))),
         const Spacer(),
@@ -131,21 +147,21 @@ class _RoundView extends ConsumerWidget {
   }
 
   static VoiceOrbState _orbFor(PairPhase phase) => switch (phase) {
-        PairPhase.playing => VoiceOrbState.speaking,
-        PairPhase.recording => VoiceOrbState.listening,
-        PairPhase.scoring => VoiceOrbState.thinking,
-        _ => VoiceOrbState.idle,
-      };
+    PairPhase.playing => VoiceOrbState.speaking,
+    PairPhase.recording => VoiceOrbState.listening,
+    PairPhase.scoring => VoiceOrbState.thinking,
+    _ => VoiceOrbState.idle,
+  };
 
   static String _labelFor(PairPhase phase) => switch (phase) {
-        PairPhase.playing => 'écoute Ava',
-        PairPhase.guessing => 'quel mot as-tu entendu ?',
-        PairPhase.guessed => 'à ton tour de le dire',
-        PairPhase.recording => 'je t’écoute — touche pour arrêter',
-        PairPhase.scoring => 'analyse…',
-        PairPhase.reviewing => 'résultat',
-        PairPhase.idle => '',
-      };
+    PairPhase.playing => 'écoute Ava',
+    PairPhase.guessing => 'quel mot as-tu entendu ?',
+    PairPhase.guessed => 'à ton tour de le dire',
+    PairPhase.recording => 'je t’écoute — touche pour arrêter',
+    PairPhase.scoring => 'analyse…',
+    PairPhase.reviewing => 'résultat',
+    PairPhase.idle => '',
+  };
 }
 
 /// The interactive body: choice buttons during discrimination, the record orb
@@ -173,9 +189,21 @@ class _Body extends ConsumerWidget {
             const SizedBox(height: AppSpacing.sm),
             Row(
               children: [
-                Expanded(child: _ChoiceButton(word: pair.wordA, onTap: vm.guess)),
+                Expanded(
+                  child: _ChoiceButton(
+                    word: pair.wordA,
+                    onTap: vm.guess,
+                    primary: true,
+                  ),
+                ),
                 const SizedBox(width: AppSpacing.md),
-                Expanded(child: _ChoiceButton(word: pair.wordB, onTap: vm.guess)),
+                Expanded(
+                  child: _ChoiceButton(
+                    word: pair.wordB,
+                    onTap: vm.guess,
+                    primary: true,
+                  ),
+                ),
               ],
             ),
           ],
@@ -200,13 +228,25 @@ class _Body extends ConsumerWidget {
 }
 
 class _ChoiceButton extends StatelessWidget {
-  const _ChoiceButton({required this.word, required this.onTap});
+  const _ChoiceButton({
+    required this.word,
+    required this.onTap,
+    this.primary = false,
+  });
 
   final String word;
   final void Function(String) onTap;
+  final bool primary;
 
   @override
   Widget build(BuildContext context) {
+    if (primary) {
+      return AppButton.primary(
+        key: Key('choice_$word'),
+        label: word,
+        onPressed: () => onTap(word),
+      );
+    }
     return AppButton.outlined(
       key: Key('choice_$word'),
       label: word,
@@ -266,7 +306,8 @@ class _Result extends ConsumerWidget {
     final String verdict;
     final Color verdictColor;
     if (attempt.saidTarget) {
-      verdict = 'Bien prononcé — « ${state.spokenWord} » est passé clairement !';
+      verdict =
+          'Bien prononcé — « ${state.spokenWord} » est passé clairement !';
       verdictColor = colors.positive;
     } else if (attempt.saidOther) {
       final pair = state.pair!;
@@ -287,7 +328,7 @@ class _Result extends ConsumerWidget {
           textAlign: TextAlign.center,
           style: AppType.body(verdictColor),
         ),
-        if (attempt.coaching.isNotEmpty) ...[
+        if (isLearnerFacingTip(attempt.coaching)) ...[
           const SizedBox(height: AppSpacing.md),
           Container(
             padding: const EdgeInsets.all(AppSpacing.md),
@@ -325,7 +366,8 @@ class _Result extends ConsumerWidget {
                 // button's enabled-ness honest with the same rule the VM
                 // enforces, instead of relying solely on this widget only
                 // ever being built while `state.phase == reviewing`.
-                onPressed: state.isLastRound || state.phase != PairPhase.reviewing
+                onPressed:
+                    state.isLastRound || state.phase != PairPhase.reviewing
                     ? null
                     : vm.nextRound,
               ),

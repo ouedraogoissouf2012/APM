@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/practice_screen_lifecycle.dart';
 import '../../../data/models/echo.dart';
@@ -59,7 +60,10 @@ class _EchoScreenState extends ConsumerState<EchoScreen>
     final colors = context.colors;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mode Écho')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Mode Écho'),
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -321,7 +325,7 @@ class _Feedback extends ConsumerWidget {
             ),
           ],
         ),
-        if (state.coaching != null && state.coaching!.isNotEmpty) ...[
+        if (state.coaching != null && isLearnerFacingTip(state.coaching!)) ...[
           const SizedBox(height: AppSpacing.md),
           Container(
             padding: const EdgeInsets.all(AppSpacing.md),

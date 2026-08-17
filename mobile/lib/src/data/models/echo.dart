@@ -2,6 +2,14 @@ import 'package:apm/src/data/models/pronunciation_scoring.dart';
 
 /// A phrase to shadow (read aloud), plus what it trains and one tip. Mirrors the
 /// backend `POST /shadowing/phrase` response.
+/// Hides leftover operator strings (env-var names) from the learner.
+bool isLearnerFacingTip(String text) {
+  final t = text.toLowerCase();
+  return t.isNotEmpty &&
+      !t.contains('_engine') &&
+      !t.contains('demo coaching');
+}
+
 class ShadowingPhrase {
   const ShadowingPhrase({required this.text, this.focus = 'general', this.tip = ''});
 

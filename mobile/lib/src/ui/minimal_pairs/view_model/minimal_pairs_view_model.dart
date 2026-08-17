@@ -107,7 +107,11 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
 
   /// Records the learner's discrimination choice and reveals correct/incorrect.
   void guess(String word) {
-    if (state.phase != PairPhase.guessing) return;
+    // Accept a tap while Ava is still speaking — ignoring it felt like a
+    // dead UI ("ne répond pas").
+    if (state.phase != PairPhase.guessing && state.phase != PairPhase.playing) {
+      return;
+    }
     state = state.copyWith(guess: word, phase: PairPhase.guessed);
   }
 
@@ -200,6 +204,7 @@ class MinimalPairsViewModel extends Notifier<MinimalPairsState> {
     if (_busy) return;
     state = state.copyWith(round: state.round + 1, phase: PairPhase.idle);
     await loadPair();
+    if (ref.mounted && state.hasPair) await playWord();
   }
 
   /// Stops (discarding) an in-progress production recording when the learner

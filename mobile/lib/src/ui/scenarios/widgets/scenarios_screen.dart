@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/router/debounced_push.dart';
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../data/models/scenarios.dart';
 import '../../../data/models/session_modes.dart';
 
@@ -12,7 +12,10 @@ class ScenariosScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Choose a scenario')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Choose a scenario'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
@@ -24,7 +27,7 @@ class ScenariosScreen extends StatelessWidget {
               subtitle: const Text(
                 'Répète ton vrai entretien, ta présentation, ton appel.',
               ),
-              onTap: () => context.go(Routes.newMission),
+              onTap: () => context.debouncedPush(Routes.newMission),
             ),
           ),
           Card(
@@ -33,7 +36,7 @@ class ScenariosScreen extends StatelessWidget {
               leading: const Text('🗣️', style: TextStyle(fontSize: 28)),
               title: const Text('Free conversation'),
               subtitle: const Text('Talk about anything you like.'),
-              onTap: () => context.go(Routes.conversationFree),
+              onTap: () => context.debouncedPush(Routes.conversationFree),
             ),
           ),
           const Divider(),
@@ -51,9 +54,10 @@ class ScenariosScreen extends StatelessWidget {
                   key: Key('proof_${scenario.id}'),
                   icon: const Icon(Icons.timeline),
                   tooltip: 'Ma preuve',
-                  onPressed: () => context.debouncedPush(Routes.proof(scenario.id)),
+                  onPressed: () =>
+                      context.debouncedPush(Routes.proof(scenario.id)),
                 ),
-                onTap: () => context.go(
+                onTap: () => context.debouncedPush(
                   Routes.conversationWith(
                     mode: kSessionModeScenario,
                     scenarioId: scenario.id,

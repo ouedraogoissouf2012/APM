@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/ui/app_back_leading.dart';
 import '../../../data/models/profile.dart';
 import '../view_model/profile_view_model.dart';
 
@@ -83,7 +84,10 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
   Widget build(BuildContext context) {
     final async = ref.watch(profileViewModelProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Ce que je sais de toi')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Ce que je sais de toi'),
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => const Center(

@@ -40,7 +40,11 @@ class _PlacementScreenState extends ConsumerState<PlacementScreen>
     super.dispose();
   }
 
-  void _skip() => context.go(Routes.home);
+  Future<void> _leave() async {
+    await _vm.cancel();
+    if (!mounted) return;
+    context.go(Routes.home);
+  }
 
   Future<void> _onMicTap(PlacementState state) async {
     final vm = ref.read(placementViewModelProvider.notifier);
@@ -69,7 +73,9 @@ class _PlacementScreenState extends ConsumerState<PlacementScreen>
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Impossible d’enregistrer — tu peux réessayer ou passer'),
+          content: Text(
+            'Impossible d’enregistrer — tu peux réessayer ou passer',
+          ),
         ),
       );
     }
@@ -80,11 +86,17 @@ class _PlacementScreenState extends ConsumerState<PlacementScreen>
     final state = ref.watch(placementViewModelProvider);
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          key: const Key('app_back'),
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Retour',
+          onPressed: _leave,
+        ),
         title: const Text('Petit échauffement'),
         actions: [
           TextButton(
             key: const Key('placement_skip'),
-            onPressed: _skip,
+            onPressed: _leave,
             child: const Text('Passer'),
           ),
         ],

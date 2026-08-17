@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/routes.dart';
+import '../../../core/ui/app_back_leading.dart';
 import '../../../data/models/mission.dart';
 import '../view_model/mission_view_model.dart';
 
@@ -43,7 +44,10 @@ class _NewMissionScreenState extends ConsumerState<NewMissionScreen> {
     final compiling = state.status == MissionStatus.compiling;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Nouvelle mission')),
+      appBar: AppBar(
+        leading: const AppBackLeading(),
+        title: const Text('Nouvelle mission'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
