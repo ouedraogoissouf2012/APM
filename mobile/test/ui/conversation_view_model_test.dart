@@ -363,6 +363,8 @@ ProviderContainer _container(
           demoMode: false,
           serverTts: serverTts,
           serverStt: serverStt,
+          conversationServerTts: serverTts,
+          conversationServerStt: serverStt,
         ),
       ),
       // effectiveServerSttProvider (#225) also watches consent; default to the

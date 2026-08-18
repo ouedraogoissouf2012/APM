@@ -47,8 +47,10 @@ def get_stt_provider() -> SttProvider:
     """Server-side transcription provider. 404 when STT_ENGINE=device: the
     client transcribes on-device and must not reach this endpoint."""
     settings = get_settings()
+    if not settings.drill_stt_enabled:
+        raise NotFoundError("Server-side transcription is not enabled")
     provider = shared_stt_provider(
-        engine=settings.stt_engine,
+        engine="groq",
         api_key=settings.groq_api_key,
         base_url=settings.groq_base_url,
         model=settings.groq_stt_model,
@@ -85,7 +87,7 @@ def get_tts_provider() -> TtsProvider:
     """Server-side neural TTS. 404 when TTS_ENGINE=device: the client speaks with
     its on-device voice and must not reach a server TTS endpoint."""
     settings = get_settings()
-    if settings.tts_engine != "edge":
+    if not settings.drill_tts_enabled:
         raise NotFoundError("Server-side text-to-speech is not enabled")
     return _shared_tts_provider()
 
@@ -140,10 +142,9 @@ def get_conversation_turn_service(
     llm = build_feature_llm(
         settings.voice_engine, settings, settings.deepseek_conversation_max_tokens
     )
-    # Conversation replies are spoken on-device. Edge TTS stays on /tts for
-    # Écho / paires (those drills need a model voice). Mixing both on /turn
-    # made every reply wait on Edge and felt "stuck" after a few turns.
-    tts: TtsProvider | None = None
+    tts: TtsProvider | None = (
+        _shared_tts_provider() if settings.conversation_tts_on_server else None
+    )
     sessions = SqlAlchemySessionRepository(db)
     # The correction is a second, bounded LLM call in parallel with the reply
     # (#123 cost control): disabled entirely by config, else skips short utterances.

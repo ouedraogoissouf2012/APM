@@ -13,6 +13,25 @@ def _settings(**overrides: object) -> Settings:
     return Settings(_env_file=None, **defaults)
 
 
+def test_voice_policy_keeps_conversation_on_device_when_drills_use_server():
+    settings = _settings(
+        tts_engine="edge",
+        stt_engine="groq",
+        groq_api_key="gsk_test",
+    )
+    assert settings.drill_tts_enabled is True
+    assert settings.drill_stt_enabled is True
+    assert settings.conversation_tts_on_server is False
+    assert settings.conversation_stt_on_server is False
+
+
+def test_stt_auto_follows_the_groq_key():
+    with_key = _settings(stt_engine="auto", groq_api_key="gsk_test")
+    without = _settings(stt_engine="auto", groq_api_key="")
+    assert with_key.drill_stt_enabled is True
+    assert without.drill_stt_enabled is False
+
+
 def test_dev_allows_fake_engines_and_example_style_config():
     settings = _settings(
         app_env="dev",

@@ -183,15 +183,16 @@ class Settings(BaseSettings):
     # Generates shadowing target phrases and coaches pronunciation attempts.
     shadowing_engine: ShadowingEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
 
-    # Text-to-speech: "device" = on-device system voice (default, robotic);
-    # "edge" = free Microsoft Edge neural voices synthesized server-side and
-    # streamed to the client (no key). Voice is chosen from the learner's accent.
-    tts_engine: Literal["device", "edge"] = "device"
-
-    # Speech-to-text: "device" = browser recognition (default, weak on accents);
-    # "groq" = Whisper via Groq (free API key), recorded on the device and
-    # transcribed server-side — far better for a non-native accent.
-    stt_engine: Literal["device", "groq"] = "device"
+    # Voice policy (stable for years): CONVERSATION and DRILLS are independent.
+    # Conversation defaults to on-device (low latency, works in a browser).
+    # Drills (Écho, paires, carnet) use /tts + /transcribe when those engines
+    # are on. A single global STT/TTS switch must never disable half the app.
+    conversation_stt: Literal["device", "groq"] = "device"
+    conversation_tts: Literal["device", "edge"] = "device"
+    # /tts (drills). "edge" needs no API key.
+    tts_engine: Literal["device", "edge"] = "edge"
+    # /transcribe (drills). "auto" = Groq when GROQ_API_KEY is set, else off.
+    stt_engine: Literal["device", "groq", "auto"] = "auto"
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_stt_model: str = "whisper-large-v3-turbo"
@@ -218,6 +219,26 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @property
+    def drill_tts_enabled(self) -> bool:
+        return self.tts_engine == "edge"
+
+    @property
+    def drill_stt_enabled(self) -> bool:
+        if self.stt_engine == "device":
+            return False
+        if self.stt_engine == "groq":
+            return bool(self.groq_api_key.strip())
+        return bool(self.groq_api_key.strip())  # auto
+
+    @property
+    def conversation_stt_on_server(self) -> bool:
+        return self.conversation_stt == "groq" and bool(self.groq_api_key.strip())
+
+    @property
+    def conversation_tts_on_server(self) -> bool:
+        return self.conversation_tts == "edge"
 
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":

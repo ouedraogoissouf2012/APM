@@ -248,8 +248,11 @@ class ConversationViewModel extends Notifier<ConversationState>
     if (state.status != ConversationStatus.idle) {
       return;
     }
-    // Conversation stays on-device (Chrome mic + voice) so it stays fast.
-    // Groq/Edge remain for Écho and paires minimales via /transcribe and /tts.
+    final config = await ref.read(runtimeConfigProvider.future);
+    if (config.conversationServerStt) {
+      await _pushToTalk.startRecording();
+      return;
+    }
     await _loop.run();
   }
 
