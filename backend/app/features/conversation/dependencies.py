@@ -140,9 +140,10 @@ def get_conversation_turn_service(
     llm = build_feature_llm(
         settings.voice_engine, settings, settings.deepseek_conversation_max_tokens
     )
-    # Server-side neural voice when TTS_ENGINE=edge; None keeps the on-device
-    # system voice (default). Same cached provider as the /tts endpoint (#123).
-    tts: TtsProvider | None = _shared_tts_provider() if settings.tts_engine == "edge" else None
+    # Conversation replies are spoken on-device. Edge TTS stays on /tts for
+    # Écho / paires (those drills need a model voice). Mixing both on /turn
+    # made every reply wait on Edge and felt "stuck" after a few turns.
+    tts: TtsProvider | None = None
     sessions = SqlAlchemySessionRepository(db)
     # The correction is a second, bounded LLM call in parallel with the reply
     # (#123 cost control): disabled entirely by config, else skips short utterances.

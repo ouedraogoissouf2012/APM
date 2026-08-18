@@ -248,15 +248,17 @@ class ConversationViewModel extends Notifier<ConversationState>
     if (state.status != ConversationStatus.idle) {
       return;
     }
-    // Server STT (Whisper via Groq): push-to-talk. This tap starts recording;
-    // the next tap stops, transcribes and responds. No hands-free auto-loop,
-    // because accurate transcription needs a clean full recording. The user's
-    // transcription consent is honored: revoking it forces on-device STT.
-    if (await ref.read(effectiveServerSttProvider.future)) {
-      await _pushToTalk.startRecording();
+    // Conversation stays on-device (Chrome mic + voice) so it stays fast.
+    // Groq/Edge remain for Écho and paires minimales via /transcribe and /tts.
+    await _loop.run();
+  }
+
+  /// Server-STT recording (Écho / tests). The talk orb uses [listenAndRespond].
+  Future<void> startPushToTalk() async {
+    if (state.sessionId == null || state.status != ConversationStatus.idle) {
       return;
     }
-    await _loop.run();
+    await _pushToTalk.startRecording();
   }
 
   /// Stops the loop / the recording, returning to idle. In push-to-talk mode a
