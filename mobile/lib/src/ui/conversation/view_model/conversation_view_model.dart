@@ -9,7 +9,8 @@ import '../../../core/observability/providers.dart';
 import '../../../core/offline/connectivity_controller.dart';
 import '../../../core/speech/speech_service.dart';
 import '../../../data/models/session_modes.dart';
-import '../../../data/repositories/conversation_repository.dart' show ActiveSessionData;
+import '../../../data/repositories/conversation_repository.dart'
+    show ActiveSessionData;
 import '../../history/view_model/progress_view_model.dart';
 import '../../home/view_model/streak_view_model.dart';
 import '../../profile/view_model/profile_view_model.dart';
@@ -24,11 +25,13 @@ import 'turn_loop_controller.dart';
 
 // speechServiceProvider and conversationRepositoryProvider now live in
 // conversation_providers.dart, re-exported here so existing importers keep working.
-export 'conversation_providers.dart' show conversationRepositoryProvider, speechServiceProvider;
+export 'conversation_providers.dart'
+    show conversationRepositoryProvider, speechServiceProvider;
 
-final conversationViewModelProvider = NotifierProvider<ConversationViewModel, ConversationState>(
-  ConversationViewModel.new,
-);
+final conversationViewModelProvider =
+    NotifierProvider<ConversationViewModel, ConversationState>(
+      ConversationViewModel.new,
+    );
 
 /// Drives one turn at a time: listen (device or server STT) -> send to the
 /// backend -> voice the reply, which streams back sentence by sentence as text
@@ -37,7 +40,8 @@ final conversationViewModelProvider = NotifierProvider<ConversationViewModel, Co
 /// Orchestrates the extracted pieces (#121): [ReplyPlayback] consumes the reply
 /// stream for both input modes. It implements [ConversationHost] so those pieces
 /// read/write the shared state through a narrow seam rather than the Notifier.
-class ConversationViewModel extends Notifier<ConversationState> implements ConversationHost {
+class ConversationViewModel extends Notifier<ConversationState>
+    implements ConversationHost {
   @override
   ConversationState build() {
     // #312: an offline turn's reply is currently thrown away by OfflineTurnSync
@@ -47,22 +51,38 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
     // up. A drop can also mean a turn was definitively rejected and dropped
     // (not synced) — re-fetching is still correct either way: it shows exactly
     // what the server has, which is what the transcript should reflect.
-    ref.listen<ConnectivityState>(connectivityControllerProvider, (previous, next) {
-      final justSynced = previous != null && next.pendingCount < previous.pendingCount;
+    ref.listen<ConnectivityState>(connectivityControllerProvider, (
+      previous,
+      next,
+    ) {
+      final justSynced =
+          previous != null && next.pendingCount < previous.pendingCount;
       if (justSynced) unawaited(_refreshTurnsFromServer());
     });
     return const ConversationState();
   }
 
   late final ReplyPlayback _playback = ReplyPlayback(ref, this);
-  late final PushToTalkController _pushToTalk = PushToTalkController(ref, this, _playback);
-  late final TurnLoopController _loop = TurnLoopController(ref, this, _playback);
+  late final PushToTalkController _pushToTalk = PushToTalkController(
+    ref,
+    this,
+    _playback,
+  );
+  late final TurnLoopController _loop = TurnLoopController(
+    ref,
+    this,
+    _playback,
+  );
 
   // ConversationHost: the seam the extracted controllers use.
   @override
   bool get mounted => ref.mounted;
 
-  Future<void> start({String mode = kSessionModeFree, String? scenarioId, int? missionId}) async {
+  Future<void> start({
+    String mode = kSessionModeFree,
+    String? scenarioId,
+    int? missionId,
+  }) async {
     // #311: without this, the pending-turn counter starts at 0 on every app
     // launch regardless of what's actually queued — a turn recorded offline in
     // a previous run stays invisible (no banner, no retry) until SOMETHING else
@@ -78,7 +98,11 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
     // target-less 409 resume.
     String? effectiveScenarioId = scenarioId;
     try {
-      sessionId = await repo.startSession(mode: mode, scenarioId: scenarioId, missionId: missionId);
+      sessionId = await repo.startSession(
+        mode: mode,
+        scenarioId: scenarioId,
+        missionId: missionId,
+      );
       turns = [
         ConversationTurn(
           kRoleAssistant,
@@ -124,7 +148,10 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
           turns = [
             ConversationTurn(
               kRoleAssistant,
-              ConversationScript.openingMessage(mode: mode, scenarioId: scenarioId),
+              ConversationScript.openingMessage(
+                mode: mode,
+                scenarioId: scenarioId,
+              ),
             ),
           ];
         } else {
@@ -140,11 +167,16 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
                     ),
                   ),
                 ]
-              : [for (final t in active.turns) ConversationTurn(t.role, t.content)];
+              : [
+                  for (final t in active.turns)
+                    ConversationTurn(t.role, t.content),
+                ];
         }
       } catch (inner, s) {
         _failStart(
-          inner is ApiException ? inner.message : 'Impossible de démarrer la session',
+          inner is ApiException
+              ? inner.message
+              : 'Impossible de démarrer la session',
           inner,
           s,
         );
@@ -170,11 +202,13 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
   void _failStart(String message, Object error, [StackTrace? stack]) {
     if (ref.mounted) {
       state = ConversationState(error: message);
-      ref.read(crashReporterProvider).captureError(
-        error,
-        stack ?? StackTrace.current,
-        context: 'ConversationViewModel.start',
-      );
+      ref
+          .read(crashReporterProvider)
+          .captureError(
+            error,
+            stack ?? StackTrace.current,
+            context: 'ConversationViewModel.start',
+          );
     }
   }
 
@@ -197,18 +231,37 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
   /// One tap: push-to-talk (server STT) records; otherwise start the hands-free
   /// device-STT loop. Both no-op unless a session is idle and ready.
   Future<void> listenAndRespond() async {
-    if (state.sessionId == null || state.status != ConversationStatus.idle) {
+    if (state.sessionId == null) return;
+    // A tap while the last reply is still streaming/playing used to no-op
+    // (status != idle) — after a few turns the orb looked dead.
+    if (state.status == ConversationStatus.thinking ||
+        state.status == ConversationStatus.speaking) {
+      await _playback.cancel();
+      _loop.stop();
+      if (ref.mounted) {
+        state = state.copyWith(
+          status: ConversationStatus.idle,
+          clearPartial: true,
+        );
+      }
+    }
+    if (state.status != ConversationStatus.idle) {
       return;
     }
-    // Server STT (Whisper via Groq): push-to-talk. This tap starts recording;
-    // the next tap stops, transcribes and responds. No hands-free auto-loop,
-    // because accurate transcription needs a clean full recording. The user's
-    // transcription consent is honored: revoking it forces on-device STT.
-    if (await ref.read(effectiveServerSttProvider.future)) {
+    final config = await ref.read(runtimeConfigProvider.future);
+    if (config.conversationServerStt) {
       await _pushToTalk.startRecording();
       return;
     }
     await _loop.run();
+  }
+
+  /// Server-STT recording (Écho / tests). The talk orb uses [listenAndRespond].
+  Future<void> startPushToTalk() async {
+    if (state.sessionId == null || state.status != ConversationStatus.idle) {
+      return;
+    }
+    await _pushToTalk.startRecording();
   }
 
   /// Stops the loop / the recording, returning to idle. In push-to-talk mode a
@@ -222,7 +275,10 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
     await _playback.cancel();
     await ref.read(speechServiceProvider).stopListening();
     if (ref.mounted && state.sessionId != null) {
-      state = state.copyWith(status: ConversationStatus.idle, clearPartial: true);
+      state = state.copyWith(
+        status: ConversationStatus.idle,
+        clearPartial: true,
+      );
     }
   }
 
@@ -242,8 +298,13 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
     if (ref.mounted) await _pushToTalk.cancel();
     if (ref.mounted) await _playback.cancel();
     if (ref.mounted) await ref.read(speechServiceProvider).stopListening();
-    if (ref.mounted && state.sessionId != null && state.status != ConversationStatus.idle) {
-      state = state.copyWith(status: ConversationStatus.idle, clearPartial: true);
+    if (ref.mounted &&
+        state.sessionId != null &&
+        state.status != ConversationStatus.idle) {
+      state = state.copyWith(
+        status: ConversationStatus.idle,
+        clearPartial: true,
+      );
     }
   }
 
@@ -289,14 +350,19 @@ class ConversationViewModel extends Notifier<ConversationState> implements Conve
     if (sid == null || state.status != ConversationStatus.idle) return;
     final ActiveSessionData? active;
     try {
-      active = await ref.read(conversationRepositoryProvider).getActiveSession();
+      active = await ref
+          .read(conversationRepositoryProvider)
+          .getActiveSession();
     } catch (e, s) {
       if (ref.mounted) {
-        ref.read(crashReporterProvider).captureError(
-          e,
-          s,
-          context: 'ConversationViewModel._refreshTurnsFromServer: refetch failed',
-        );
+        ref
+            .read(crashReporterProvider)
+            .captureError(
+              e,
+              s,
+              context:
+                  'ConversationViewModel._refreshTurnsFromServer: refetch failed',
+            );
       }
       return;
     }

@@ -90,8 +90,7 @@ class _Unavailable extends StatelessWidget {
           Icon(Icons.cloud_off, size: 48, color: colors.textMuted),
           const SizedBox(height: AppSpacing.lg),
           Text(
-            'Le Mode Écho nécessite la voix du serveur '
-            '(synthèse et reconnaissance). Elle n’est pas activée ici.',
+            'Le Mode Écho n’est pas disponible pour le moment.',
             key: const Key('echo_unavailable'),
             textAlign: TextAlign.center,
             style: AppType.body(colors.textSecondary),

@@ -363,6 +363,8 @@ ProviderContainer _container(
           demoMode: false,
           serverTts: serverTts,
           serverStt: serverStt,
+          conversationServerTts: serverTts,
+          conversationServerStt: serverStt,
         ),
       ),
       // effectiveServerSttProvider (#225) also watches consent; default to the
@@ -707,7 +709,7 @@ void main() {
 
     await vm.start();
     // First tap: start recording (push-to-talk).
-    await vm.listenAndRespond();
+    await vm.startPushToTalk();
     expect(recorder.started, isTrue);
     expect(c.read(conversationViewModelProvider).status,
         ConversationStatus.listening);
@@ -742,7 +744,7 @@ void main() {
     final vm = c.read(conversationViewModelProvider.notifier);
 
     await vm.start(mode: 'scenario', scenarioId: 'job_interview');
-    await vm.listenAndRespond(); // push-to-talk: start recording
+    await vm.startPushToTalk();
     await vm.stopConversation(); // stop -> transcribe -> capture the take
 
     // The _FakeRecorder yields 3 bytes; keyed by the scenario skill.
@@ -798,7 +800,7 @@ void main() {
     final vm = c.read(conversationViewModelProvider.notifier);
 
     await vm.start(mode: 'scenario', scenarioId: 'job_interview');
-    await vm.listenAndRespond();
+    await vm.startPushToTalk();
     await vm.stopConversation(); // capture fails, but the turn must still proceed
 
     verify(
@@ -1411,7 +1413,7 @@ void main() {
       final vm = c.read(conversationViewModelProvider.notifier);
 
       await vm.start();
-      await vm.listenAndRespond(); // push-to-talk: start recording
+      await vm.startPushToTalk();
       await vm.stopConversation(); // stop -> transcribe (fails)
 
       verify(
@@ -1450,7 +1452,7 @@ void main() {
       final vm = c.read(conversationViewModelProvider.notifier);
 
       await vm.start();
-      await vm.listenAndRespond();
+      await vm.startPushToTalk();
       await vm.stopConversation();
 
       verifyNever(

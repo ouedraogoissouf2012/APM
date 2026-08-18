@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # turn. Best-effort: any failure is logged and ignored — the services still
     # work per request.
     _log = logging.getLogger("apm")
-    if settings.tts_engine == "edge":
+    if settings.drill_tts_enabled:
         try:
             from app.features.conversation.dependencies import get_tts_provider
 
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _log.info("TTS warm-up done")
         except Exception:
             _log.warning("TTS warm-up failed", exc_info=True)
-    if settings.stt_engine == "groq":
+    if settings.drill_stt_enabled:
         try:
             from app.features.conversation.dependencies import get_stt_provider
 
@@ -274,10 +274,11 @@ async def public_config() -> dict[str, bool]:
         "mission_demo_mode": s.mission_engine == ENGINE_FAKE,
         # When true, shadowing phrases/coaching come from the fake engine.
         "shadowing_demo_mode": s.shadowing_engine == ENGINE_FAKE,
-        # When true, the backend streams synthesized neural audio; the client
-        # plays it instead of speaking with the on-device system voice.
-        "server_tts": s.tts_engine != "device",
-        # When true, the client records audio and POSTs it to /transcribe
-        # instead of using the (weaker) on-device browser recognizer.
-        "server_stt": s.stt_engine != "device",
+        # Drills (Écho / paires / carnet). Kept as server_* for old clients.
+        "server_tts": s.drill_tts_enabled,
+        "server_stt": s.drill_stt_enabled,
+        "drill_tts": s.drill_tts_enabled,
+        "drill_stt": s.drill_stt_enabled,
+        "conversation_server_tts": s.conversation_tts_on_server,
+        "conversation_server_stt": s.conversation_stt_on_server,
     }

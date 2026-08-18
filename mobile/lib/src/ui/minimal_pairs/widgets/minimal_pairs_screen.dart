@@ -89,8 +89,7 @@ class _Unavailable extends StatelessWidget {
           Icon(Icons.cloud_off, size: 48, color: colors.textMuted),
           const SizedBox(height: AppSpacing.lg),
           Text(
-            'Les paires minimales nécessitent la voix du serveur '
-            '(synthèse et reconnaissance). Elle n’est pas activée ici.',
+            'Les paires minimales ne sont pas disponibles pour le moment.',
             key: const Key('pairs_unavailable'),
             textAlign: TextAlign.center,
             style: AppType.body(colors.textSecondary),

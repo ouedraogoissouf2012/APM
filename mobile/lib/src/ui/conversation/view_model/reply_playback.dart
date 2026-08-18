@@ -53,7 +53,7 @@ class ReplyPlayback {
     // Server-side neural voice? Then the reply arrives as audio clips to play;
     // otherwise fall back to the on-device system voice. Defaults to false
     // (on-device) if the backend/config is unreachable.
-    final serverTts = await _ref.read(serverTtsProvider.future);
+    final serverTts = await _ref.read(conversationServerTtsProvider.future);
     final buffer = StringBuffer();
     var hasText = false;
     // A fresh turn is always live even if a PRIOR turn was cancelled mid-stream.
@@ -65,9 +65,14 @@ class ReplyPlayback {
     // try block (not inlined into streamTurn's call) so a network failure in the
     // catch below can queue the offline replay under this EXACT SAME key (#313)
     // instead of a fresh one — a try-scoped local would not be visible there.
-    final idempotencyKey = '$sessionId-${DateTime.now().microsecondsSinceEpoch}';
+    final idempotencyKey =
+        '$sessionId-${DateTime.now().microsecondsSinceEpoch}';
     try {
-      final events = _repo.streamTurn(sessionId, heard, idempotencyKey: idempotencyKey);
+      final events = _repo.streamTurn(
+        sessionId,
+        heard,
+        idempotencyKey: idempotencyKey,
+      );
       await for (final event in events) {
         if (!isLive() || _cancelled) return false;
         switch (event) {
@@ -94,7 +99,8 @@ class ReplyPlayback {
       // On a NETWORK failure, don't lose the turn: queue it for replay on
       // reconnect (#127) and tell the learner it will be sent later. A
       // non-network failure keeps the previous generic error.
-      final offline = e is ApiException && (e.statusCode == 0 || e.code == 'network');
+      final offline =
+          e is ApiException && (e.statusCode == 0 || e.code == 'network');
       if (offline) {
         await _ref
             .read(connectivityControllerProvider.notifier)
@@ -124,7 +130,9 @@ class ReplyPlayback {
       // captive portal). Only bothers when there is something to reconcile.
       final connectivity = _ref.read(connectivityControllerProvider);
       if (connectivity.hasPending || !connectivity.online) {
-        unawaited(_ref.read(connectivityControllerProvider.notifier).syncPending());
+        unawaited(
+          _ref.read(connectivityControllerProvider.notifier).syncPending(),
+        );
       }
     }
     return live;

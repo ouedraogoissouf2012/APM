@@ -48,7 +48,12 @@ final runtimeConfigProvider = FutureProvider<RuntimeConfig>((ref) async {
   try {
     return await ref.watch(runtimeConfigRepositoryProvider).fetch();
   } catch (_) {
-    return const RuntimeConfig(demoMode: false, serverTts: false);
+    return const RuntimeConfig(
+      demoMode: false,
+      serverTts: false,
+      conversationServerTts: false,
+      conversationServerStt: false,
+    );
   }
 });
 
@@ -57,9 +62,14 @@ final demoModeProvider = FutureProvider<bool>((ref) async {
   return (await ref.watch(runtimeConfigProvider.future)).demoMode;
 });
 
-/// True when the backend streams neural audio (play it instead of on-device TTS).
+/// Drills: neural /tts.
 final serverTtsProvider = FutureProvider<bool>((ref) async {
   return (await ref.watch(runtimeConfigProvider.future)).serverTts;
+});
+
+/// Conversation reply: server neural voice (rare). Default false = device.
+final conversationServerTtsProvider = FutureProvider<bool>((ref) async {
+  return (await ref.watch(runtimeConfigProvider.future)).conversationServerTts;
 });
 
 /// True when the backend transcribes audio (record & upload instead of the

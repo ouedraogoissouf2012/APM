@@ -6,20 +6,23 @@ class RuntimeConfig {
     required this.demoMode,
     required this.serverTts,
     this.serverStt = false,
+    this.conversationServerTts = false,
+    this.conversationServerStt = false,
   });
 
-  /// True when the backend runs on the fake LLM engine (no DeepSeek key): the
-  /// assistant invents replies and no corrections are produced. The UI must say
-  /// so instead of pretending it is really teaching.
   final bool demoMode;
 
-  /// True when the backend streams synthesized neural audio: the app plays that
-  /// audio instead of speaking with the robotic on-device system voice.
+  /// Drills (Écho, paires, carnet): /tts is available.
   final bool serverTts;
 
-  /// True when the backend transcribes recorded audio (Whisper via Groq): the
-  /// app records and uploads audio instead of using the browser recognizer.
+  /// Drills: /transcribe is available.
   final bool serverStt;
+
+  /// Conversation reply spoken on the server (Edge). Default off = Chrome voice.
+  final bool conversationServerTts;
+
+  /// Conversation listen via /transcribe. Default off = Chrome mic.
+  final bool conversationServerStt;
 }
 
 class RuntimeConfigRepository {
@@ -31,8 +34,10 @@ class RuntimeConfigRepository {
     final json = await _api.getJson('/config');
     return RuntimeConfig(
       demoMode: json['demo_mode'] as bool? ?? false,
-      serverTts: json['server_tts'] as bool? ?? false,
-      serverStt: json['server_stt'] as bool? ?? false,
+      serverTts: json['drill_tts'] as bool? ?? json['server_tts'] as bool? ?? false,
+      serverStt: json['drill_stt'] as bool? ?? json['server_stt'] as bool? ?? false,
+      conversationServerTts: json['conversation_server_tts'] as bool? ?? false,
+      conversationServerStt: json['conversation_server_stt'] as bool? ?? false,
     );
   }
 }
