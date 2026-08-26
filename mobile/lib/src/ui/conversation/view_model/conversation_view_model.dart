@@ -74,6 +74,11 @@ class ConversationViewModel extends Notifier<ConversationState>
     _playback,
   );
 
+  ActiveSessionData? _pendingActive;
+  String _pendingMode = kSessionModeFree;
+  String? _pendingScenarioId;
+  int? _pendingMissionId;
+
   // ConversationHost: the seam the extracted controllers use.
   @override
   bool get mounted => ref.mounted;
@@ -155,22 +160,14 @@ class ConversationViewModel extends Notifier<ConversationState>
             ),
           ];
         } else {
-          sessionId = active.sessionId;
-          effectiveScenarioId = active.scenarioId;
-          turns = active.turns.isEmpty
-              ? [
-                  ConversationTurn(
-                    kRoleAssistant,
-                    ConversationScript.openingMessage(
-                      mode: active.mode,
-                      scenarioId: active.scenarioId,
-                    ),
-                  ),
-                ]
-              : [
-                  for (final t in active.turns)
-                    ConversationTurn(t.role, t.content),
-                ];
+          _pendingActive = active;
+          _pendingMode = mode;
+          _pendingScenarioId = scenarioId;
+          _pendingMissionId = missionId;
+          if (ref.mounted) {
+            state = const ConversationState(sessionConflict: true);
+          }
+          return;
         }
       } catch (inner, s) {
         _failStart(
@@ -187,13 +184,62 @@ class ConversationViewModel extends Notifier<ConversationState>
       return;
     }
 
+    await _activateSession(
+      sessionId: sessionId,
+      scenarioId: effectiveScenarioId,
+      turns: turns,
+    );
+  }
+
+  /// Reprendre: apply the 409 pending session and start speech.
+  Future<void> resumePending() async {
+    final active = _pendingActive;
+    if (active == null) return;
+    _pendingActive = null;
+    final turns = active.turns.isEmpty
+        ? [
+            ConversationTurn(
+              kRoleAssistant,
+              ConversationScript.openingMessage(
+                mode: active.mode,
+                scenarioId: active.scenarioId,
+              ),
+            ),
+          ]
+        : [for (final t in active.turns) ConversationTurn(t.role, t.content)];
+    await _activateSession(
+      sessionId: active.sessionId,
+      scenarioId: active.scenarioId,
+      turns: turns,
+    );
+  }
+
+  /// Terminer et recommencer: end the 409 pending session, then start again.
+  Future<void> replacePending() async {
+    final pending = _pendingActive;
+    if (pending == null) return;
+    _pendingActive = null;
+    await ref.read(conversationRepositoryProvider).endSession(pending.sessionId);
+    if (!ref.mounted) return;
+    await start(
+      mode: _pendingMode,
+      scenarioId: _pendingScenarioId,
+      missionId: _pendingMissionId,
+    );
+  }
+
+  Future<void> _activateSession({
+    required int sessionId,
+    required List<ConversationTurn> turns,
+    String? scenarioId,
+  }) async {
     final speech = ref.read(speechServiceProvider);
     await speech.setLanguage(await _preferredLanguageTag());
     final speechReady = await speech.initialize();
     if (!ref.mounted) return;
     state = ConversationState(
       sessionId: sessionId,
-      scenarioId: effectiveScenarioId,
+      scenarioId: scenarioId,
       turns: turns,
       error: speechReady ? null : 'Microphone is not available',
     );

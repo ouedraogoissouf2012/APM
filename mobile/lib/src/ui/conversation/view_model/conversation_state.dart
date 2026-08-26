@@ -29,6 +29,7 @@ class ConversationState {
     this.error,
     this.partialTranscript,
     this.quotaExhausted = false,
+    this.sessionConflict = false,
   });
 
   final int? sessionId;
@@ -50,6 +51,11 @@ class ConversationState {
   /// upgrade path rather than a dead conversation screen.
   final bool quotaExhausted;
 
+  /// True when a target-less start hit 409: an active session exists and the
+  /// learner must choose resume vs replace. Distinct from a plain error so the
+  /// UI can show a choice screen rather than the orb.
+  final bool sessionConflict;
+
   bool get isActive => sessionId != null;
 
   ConversationState copyWith({
@@ -60,6 +66,7 @@ class ConversationState {
     String? error,
     String? partialTranscript,
     bool? quotaExhausted,
+    bool? sessionConflict,
     bool clearError = false,
     bool clearPartial = false,
   }) {
@@ -72,6 +79,7 @@ class ConversationState {
       partialTranscript:
           clearPartial ? null : (partialTranscript ?? this.partialTranscript),
       quotaExhausted: quotaExhausted ?? this.quotaExhausted,
+      sessionConflict: sessionConflict ?? this.sessionConflict,
     );
   }
 }

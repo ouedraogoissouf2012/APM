@@ -23,6 +23,8 @@ class _StubConversationViewModel extends ConversationViewModel {
   bool listenCalled = false;
   bool stopCalled = false;
   bool endCalled = false;
+  bool resumeCalled = false;
+  bool replaceCalled = false;
 
   @override
   ConversationState build() => _initial;
@@ -48,6 +50,16 @@ class _StubConversationViewModel extends ConversationViewModel {
   Future<void> end() async {
     endCalled = true;
     state = const ConversationState();
+  }
+
+  @override
+  Future<void> resumePending() async {
+    resumeCalled = true;
+  }
+
+  @override
+  Future<void> replacePending() async {
+    replaceCalled = true;
   }
 }
 
@@ -414,6 +426,37 @@ void main() {
     await _pump(tester, activeIdle, demoMode: false);
     await tester.pump();
     expect(find.byKey(const Key('demo_banner')), findsNothing);
+  });
+
+  testWidgets('Terminer : libellé visible et clé end_button inchangée', (
+    tester,
+  ) async {
+    await _pump(tester, activeIdle);
+    expect(find.byKey(const Key('end_button')), findsOneWidget);
+    expect(find.text('Terminer'), findsOneWidget);
+  });
+
+  testWidgets('conflit 409 : affiche Reprendre et Terminer et recommencer', (
+    tester,
+  ) async {
+    final stub = await _pump(
+      tester,
+      const ConversationState(sessionConflict: true),
+    );
+
+    expect(find.byKey(const Key('session_conflict')), findsOneWidget);
+    expect(find.text('Une conversation est déjà en cours.'), findsOneWidget);
+    expect(find.byType(VoiceOrb), findsNothing);
+    expect(find.byKey(const Key('resume_session')), findsOneWidget);
+    expect(find.byKey(const Key('replace_session')), findsOneWidget);
+    expect(find.text('Reprendre'), findsOneWidget);
+    expect(find.text('Terminer et recommencer'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('resume_session')));
+    expect(stub.resumeCalled, isTrue);
+
+    await tester.tap(find.byKey(const Key('replace_session')));
+    expect(stub.replaceCalled, isTrue);
   });
 
   testWidgets('quota épuisé : affiche le paywall, pas l\'orbe', (tester) async {

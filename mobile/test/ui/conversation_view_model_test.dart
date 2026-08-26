@@ -226,6 +226,7 @@ class _FakeSpeech implements SpeechService {
   final bool thenSilence;
 
   int listenCalls = 0;
+  int initializeCalls = 0;
   final List<String> spoken = [];
   String? spokenText;
   String? languageTag;
@@ -239,7 +240,10 @@ class _FakeSpeech implements SpeechService {
   String? get lastError => errorOnListen;
 
   @override
-  Future<bool> initialize() async => ready;
+  Future<bool> initialize() async {
+    initializeCalls++;
+    return ready;
+  }
   @override
   Future<void> setLanguage(String languageTag) async {
     this.languageTag = languageTag;
@@ -413,7 +417,7 @@ void main() {
     );
   });
 
-  test('start resumes the active session when start returns 409', () async {
+  test('start surfaces sessionConflict on 409 without resuming', () async {
     final repo = _MockConversationRepository();
     when(
       () => repo.startSession(
@@ -438,13 +442,96 @@ void main() {
         ],
       ),
     );
-    final c = _container(repo, _FakeSpeech(''));
+    final speech = _FakeSpeech('');
+    final c = _container(repo, speech);
 
     await c.read(conversationViewModelProvider.notifier).start();
 
     final state = c.read(conversationViewModelProvider);
+    expect(state.sessionConflict, isTrue);
+    expect(state.sessionId, isNull);
+    expect(speech.initializeCalls, 0);
+  });
+
+  test('resumePending applies the pending session and inits speech', () async {
+    final repo = _MockConversationRepository();
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenThrow(
+      const ApiException(
+        statusCode: 409,
+        code: 'ActiveSessionExistsError',
+        message: 'A session is already in progress',
+      ),
+    );
+    when(() => repo.getActiveSession()).thenAnswer(
+      (_) async => const ActiveSessionData(
+        sessionId: 77,
+        mode: 'free',
+        scenarioId: null,
+        turns: [
+          (role: 'user', content: 'hi'),
+          (role: 'assistant', content: 'Hello again!'),
+        ],
+      ),
+    );
+    final speech = _FakeSpeech('');
+    final c = _container(repo, speech);
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.resumePending();
+
+    final state = c.read(conversationViewModelProvider);
+    expect(state.sessionConflict, isFalse);
     expect(state.sessionId, 77);
     expect(state.turns.map((t) => t.content).toList(), ['hi', 'Hello again!']);
+    expect(speech.initializeCalls, 1);
+  });
+
+  test('replacePending ends the pending session then starts fresh', () async {
+    final repo = _MockConversationRepository();
+    var startCalls = 0;
+    when(
+      () => repo.startSession(
+        mode: any(named: 'mode'),
+        scenarioId: any(named: 'scenarioId'),
+      ),
+    ).thenAnswer((_) async {
+      startCalls++;
+      if (startCalls == 1) {
+        throw const ApiException(
+          statusCode: 409,
+          code: 'ActiveSessionExistsError',
+          message: 'A session is already in progress',
+        );
+      }
+      return 99;
+    });
+    when(() => repo.getActiveSession()).thenAnswer(
+      (_) async => const ActiveSessionData(
+        sessionId: 77,
+        mode: 'free',
+        scenarioId: null,
+        turns: [(role: 'user', content: 'hi')],
+      ),
+    );
+    when(() => repo.endSession(any())).thenAnswer((_) async {});
+    final c = _container(repo, _FakeSpeech(''));
+    final vm = c.read(conversationViewModelProvider.notifier);
+
+    await vm.start();
+    expect(c.read(conversationViewModelProvider).sessionConflict, isTrue);
+
+    await vm.replacePending();
+
+    verify(() => repo.endSession(77)).called(1);
+    final state = c.read(conversationViewModelProvider);
+    expect(state.sessionId, 99);
+    expect(state.sessionConflict, isFalse);
   });
 
   test('#audit7: 409 then getActiveSession 500 surfaces state.error', () async {

@@ -102,6 +102,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen>
       return const Scaffold(body: SafeArea(child: _QuotaExhausted()));
     }
 
+    if (state.sessionConflict) {
+      return const Scaffold(body: SafeArea(child: _SessionConflict()));
+    }
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -159,13 +163,12 @@ class _TopBar extends StatelessWidget {
           active: active,
         ),
         const Spacer(),
-        IconButton(
-          key: const Key('end_button'),
-          icon: const Icon(Icons.call_end),
-          color: context.colors.textSecondary,
-          tooltip: 'Terminer la session',
-          onPressed: onEnd,
-        ),
+        if (active)
+          AppButton.ghost(
+            key: const Key('end_button'),
+            label: 'Terminer',
+            onPressed: onEnd,
+          ),
       ],
     );
   }
@@ -361,6 +364,48 @@ class _TappableCorrection extends StatelessWidget {
       key: const Key('turn_correction_tap'),
       onTap: () => showGrammarSheet(context, correction),
       child: chip,
+    );
+  }
+}
+
+/// Shown when a target-less start hits 409: the learner chooses to resume
+/// the open session or end it and start over. No orb until they pick.
+class _SessionConflict extends ConsumerWidget {
+  const _SessionConflict();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.colors;
+    final vm = ref.read(conversationViewModelProvider.notifier);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          key: const Key('session_conflict'),
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.forum_outlined, size: 40, color: colors.accent),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Une conversation est déjà en cours.',
+              style: AppType.displayMd(colors.textPrimary),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            AppButton.primary(
+              key: const Key('resume_session'),
+              label: 'Reprendre',
+              onPressed: vm.resumePending,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppButton.outlined(
+              key: const Key('replace_session'),
+              label: 'Terminer et recommencer',
+              onPressed: vm.replacePending,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
