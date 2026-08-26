@@ -23,6 +23,7 @@ class _StubConversationViewModel extends ConversationViewModel {
   bool listenCalled = false;
   bool stopCalled = false;
   bool endCalled = false;
+  bool finishCalled = false;
   bool resumeCalled = false;
   bool replaceCalled = false;
 
@@ -50,6 +51,11 @@ class _StubConversationViewModel extends ConversationViewModel {
   Future<void> end() async {
     endCalled = true;
     state = const ConversationState();
+  }
+
+  @override
+  Future<void> finishCurrentUtterance() async {
+    finishCalled = true;
   }
 
   @override
@@ -113,7 +119,7 @@ void main() {
 
     final orb = tester.widget<VoiceOrb>(find.byType(VoiceOrb));
     expect(orb.state, VoiceOrbState.idle);
-    expect(find.text("TOUCHE L'ORBE POUR PARLER"), findsOneWidget);
+    expect(find.text('PARLER'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('mic_button')));
     expect(stub.listenCalled, isTrue);
@@ -128,7 +134,7 @@ void main() {
       expect(
         tester.getSemantics(find.byKey(const Key('mic_button'))),
         matchesSemantics(
-          label: "touche l'orbe pour parler",
+          label: 'Parler',
           isButton: true,
           isEnabled: true,
           hasEnabledState: true,
@@ -136,16 +142,8 @@ void main() {
           onTapHint: 'parler',
         ),
       );
-      // The visible OverlineText caption repeats the SAME text on purpose (the
-      // issue asks to reuse it) — it must be excluded from the semantics tree,
-      // or a screen reader would announce the identical phrase twice in a row.
-      // Case-insensitive: OverlineText.toUpperCase()s its content by design
-      // (DESIGN_SPEC §3), so a naive exact-string search would miss the
-      // duplicate entirely and pass regardless of whether it's excluded.
       expect(
-        find.bySemanticsLabel(
-          RegExp("touche l'orbe pour parler", caseSensitive: false),
-        ),
+        find.bySemanticsLabel(RegExp('parler', caseSensitive: false)),
         findsOneWidget,
       );
 
@@ -166,12 +164,12 @@ void main() {
       expect(
         tester.getSemantics(find.byKey(const Key('mic_button'))),
         matchesSemantics(
-          label: "je t'écoute — touche pour arrêter",
+          label: 'Envoyer',
           isButton: true,
           isEnabled: true,
           hasEnabledState: true,
           hasTapAction: true,
-          onTapHint: 'arrêter',
+          onTapHint: 'envoyer',
         ),
       );
 
@@ -180,8 +178,7 @@ void main() {
   );
 
   testWidgets(
-    'a11y (#329) : orbe thinking (réponse en cours, non interruptible) '
-    'désactivé, sans indice de tap',
+    'a11y (#496) : orbe thinking interruptible, label Interrompre',
     (tester) async {
       final handle = tester.ensureSemantics();
       await _pump(
@@ -192,16 +189,12 @@ void main() {
       expect(
         tester.getSemantics(find.byKey(const Key('mic_button'))),
         matchesSemantics(
-          label: 'je réfléchis',
+          label: 'Interrompre',
           isButton: true,
-          isEnabled: false,
+          isEnabled: true,
           hasEnabledState: true,
-          hasTapAction: false,
-          // onTapHint compiles to a custom semantics action (Flutter's
-          // matchesSemantics only checks it when a value is passed here) — an
-          // explicit empty list is what actually proves NO hint survived,
-          // matching this test's own title ("sans indice de tap").
-          customActions: const <CustomSemanticsAction>[],
+          hasTapAction: true,
+          onTapHint: 'interrompre',
         ),
       );
 
@@ -236,9 +229,7 @@ void main() {
     },
   );
 
-  testWidgets('listening : orbe en écoute + overline JE T\'ÉCOUTE', (
-    tester,
-  ) async {
+  testWidgets('listening : orbe en écoute + overline ENVOYER', (tester) async {
     await _pump(
       tester,
       activeIdle.copyWith(status: ConversationStatus.listening),
@@ -247,10 +238,10 @@ void main() {
       tester.widget<VoiceOrb>(find.byType(VoiceOrb)).state,
       VoiceOrbState.listening,
     );
-    expect(find.textContaining("JE T'ÉCOUTE"), findsOneWidget);
+    expect(find.text('ENVOYER'), findsOneWidget);
   });
 
-  testWidgets('tapping the orb while listening stops the conversation', (
+  testWidgets('tapping the orb while listening sends the utterance', (
     tester,
   ) async {
     final stub = await _pump(
@@ -259,8 +250,21 @@ void main() {
     );
 
     await tester.tap(find.byKey(const Key('mic_button')));
-    expect(stub.stopCalled, isTrue);
+    expect(stub.finishCalled, isTrue);
+    expect(stub.stopCalled, isFalse);
     expect(stub.listenCalled, isFalse);
+  });
+
+  testWidgets('tapping the orb while thinking starts a new turn', (
+    tester,
+  ) async {
+    final stub = await _pump(
+      tester,
+      activeIdle.copyWith(status: ConversationStatus.thinking),
+    );
+
+    await tester.tap(find.byKey(const Key('mic_button')));
+    expect(stub.listenCalled, isTrue);
   });
 
   testWidgets('shows the live partial transcript while listening', (

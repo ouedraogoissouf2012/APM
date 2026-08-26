@@ -189,33 +189,26 @@ class _OrbZone extends ConsumerWidget {
       };
 
   static String _labelFor(ConversationStatus status) => switch (status) {
-    ConversationStatus.idle => "touche l'orbe pour parler",
-    ConversationStatus.listening => "je t'écoute — touche pour arrêter",
-    ConversationStatus.thinking => 'je réfléchis',
-    ConversationStatus.speaking => 'je te réponds',
+    ConversationStatus.idle => 'Parler',
+    ConversationStatus.listening => 'Envoyer',
+    ConversationStatus.thinking || ConversationStatus.speaking => 'Interrompre',
   };
 
   /// #329: what a tap DOES right now, not how to perform it (Flutter's
   /// SemanticsHintOverrides convention — "parler", not "touche pour parler").
-  /// Null while the orb isn't tappable (thinking/speaking, or the session
-  /// isn't active) — a hint promising an action that won't happen would
-  /// mislead a screen-reader user, and Flutter only announces it anyway when
-  /// there's an actual tap action to attach it to.
+  /// Null only while the session isn't active — a hint promising an action
+  /// that won't happen would mislead a screen-reader user.
   static String? _tapHintFor(ConversationStatus status) => switch (status) {
     ConversationStatus.idle => 'parler',
-    ConversationStatus.listening => 'arrêter',
-    ConversationStatus.thinking || ConversationStatus.speaking => null,
+    ConversationStatus.listening => 'envoyer',
+    ConversationStatus.thinking || ConversationStatus.speaking => 'interrompre',
   };
 
   /// #329: the accessibility label must stay accurate even before a session
   /// is active (no sessionId yet — the brief window while start() is still
-  /// resolving). [_labelFor]'s idle text ("touche l'orbe pour parler") is an
-  /// instruction to tap; announcing that on a node [enabled] simultaneously
-  /// marks non-interactive would mislead a screen-reader user, who has no
-  /// other signal that the orb isn't ready yet. The visible OverlineText
-  /// keeps [_labelFor] as-is — a purely visual flicker during a normally
-  /// sub-second window is a separate, lower-stakes concern than what
-  /// assistive tech announces.
+  /// resolving). [_labelFor]'s idle text is an instruction to tap; announcing
+  /// that on a node [enabled] simultaneously marks non-interactive would
+  /// mislead a screen-reader user.
   static String _semanticsLabelFor(ConversationState state) =>
       state.isActive ? _labelFor(state.status) : 'session en préparation';
 
@@ -223,15 +216,15 @@ class _OrbZone extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final vm = ref.read(conversationViewModelProvider.notifier);
     final idle = state.status == ConversationStatus.idle;
-    // Idle -> start the hands-free loop. Listening -> tap to stop early.
-    // Thinking/speaking -> not interruptible by tap (reply in flight).
+    // Idle -> listen. Listening -> send what was heard. Thinking/speaking ->
+    // interrupt and start a new turn.
     final VoidCallback? onTap = !state.isActive
         ? null
         : idle
         ? vm.listenAndRespond
         : state.status == ConversationStatus.listening
-        ? vm.stopConversation
-        : null;
+        ? vm.finishCurrentUtterance
+        : vm.listenAndRespond;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
