@@ -26,6 +26,7 @@ from app.domain.exceptions import (
     InvalidRefreshTokenError,
     NotFoundError,
 )
+from app.features.auth.mailer import Mailer
 from app.features.auth.models import User
 from app.features.auth.repository import RefreshTokenRepository, UserRepository
 
@@ -68,11 +69,13 @@ class AuthService:
         refresh_tokens: RefreshTokenRepository,
         refresh_ttl_days: int,
         reuse_grace_seconds: int = 30,
+        mailer: Mailer | None = None,
     ) -> None:
         self._users = users
         self._refresh = refresh_tokens
         self._refresh_ttl_days = refresh_ttl_days
         self._reuse_grace_seconds = reuse_grace_seconds
+        self._mailer = mailer
 
     async def _issue_tokens(self, user: User, *, commit: bool = True) -> AuthResult:
         raw_refresh = generate_refresh_token()
@@ -102,10 +105,16 @@ class AuthService:
         # insert used to leave an orphan account (retry → 409).
         try:
             user = await self._users.create(user, commit=False)
-            return await self._issue_tokens(user, commit=True)
+            result = await self._issue_tokens(user, commit=True)
         except Exception:
             await self._refresh.rollback()
             raise
+        await self._send_mail(
+            to=email,
+            subject="Bienvenue sur APM",
+            text="Ton compte Anglais Pour Moi est prêt. Tu peux te connecter et parler.",
+        )
+        return result
 
     async def login(self, email: str, password: str) -> AuthResult:
         email = normalize_email(email)
@@ -224,7 +233,24 @@ class AuthService:
         user.reset_token_hash = hashed
         user.reset_token_expires_at = datetime.now(UTC) + timedelta(hours=1)
         await self._users.save(user)
+        await self._send_mail(
+            to=user.email,
+            subject="Réinitialise ton mot de passe APM",
+            text=(
+                "Voici ton jeton de réinitialisation (valide 1 heure).\n\n"
+                f"{raw}\n\n"
+                "Colle-le dans l'écran Nouveau mot de passe. Ne le partage pas."
+            ),
+        )
         return raw
+
+    async def _send_mail(self, *, to: str, subject: str, text: str) -> None:
+        if self._mailer is None:
+            return
+        try:
+            await self._mailer.send(to=to, subject=subject, text=text)
+        except Exception:
+            logging.getLogger(__name__).warning("mailer send failed", exc_info=True)
 
     async def reset_password(self, raw_token: str, new_password: str) -> None:
         user = await self._users.get_by_reset_hash(hash_token(raw_token))

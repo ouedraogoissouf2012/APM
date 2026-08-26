@@ -281,4 +281,5 @@ async def public_config() -> dict[str, bool]:
         "drill_stt": s.drill_stt_enabled,
         "conversation_server_tts": s.conversation_tts_on_server,
         "conversation_server_stt": s.conversation_stt_on_server,
+        "password_reset_enabled": s.mailer_enabled,
     }

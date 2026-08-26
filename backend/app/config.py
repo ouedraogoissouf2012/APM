@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # explicitly — NEVER tie it to APP_ENV=test (a deploy with that env would
     # leak tokens and skip production guards). Forbidden in staging/production.
     expose_reset_token: bool = False
+    resend_api_key: str = ""
+    mail_from: str = ""
     # Optional shared secret for GET /metrics in staging/production. Empty =
     # the route 404s there (dev/test stay open for local scrapes).
     metrics_token: str = ""
@@ -239,6 +241,10 @@ class Settings(BaseSettings):
     @property
     def conversation_tts_on_server(self) -> bool:
         return self.conversation_tts == "edge"
+
+    @property
+    def mailer_enabled(self) -> bool:
+        return bool(self.resend_api_key.strip() and self.mail_from.strip())
 
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":

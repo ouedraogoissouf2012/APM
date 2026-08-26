@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/providers.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/ui/app_back_leading.dart';
 import '../view_model/auth_view_model.dart';
@@ -48,6 +49,8 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final resetOn =
+        ref.watch(runtimeConfigProvider).value?.passwordResetEnabled ?? false;
     return Scaffold(
       appBar: AppBar(
         leading: const AppBackLeading(fallback: Routes.login),
@@ -58,40 +61,48 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              key: Key('forgot_honest'),
-              'Aucun e-mail de réinitialisation n’est envoyé pour le moment. '
-              'Si on t’a donné un jeton, colle-le à l’écran suivant. '
-              'Tu peux quand même enregistrer une demande ci-dessous.',
-            ),
-            const SizedBox(height: 16),
-            if (_done)
+            if (!resetOn)
               const Text(
-                key: Key('forgot_sent'),
-                'Demande enregistrée. Demande le jeton à un opérateur, puis colle-le.',
+                key: Key('forgot_unavailable'),
+                'La réinitialisation par e-mail n’est pas encore disponible.',
               )
             else ...[
-              TextField(
-                key: const Key('forgot_email'),
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                autocorrect: false,
-                decoration: const InputDecoration(labelText: 'E-mail'),
+              const Text(
+                key: Key('forgot_honest'),
+                'Si un compte existe pour cet e-mail, un message part '
+                'avec un jeton. Colle-le à l’écran suivant. '
+                'Aucun lien magique n’est envoyé.',
               ),
-              if (_error != null) Text(_error!, key: const Key('forgot_error')),
-              FilledButton(
-                key: const Key('forgot_submit'),
-                onPressed: _sending ? null : _submit,
-                child: _sending
-                    ? const CircularProgressIndicator()
-                    : const Text('Enregistrer la demande'),
+              const SizedBox(height: 16),
+              if (_done)
+                const Text(
+                  key: Key('forgot_sent'),
+                  'Si un compte existe, regarde tes e-mails puis colle le jeton.',
+                )
+              else ...[
+                TextField(
+                  key: const Key('forgot_email'),
+                  controller: _email,
+                  keyboardType: TextInputType.emailAddress,
+                  autocorrect: false,
+                  decoration: const InputDecoration(labelText: 'E-mail'),
+                ),
+                if (_error != null)
+                  Text(_error!, key: const Key('forgot_error')),
+                FilledButton(
+                  key: const Key('forgot_submit'),
+                  onPressed: _sending ? null : _submit,
+                  child: _sending
+                      ? const CircularProgressIndicator()
+                      : const Text('Envoyer le jeton'),
+                ),
+              ],
+              TextButton(
+                key: const Key('forgot_go_reset'),
+                onPressed: () => context.go(Routes.resetPassword),
+                child: const Text('J’ai un jeton de réinitialisation'),
               ),
             ],
-            TextButton(
-              key: const Key('forgot_go_reset'),
-              onPressed: () => context.go(Routes.resetPassword),
-              child: const Text('J’ai un jeton de réinitialisation'),
-            ),
             TextButton(
               onPressed: () => context.go(Routes.login),
               child: const Text('Retour à la connexion'),

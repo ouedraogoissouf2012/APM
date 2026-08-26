@@ -14,11 +14,20 @@ from app.features.auth.service import AuthService
 from tests.unit.fakes import InMemoryRefreshTokenRepository, InMemoryUserRepository
 
 
-def _service() -> AuthService:
+class _SpyMailer:
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    async def send(self, *, to: str, subject: str, text: str) -> None:
+        self.sent.append((to, subject, text))
+
+
+def _service(*, mailer: _SpyMailer | None = None) -> AuthService:
     return AuthService(
         InMemoryUserRepository(),
         InMemoryRefreshTokenRepository(),
         refresh_ttl_days=30,
+        mailer=mailer,
     )
 
 
@@ -333,8 +342,33 @@ async def test_change_password_rolls_back_when_revoke_fails():
 
 @pytest.mark.asyncio
 async def test_forgot_unknown_email_returns_none():
-    service = _service()
+    mailer = _SpyMailer()
+    service = _service(mailer=mailer)
     assert await service.request_password_reset("ghost@b.com") is None
+    assert mailer.sent == []
+
+
+@pytest.mark.asyncio
+async def test_forgot_known_email_sends_reset_mail_with_token():
+    mailer = _SpyMailer()
+    service = _service(mailer=mailer)
+    await service.register("rst-mail@b.com", "s3cret!pass", "fr")
+    mailer.sent.clear()
+    raw = await service.request_password_reset("rst-mail@b.com")
+    assert raw
+    assert len(mailer.sent) == 1
+    to, subject, text = mailer.sent[0]
+    assert to == "rst-mail@b.com"
+    assert "mot de passe" in subject.lower()
+    assert raw in text
+
+
+@pytest.mark.asyncio
+async def test_register_sends_welcome_mail():
+    mailer = _SpyMailer()
+    service = _service(mailer=mailer)
+    await service.register("hi@b.com", "s3cret!pass", "fr")
+    assert any(s[0] == "hi@b.com" and "Bienvenue" in s[1] for s in mailer.sent)
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ class RuntimeConfig {
     this.serverStt = false,
     this.conversationServerTts = false,
     this.conversationServerStt = false,
+    this.passwordResetEnabled = false,
   });
 
   final bool demoMode;
@@ -23,6 +24,9 @@ class RuntimeConfig {
 
   /// Conversation listen via /transcribe. Default off = Chrome mic.
   final bool conversationServerStt;
+
+  /// True when the backend can send reset/welcome email.
+  final bool passwordResetEnabled;
 }
 
 class RuntimeConfigRepository {
@@ -38,6 +42,7 @@ class RuntimeConfigRepository {
       serverStt: json['drill_stt'] as bool? ?? json['server_stt'] as bool? ?? false,
       conversationServerTts: json['conversation_server_tts'] as bool? ?? false,
       conversationServerStt: json['conversation_server_stt'] as bool? ?? false,
+      passwordResetEnabled: json['password_reset_enabled'] as bool? ?? false,
     );
   }
 }
