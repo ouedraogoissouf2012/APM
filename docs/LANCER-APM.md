@@ -198,3 +198,24 @@ flutter run -d chrome
 ```
 
 Bonne pratique ! 🎧
+
+---
+
+## Variante : tout lancer avec Docker (`--profile app`)
+
+Postgres + Redis + API dans Compose (l'API écoute alors sur **8000**,
+pas 8010) :
+
+```bash
+docker compose --profile app up --build
+```
+
+Vérifie :
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/health/ready
+```
+
+`GET /health/ready` est la probe à brancher sur le load balancer.
+Détail opérateur : [`DEPLOY.md`](DEPLOY.md).
