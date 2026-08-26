@@ -138,6 +138,14 @@ class _NextSteps extends StatelessWidget {
           subtitle: 'Tes erreurs récurrentes, au bon moment',
           onTap: () => context.debouncedPush(Routes.review),
         ),
+        const SizedBox(height: AppSpacing.sm),
+        _NextStepButton(
+          navKey: const Key('debrief_next_vocabulary'),
+          icon: Icons.menu_book_outlined,
+          title: 'Mon carnet',
+          subtitle: 'Les mots à retenir',
+          onTap: () => context.debouncedPush(Routes.vocabulary),
+        ),
       ],
     );
   }
@@ -286,21 +294,43 @@ class _WhatWorked extends StatelessWidget {
   }
 }
 
-/// "À reprendre" — corrections. The error is never red: struck original in a
-/// muted tone, the fix in Fraunces, the rule beneath.
-class _ToReview extends StatelessWidget {
+/// "À reprendre" — 1 consigne + 3 errors max, the rest behind "Voir plus".
+class _ToReview extends StatefulWidget {
   const _ToReview({required this.errors});
 
   final List<DebriefError> errors;
 
   @override
+  State<_ToReview> createState() => _ToReviewState();
+}
+
+class _ToReviewState extends State<_ToReview> {
+  static const _previewLimit = 3;
+  var _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final errors = widget.errors;
+    final consigne = errors
+        .map((e) => e.rule)
+        .firstWhere((rule) => rule.isNotEmpty, orElse: () => '');
+    final visible = _expanded ? errors : errors.take(_previewLimit).toList();
+    final hiddenCount = errors.length - _previewLimit;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const OverlineText('à reprendre'),
         const SizedBox(height: AppSpacing.md),
+        if (consigne.isNotEmpty) ...[
+          Text(
+            consigne,
+            key: const Key('debrief_consigne'),
+            style: AppType.displayMd(colors.textPrimary),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
         if (errors.isEmpty)
           Text(
             "Rien à corriger — beau travail !",
@@ -308,11 +338,17 @@ class _ToReview extends StatelessWidget {
             style: AppType.body(colors.textPrimary),
           )
         else
-          ...errors.map(
+          ...visible.map(
             (e) => Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
               child: _CorrectionPanel(error: e),
             ),
+          ),
+        if (!_expanded && hiddenCount > 0)
+          TextButton(
+            key: const Key('debrief_see_more'),
+            onPressed: () => setState(() => _expanded = true),
+            child: Text('Voir plus ($hiddenCount)'),
           ),
       ],
     );
