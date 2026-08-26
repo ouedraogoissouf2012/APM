@@ -74,7 +74,7 @@ class TurnLoopController {
     final heard = await _listen();
     if (!isActive) return false;
     if (heard.isEmpty) {
-      _surfaceListenError(); // no-op on plain silence, message on failure
+      _surfaceListenError();
       return false;
     }
     _host.state = _host.state.copyWith(
@@ -106,15 +106,15 @@ class TurnLoopController {
     return text.trim();
   }
 
-  /// After an empty utterance, show a helpful message only if the recognizer
-  /// actually failed. Plain silence (nothing said) is not an error and leaves the
-  /// state clean.
+  /// After an empty utterance: specific recognizer guidance when we have a
+  /// code, otherwise the silence prompt. Always idle so the learner can retap.
   void _surfaceListenError() {
-    final message = speechErrorMessage(_ref.read(speechServiceProvider).lastError);
+    final message =
+        speechErrorMessage(_ref.read(speechServiceProvider).lastError) ??
+        kHeardNothingMessage;
     _host.state = _host.state.copyWith(
       status: ConversationStatus.idle,
       error: message,
-      clearError: message == null,
     );
   }
 

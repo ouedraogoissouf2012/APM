@@ -1092,6 +1092,7 @@ void main() {
     expect(state.turns.length, 1);
     expect(state.turns.single.role, 'assistant');
     expect(state.status, ConversationStatus.idle);
+    expect(state.error, "Je n'ai pas entendu — retape");
     verifyNever(() => repo.streamTurn(any(), any(), idempotencyKey: any(named: 'idempotencyKey')));
   });
 
@@ -1339,9 +1340,8 @@ void main() {
       expect(state.error!.toLowerCase(), contains('entendu'));
     });
 
-    test('silence with no recognizer error shows no error (just idle)',
+    test('silence with no recognizer error asks to retap and stays idle',
         () async {
-      // Plain silence (learner said nothing) must NOT look like a failure.
       final speech = _FakeSpeech('', thenSilence: true);
       final c = _container(_repoReturning(1, reply: 'unused'), speech);
       final vm = c.read(conversationViewModelProvider.notifier);
@@ -1351,7 +1351,7 @@ void main() {
 
       final state = c.read(conversationViewModelProvider);
       expect(state.status, ConversationStatus.idle);
-      expect(state.error, isNull);
+      expect(state.error, "Je n'ai pas entendu — retape");
     });
 
     test('a re-tap while a loop is already running is ignored (re-entrancy)',
