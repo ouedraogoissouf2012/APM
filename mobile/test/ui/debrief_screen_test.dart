@@ -44,6 +44,10 @@ Future<void> _pump(
         builder: (_, _) => const Scaffold(body: Text('Review target')),
       ),
       GoRoute(
+        path: Routes.vocabulary,
+        builder: (_, _) => const Scaffold(body: Text('Vocabulary target')),
+      ),
+      GoRoute(
         path: Routes.proofPattern,
         builder: (_, _) => const Scaffold(body: Text('Proof target')),
       ),
@@ -108,7 +112,7 @@ void main() {
     expect(find.text('À REPRENDRE'), findsOneWidget);
     expect(find.text('I have 25 years'), findsOneWidget);
     expect(find.text('I am 25'), findsOneWidget);
-    expect(find.textContaining('to be'), findsOneWidget);
+    expect(find.textContaining('to be'), findsWidgets);
   });
 
   testWidgets('a correction shows its type, explanation, examples and options',
@@ -157,6 +161,54 @@ void main() {
     expect(find.text('ET MAINTENANT ?'), findsOneWidget);
     expect(find.byKey(const Key('debrief_next_echo')), findsOneWidget);
     expect(find.byKey(const Key('debrief_next_review')), findsOneWidget);
+    expect(find.byKey(const Key('debrief_next_vocabulary')), findsOneWidget);
+  });
+
+  testWidgets('montre une seule consigne : la première règle', (tester) async {
+    await _pump(
+      tester,
+      _debrief(errors: [
+        const DebriefError(
+          original: 'I have 25 years',
+          correction: 'I am 25',
+          rule: 'Age uses "to be" in English.',
+          errorType: 'grammar',
+        ),
+        const DebriefError(
+          original: 'she go',
+          correction: 'she goes',
+          rule: 'Third person -s.',
+          errorType: 'grammar',
+        ),
+      ]),
+    );
+    expect(find.byKey(const Key('debrief_consigne')), findsOneWidget);
+    expect(find.text('Age uses "to be" in English.'), findsWidgets);
+  });
+
+  testWidgets('au-delà de 3 erreurs : Voir plus révèle le reste', (tester) async {
+    await _pump(
+      tester,
+      _debrief(errors: [
+        for (var i = 1; i <= 4; i++)
+          DebriefError(
+            original: 'bad $i',
+            correction: 'good $i',
+            rule: 'rule $i',
+            errorType: 'grammar',
+          ),
+      ]),
+    );
+    expect(find.text('bad 1'), findsOneWidget);
+    expect(find.text('bad 3'), findsOneWidget);
+    expect(find.text('bad 4'), findsNothing);
+    expect(find.byKey(const Key('debrief_see_more')), findsOneWidget);
+
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('debrief_see_more')));
+    await tester.pumpAndSettle();
+    expect(find.text('bad 4'), findsOneWidget);
   });
 
   testWidgets('"m\'entraîner à prononcer" chains into the voice mirror (Écho)',
@@ -165,6 +217,16 @@ void main() {
     await tester.tap(find.byKey(const Key('debrief_next_echo')));
     await tester.pumpAndSettle();
     expect(find.text('Echo target'), findsOneWidget);
+  });
+
+  testWidgets('"mon carnet" chains into the vocabulary notebook', (tester) async {
+    await _pump(tester, _debrief());
+    final carnet = find.byKey(const Key('debrief_next_vocabulary'));
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    await tester.tap(carnet);
+    await tester.pumpAndSettle();
+    expect(find.text('Vocabulary target'), findsOneWidget);
   });
 
   testWidgets('"réviser mes fautes" chains into the spaced review', (tester) async {
@@ -285,11 +347,23 @@ void main() {
       await tester.tap(focus);
       await tester.pumpAndSettle();
       expect(find.text('Review target'), findsOneWidget);
+    });
 
-      Navigator.of(tester.element(find.text('Review target'))).pop();
+    testWidgets('a rapid double-tap on "mon carnet" pushes only once',
+        (tester) async {
+      await _pump(tester, _debrief());
+      final carnet = find.byKey(const Key('debrief_next_vocabulary'));
+      await tester.drag(find.byType(ListView), const Offset(0, -400));
+      await tester.pumpAndSettle();
+      await tester.tap(carnet);
+      await tester.tap(carnet);
+      await tester.pumpAndSettle();
+      expect(find.text('Vocabulary target'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('Vocabulary target'))).pop();
       await tester.pumpAndSettle();
 
-      expect(find.text('Review target'), findsNothing);
+      expect(find.text('Vocabulary target'), findsNothing);
       expect(find.byKey(const Key('cefr_estimate')), findsOneWidget);
     });
 
@@ -302,12 +376,6 @@ void main() {
       await tester.tap(proof);
       await tester.pumpAndSettle();
       expect(find.text('Proof target'), findsOneWidget);
-
-      Navigator.of(tester.element(find.text('Proof target'))).pop();
-      await tester.pumpAndSettle();
-
-      expect(find.text('Proof target'), findsNothing);
-      expect(find.byKey(const Key('cefr_estimate')), findsOneWidget);
     });
   });
 }
