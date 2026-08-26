@@ -6,20 +6,15 @@ pression, puis lui donner un bilan clair de ses erreurs et de sa progression.
 
 ## MVP actuel
 
-Le code actuel implemente un MVP pragmatique, tour-par-tour :
+Le code livre un MVP tour-par-tour. Ce n'est pas du temps reel LiveKit,
+et Azure n'est pas livre.
 
-1. le mobile ecoute l'utilisateur avec le moteur speech-to-text du telephone ou du
-   navigateur ;
-2. le texte reconnu est envoye au backend via `POST /sessions/{id}/turn` ;
-3. le backend appelle un LLM derriere l'interface `LlmProvider` ;
-4. la reponse texte est retournee au mobile ;
-5. le mobile lit la reponse avec son moteur text-to-speech ;
-6. le backend conserve le transcript ;
-7. a la fin, le backend genere et stocke un bilan de session.
+1. Conversation : STT appareil -> `POST /sessions/{id}/turn/stream` -> TTS appareil.
+2. Drills (Echo / paires) : `/tts` + `/transcribe` (Edge / Groq selon l'env).
+3. GOP wav2vec2 optionnel pour la prononciation. Azure = vision, pas livre.
+4. LiveKit = parking (#506), pas une feature a lancer.
 
-Ce MVP ne fait donc pas encore de streaming audio temps reel via LiveKit. Il permet
-de valider plus vite le coeur pedagogique : parler, recevoir une reponse, terminer
-la session, obtenir un bilan.
+Le backend conserve le transcript. A la fin, il genere et stocke un bilan.
 
 ## Vision cible
 
@@ -49,13 +44,14 @@ Cette combinaison est l'espace produit vise par le projet.
 
 | Couche | MVP actuel | Vision cible |
 |---|---|---|
-| Mobile | Flutter, Riverpod, GoRouter, Dio | Flutter + client LiveKit |
-| Voix | `speech_to_text` + `flutter_tts` cote mobile | LiveKit Agents / WebRTC |
+| Mobile | Flutter, Riverpod, GoRouter, Dio | Flutter + client LiveKit (parking) |
+| Voix conversation | STT/TTS appareil + `/turn/stream` | LiveKit Agents / WebRTC (#506) |
+| Voix drills | `/tts` + `/transcribe` (Edge / Groq) | Idem |
 | Backend | Python 3.12, FastAPI async | Idem |
 | Base de donnees | PostgreSQL | PostgreSQL |
-| Conversation IA | `LlmProvider` fake ou DeepSeek | Provider interchangeable, realtime premium possible |
-| Bilan | LLM JSON strict, fake ou DeepSeek | LLM + validation plus robuste, ERRANT possible |
-| Prononciation | Non implemente | Azure AI Speech Pronunciation Assessment |
+| Conversation IA | `LlmProvider` fake, DeepSeek ou Groq | Provider interchangeable |
+| Bilan | LLM JSON strict, fake ou DeepSeek | LLM + validation plus robuste |
+| Prononciation | GOP wav2vec2 optionnel | Azure = vision, pas livre |
 
 ## Fonctionnalites implementees
 
@@ -68,8 +64,7 @@ Backend :
 - profil apprenant ;
 - sessions de conversation ;
 - quota gratuit journalier ;
-- generation de jeton LiveKit cote backend, pour la future voie realtime ;
-- endpoint de conversation tour-par-tour ;
+- endpoint de conversation tour-par-tour (`/turn/stream`) ;
 - transcript persistant ;
 - generation et lecture de bilan ;
 - historique des sessions recentes ;
@@ -94,8 +89,8 @@ Mobile :
 
 ## Limites actuelles
 
-- Pas encore de LiveKit Agent temps reel.
-- Pas encore de scoring de prononciation Azure.
+- LiveKit n'est pas une feature a lancer (#506).
+- Azure Speech n'est pas livre. GOP wav2vec2 est optionnel.
 - Pas encore de memoire apprenant vectorielle ou long terme avancee.
 - Le mode par defaut utilise des moteurs fake pour pouvoir developper sans cle API.
 
@@ -158,20 +153,23 @@ Depuis `backend/` :
 uv sync
 copy .env.example .env
 uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --port 8010
 ```
 
 Verification :
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8010/health
 ```
 
 La documentation OpenAPI est disponible sur :
 
 ```text
-http://127.0.0.1:8000/docs
+http://127.0.0.1:8010/docs
 ```
+
+L'image Docker de l'API reste mappee `8000:8000` (`docker compose --profile app`).
+Le run local uvicorn utilise **8010** (`AppConfig._devBackendPort`).
 
 ### 3. Mobile
 
@@ -183,8 +181,8 @@ flutter run
 ```
 
 En developpement web/desktop/iOS simulator, l'API pointe vers
-`http://localhost:8000`. Sur Android emulator, l'app utilise
-`http://10.0.2.2:8000` pour joindre la machine hote.
+`http://localhost:8010`. Sur Android emulator, l'app utilise
+`http://10.0.2.2:8010` pour joindre la machine hote.
 
 ## Verification
 
@@ -222,13 +220,13 @@ docker compose up -d postgres
 cd backend
 copy .env.example .env
 uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --port 8010
 ```
 
 3. Verifier le backend :
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8010/health
 ```
 
 4. Lancer le mobile :
@@ -251,6 +249,9 @@ Parcours a montrer :
 
 ## Documentation projet
 
+- Lancer en local : [`docs/LANCER-APM.md`](docs/LANCER-APM.md)
+- Deploy production : [`docs/DEPLOY.md`](docs/DEPLOY.md)
+- Smoke 10 min : [`docs/SMOKE.md`](docs/SMOKE.md)
 - Spec de conception :
   [`docs/superpowers/specs/2026-06-02-app-anglais-oral-design.md`](docs/superpowers/specs/2026-06-02-app-anglais-oral-design.md)
 - Plan backend foundation :

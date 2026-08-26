@@ -15,7 +15,7 @@ APM = **3 processus qui tournent en même temps** :
 | Brique | Rôle | Port |
 |---|---|---|
 | 🐘 **PostgreSQL** (Docker) | Base de données | `6544` |
-| 🐍 **Backend** (FastAPI) | API, IA texte, quotas | `8000` |
+| 🐍 **Backend** (FastAPI) | API, IA texte, quotas | `8010` |
 | 📱 **App mobile** (Flutter) | L'interface | Chrome ou émulateur |
 
 Il faut les lancer **dans cet ordre** : base → backend → app.
@@ -59,17 +59,17 @@ uv run alembic upgrade head      # crée les tables (1re fois)
 Puis, **à chaque lancement** :
 
 ```bash
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --port 8010
 ```
 
 Laisse ce terminal ouvert. Vérifie dans un autre terminal :
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8010/health
 ```
 
 Réponse attendue : `{"status":"ok"}`.
-La doc interactive de l'API est sur <http://127.0.0.1:8000/docs>.
+La doc interactive de l'API est sur <http://127.0.0.1:8010/docs>.
 
 ---
 
@@ -102,7 +102,7 @@ Lance d'abord ton émulateur depuis Android Studio (ou
 flutter run
 ```
 
-> Sur émulateur Android, l'app joint le backend via `10.0.2.2:8000`
+> Sur émulateur Android, l'app joint le backend via `10.0.2.2:8010`
 > automatiquement — rien à configurer.
 
 ---
@@ -163,7 +163,7 @@ Un diagnostic Flutter complet : `flutter doctor`.
 | `curl /health` échoue | Backend pas démarré, ou Docker éteint | Refais §1 puis §2 |
 | Inscription refusée (422) | Mot de passe < 8 caractères | Utilise 8 caractères minimum |
 | « Trop de tentatives » | Rate-limit (5 essais/min) | Attends ~1 minute |
-| Port 8000 déjà utilisé | Un autre projet occupe le port | Ferme-le, ou lance sur `--port 8001` (+ `--dart-define=API_BASE_URL=http://localhost:8001` côté Flutter) |
+| Port 8010 déjà utilisé | Un autre projet occupe le port | Ferme-le, ou lance sur `--port 8011` (+ `--dart-define=API_BASE_URL=http://localhost:8011` côté Flutter) |
 | « Rien ne se passe » quand je parle | Micro non autorisé, ou mauvais micro sélectionné | Autorise le micro dans le navigateur ; vérifie le micro par défaut de Windows |
 | Ton temps gratuit est terminé | Quota de 10 min/jour atteint | Reviens demain, ou augmente `FREE_TIER_DAILY_MINUTES` dans `.env` (dev uniquement) puis redémarre le backend |
 | L'émulateur ne démarre pas | RAM insuffisante | Ferme des applis, ou baisse `hw.ramSize` de l'AVD ; sinon utilise Chrome |
@@ -191,7 +191,7 @@ Trois terminaux, dans l'ordre :
 docker compose up -d postgres
 
 # Terminal 2 — backend (depuis backend/)
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --port 8010
 
 # Terminal 3 — app (depuis mobile/)
 flutter run -d chrome

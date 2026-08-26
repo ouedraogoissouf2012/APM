@@ -11,10 +11,12 @@ flutter pub get
 flutter run
 ```
 
-Le backend doit tourner sur le port `8000`.
+Le backend local doit tourner sur le port `8010`
+(`uv run uvicorn app.main:app --reload --port 8010`).
+L'image Docker de l'API reste mappee `8000:8000`.
 
-- Web, desktop et iOS simulator : `http://localhost:8000`
-- Android emulator : `http://10.0.2.2:8000`
+- Web, desktop et iOS simulator : `http://localhost:8010`
+- Android emulator : `http://10.0.2.2:8010`
 
 Cette selection est centralisee dans `lib/src/core/config/app_config.dart`.
 
