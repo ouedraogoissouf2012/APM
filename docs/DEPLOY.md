@@ -20,8 +20,12 @@ instance staging/production refuse de demarrer si un garde est viole.
 
 ## Probes
 
-- liveness : `GET /health`
-- readiness (load balancer) : `GET /health/ready`
+Brancher le load balancer sur **readiness**, pas sur liveness :
+
+- liveness : `GET /health` (le process repond)
+- readiness : `GET /health/ready` (postgres + redis joignables)
+
+Exemple : `curl http://127.0.0.1:8000/health/ready`
 
 ## Image API
 
