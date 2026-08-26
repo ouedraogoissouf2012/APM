@@ -26,7 +26,10 @@ import 'turn_loop_controller.dart';
 // speechServiceProvider and conversationRepositoryProvider now live in
 // conversation_providers.dart, re-exported here so existing importers keep working.
 export 'conversation_providers.dart'
-    show conversationRepositoryProvider, speechServiceProvider;
+    show
+        billingRepositoryProvider,
+        conversationRepositoryProvider,
+        speechServiceProvider;
 
 final conversationViewModelProvider =
     NotifierProvider<ConversationViewModel, ConversationState>(
@@ -243,6 +246,19 @@ class ConversationViewModel extends Notifier<ConversationState>
       turns: turns,
       error: speechReady ? null : 'Microphone is not available',
     );
+    await _loadQuota();
+  }
+
+  Future<void> _loadQuota() async {
+    try {
+      final sub = await ref.read(billingRepositoryProvider).getSubscription();
+      if (!ref.mounted || state.sessionId == null) return;
+      state = state.copyWith(
+        remainingMinutes: sub.remainingMinutes,
+        freeDailyMinutes: sub.freeDailyMinutes,
+        quotaWarning: sub.quotaWarning,
+      );
+    } catch (_) {}
   }
 
   void _failStart(String message, Object error, [StackTrace? stack]) {

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/providers.dart';
 import '../../../core/speech/speech_service.dart';
+import '../../../data/repositories/billing_repository.dart';
 import '../../../data/repositories/conversation_repository.dart';
 
 /// Providers shared by the ConversationViewModel and its extracted controllers
@@ -18,4 +19,8 @@ final speechServiceProvider = Provider<SpeechService>(
 
 final conversationRepositoryProvider = Provider<ConversationRepository>(
   (ref) => ConversationRepository(ref.watch(authenticatedApiClientProvider)),
+);
+
+final billingRepositoryProvider = Provider<BillingRepository>(
+  (ref) => BillingRepository(ref.watch(authenticatedApiClientProvider)),
 );

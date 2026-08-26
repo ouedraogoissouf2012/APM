@@ -433,6 +433,23 @@ void main() {
     expect(find.byKey(const Key('demo_banner')), findsNothing);
   });
 
+  testWidgets('quota : minutes restantes affichées pendant la session', (
+    tester,
+  ) async {
+    await _pump(tester, activeIdle.copyWith(remainingMinutes: 7));
+    expect(find.byKey(const Key('quota_remaining')), findsOneWidget);
+    expect(find.text('7 min'), findsOneWidget);
+    expect(find.byKey(const Key('quota_warning')), findsNothing);
+  });
+
+  testWidgets('quota : warning à 80 %', (tester) async {
+    await _pump(
+      tester,
+      activeIdle.copyWith(remainingMinutes: 2, quotaWarning: true),
+    );
+    expect(find.byKey(const Key('quota_warning')), findsOneWidget);
+  });
+
   testWidgets('Terminer : libellé visible et clé end_button inchangée', (
     tester,
   ) async {

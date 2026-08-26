@@ -30,6 +30,9 @@ class ConversationState {
     this.partialTranscript,
     this.quotaExhausted = false,
     this.sessionConflict = false,
+    this.remainingMinutes,
+    this.freeDailyMinutes,
+    this.quotaWarning = false,
   });
 
   final int? sessionId;
@@ -56,6 +59,13 @@ class ConversationState {
   /// UI can show a choice screen rather than the orb.
   final bool sessionConflict;
 
+  /// Remaining free minutes today. Null when premium or not yet loaded.
+  final double? remainingMinutes;
+  final int? freeDailyMinutes;
+
+  /// True when the learner has used at least 80% of the daily free quota.
+  final bool quotaWarning;
+
   bool get isActive => sessionId != null;
 
   ConversationState copyWith({
@@ -67,6 +77,9 @@ class ConversationState {
     String? partialTranscript,
     bool? quotaExhausted,
     bool? sessionConflict,
+    double? remainingMinutes,
+    int? freeDailyMinutes,
+    bool? quotaWarning,
     bool clearError = false,
     bool clearPartial = false,
   }) {
@@ -80,6 +93,9 @@ class ConversationState {
           clearPartial ? null : (partialTranscript ?? this.partialTranscript),
       quotaExhausted: quotaExhausted ?? this.quotaExhausted,
       sessionConflict: sessionConflict ?? this.sessionConflict,
+      remainingMinutes: remainingMinutes ?? this.remainingMinutes,
+      freeDailyMinutes: freeDailyMinutes ?? this.freeDailyMinutes,
+      quotaWarning: quotaWarning ?? this.quotaWarning,
     );
   }
 }

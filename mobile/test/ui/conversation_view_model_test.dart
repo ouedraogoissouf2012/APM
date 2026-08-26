@@ -19,8 +19,10 @@ import 'package:apm/src/core/speech/speech_service.dart';
 import 'package:apm/src/data/models/profile.dart';
 import 'package:apm/src/data/models/progress_snapshot.dart';
 import 'package:apm/src/data/models/streak.dart';
+import 'package:apm/src/data/models/subscription.dart';
 import 'package:apm/src/data/models/turn_correction.dart';
 import 'package:apm/src/data/models/voice_consent.dart';
+import 'package:apm/src/data/repositories/billing_repository.dart';
 import 'package:apm/src/data/repositories/conversation_repository.dart';
 import 'package:apm/src/data/repositories/profile_repository.dart';
 import 'package:apm/src/data/repositories/progress_repository.dart';
@@ -40,6 +42,27 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockConversationRepository extends Mock
     implements ConversationRepository {}
+
+class _MockBillingRepository extends Mock implements BillingRepository {}
+
+BillingRepository _billingReturning({
+  double remaining = 10,
+  double used = 0,
+  int daily = 10,
+  bool premium = false,
+}) {
+  final repo = _MockBillingRepository();
+  when(repo.getSubscription).thenAnswer(
+    (_) async => Subscription(
+      tier: premium ? 'premium' : 'free',
+      isPremium: premium,
+      freeDailyMinutes: daily,
+      minutesUsedToday: used,
+      remainingMinutes: premium ? null : remaining,
+    ),
+  );
+  return repo;
+}
 
 class _MockCrashReporter extends Mock implements CrashReporter {}
 
@@ -345,10 +368,14 @@ ProviderContainer _container(
   VoiceTakeStore? takeStore,
   CrashReporter? crashReporter,
   OfflineTurnQueue? offlineQueue,
+  BillingRepository? billing,
 }) {
   final c = ProviderContainer(
     overrides: [
       conversationRepositoryProvider.overrideWithValue(repo),
+      billingRepositoryProvider.overrideWithValue(
+        billing ?? _billingReturning(),
+      ),
       speechServiceProvider.overrideWithValue(speech),
       audioPlaybackProvider.overrideWithValue(audio ?? _FakeAudio()),
       audioRecordingProvider.overrideWithValue(recorder ?? _FakeRecorder()),
@@ -412,10 +439,19 @@ void main() {
     final c = _container(_repoReturning(42), _FakeSpeech(''));
     await c.read(conversationViewModelProvider.notifier).start();
     expect(c.read(conversationViewModelProvider).sessionId, 42);
-    expect(
-      c.read(conversationViewModelProvider).turns.single.role,
-      'assistant',
+    expect(c.read(conversationViewModelProvider).remainingMinutes, 10);
+    expect(c.read(conversationViewModelProvider).quotaWarning, isFalse);
+  });
+
+  test('start warns when 80% of the daily quota is used', () async {
+    final c = _container(
+      _repoReturning(42),
+      _FakeSpeech(''),
+      billing: _billingReturning(remaining: 2, used: 8, daily: 10),
     );
+    await c.read(conversationViewModelProvider.notifier).start();
+    expect(c.read(conversationViewModelProvider).remainingMinutes, 2);
+    expect(c.read(conversationViewModelProvider).quotaWarning, isTrue);
   });
 
   test('start surfaces sessionConflict on 409 without resuming', () async {
@@ -676,6 +712,7 @@ void main() {
     final c = ProviderContainer(
       overrides: [
         conversationRepositoryProvider.overrideWithValue(_repoReturning(3)),
+        billingRepositoryProvider.overrideWithValue(_billingReturning()),
         speechServiceProvider.overrideWithValue(speech),
         profileRepositoryProvider.overrideWithValue(profileRepo),
         offlineTurnQueueProvider.overrideWithValue(_InMemoryOfflineQueue()),
@@ -698,6 +735,7 @@ void main() {
     final c = ProviderContainer(
       overrides: [
         conversationRepositoryProvider.overrideWithValue(_repoReturning(3)),
+        billingRepositoryProvider.overrideWithValue(_billingReturning()),
         speechServiceProvider.overrideWithValue(speech),
         profileRepositoryProvider.overrideWithValue(profileRepo),
         offlineTurnQueueProvider.overrideWithValue(_InMemoryOfflineQueue()),
@@ -1150,6 +1188,7 @@ void main() {
     final c = ProviderContainer(
       overrides: [
         conversationRepositoryProvider.overrideWithValue(conversationRepo),
+        billingRepositoryProvider.overrideWithValue(_billingReturning()),
         speechServiceProvider.overrideWithValue(_FakeSpeech('')),
         audioPlaybackProvider.overrideWithValue(_FakeAudio()),
         audioRecordingProvider.overrideWithValue(_FakeRecorder()),

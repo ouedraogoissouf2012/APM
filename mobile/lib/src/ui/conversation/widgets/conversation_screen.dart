@@ -115,9 +115,11 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen>
               _TopBar(
                 topic: _topic,
                 active: state.isActive,
+                remainingMinutes: state.remainingMinutes,
                 onEnd: _endSession,
               ),
               const NetworkBanner(),
+              if (state.quotaWarning) const _QuotaWarning(),
               if (ref.watch(demoModeProvider).value ?? false)
                 const _DemoBanner(),
               Expanded(child: _OrbZone(state: state)),
@@ -146,10 +148,12 @@ class _TopBar extends StatelessWidget {
     required this.topic,
     required this.active,
     required this.onEnd,
+    this.remainingMinutes,
   });
 
   final String topic;
   final bool active;
+  final double? remainingMinutes;
   final Future<void> Function() onEnd;
 
   @override
@@ -163,6 +167,15 @@ class _TopBar extends StatelessWidget {
           active: active,
         ),
         const Spacer(),
+        if (active && remainingMinutes != null)
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.sm),
+            child: Text(
+              '${remainingMinutes!.floor()} min',
+              key: const Key('quota_remaining'),
+              style: AppType.label(context.colors.textSecondary),
+            ),
+          ),
         if (active)
           AppButton.ghost(
             key: const Key('end_button'),
@@ -170,6 +183,24 @@ class _TopBar extends StatelessWidget {
             onPressed: onEnd,
           ),
       ],
+    );
+  }
+}
+
+class _QuotaWarning extends StatelessWidget {
+  const _QuotaWarning();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Text(
+        'Plus que 20 % de ton temps gratuit aujourd’hui.',
+        key: const Key('quota_warning'),
+        style: AppType.label(colors.accent),
+        textAlign: TextAlign.center,
+      ),
     );
   }
 }
