@@ -8,6 +8,7 @@ import 'conversation_host.dart';
 import 'conversation_providers.dart';
 import 'conversation_state.dart';
 import 'reply_playback.dart';
+import 'speech_error_message.dart';
 
 /// Push-to-talk input (server STT / Whisper via Groq): tap to record, tap again
 /// to stop → transcribe server-side → respond (#121).
@@ -113,7 +114,10 @@ class PushToTalkController {
     }
     if (!_host.mounted) return;
     if (heard.isEmpty) {
-      _host.state = _host.state.copyWith(status: ConversationStatus.idle);
+      _host.state = _host.state.copyWith(
+        status: ConversationStatus.idle,
+        error: kHeardNothingMessage,
+      );
       return;
     }
     _host.state = _host.state.copyWith(

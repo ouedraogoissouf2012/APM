@@ -1,5 +1,8 @@
 import '../../../core/speech/speech_service.dart';
 
+/// Shown when STT returns nothing: idle, retap possible, not a silent stop.
+const String kHeardNothingMessage = "Je n'ai pas entendu — retape";
+
 /// Turns a recognizer error code into warm, non-blaming French guidance for
 /// the learner, or null when the code is unknown/empty (the caller then keeps
 /// its own generic fallback). Pure function: one responsibility, fully testable.
