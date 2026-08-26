@@ -46,7 +46,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      if (mounted) setState(() => _error = 'Reset failed');
+      if (mounted) setState(() => _error = 'La réinitialisation a échoué');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -57,7 +57,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const AppBackLeading(fallback: Routes.login),
-        title: const Text('Reset password'),
+        title: const Text('Nouveau mot de passe'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -68,19 +68,21 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
               FilledButton(
                 key: const Key('reset_go_login'),
                 onPressed: () => context.go(Routes.login),
-                child: const Text('Password updated. Log in'),
+                child: const Text('Mot de passe mis à jour. Se connecter'),
               )
             else ...[
               TextField(
                 key: const Key('reset_token'),
                 controller: _token,
-                decoration: const InputDecoration(labelText: 'Reset token'),
+                decoration: const InputDecoration(
+                  labelText: 'Jeton de réinitialisation',
+                ),
               ),
               TextField(
                 key: const Key('reset_password'),
                 controller: _password,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'New password'),
+                decoration: const InputDecoration(labelText: 'Nouveau mot de passe'),
               ),
               if (_error != null) Text(_error!, key: const Key('reset_error')),
               FilledButton(
@@ -88,7 +90,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                 onPressed: _sending ? null : _submit,
                 child: _sending
                     ? const CircularProgressIndicator()
-                    : const Text('Update password'),
+                    : const Text('Mettre à jour le mot de passe'),
               ),
             ],
           ],

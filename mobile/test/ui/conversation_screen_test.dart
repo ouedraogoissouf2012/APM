@@ -406,6 +406,7 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('demo_banner')), findsOneWidget);
     expect(find.textContaining('Mode démo'), findsOneWidget);
+    expect(find.textContaining('DeepSeek'), findsNothing);
   });
 
   testWidgets('mode démo : aucun bandeau quand un vrai moteur est configuré', (

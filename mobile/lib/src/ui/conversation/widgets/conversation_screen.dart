@@ -308,8 +308,8 @@ class _TranscriptZone extends StatelessWidget {
   }
 }
 
-/// Shown when the backend runs on the fake engine (no DeepSeek key): the app
-/// invents replies and cannot correct — say so plainly rather than pretend.
+/// Shown when the backend runs on the fake engine: the app invents replies
+/// and cannot correct — say so plainly rather than pretend.
 class _DemoBanner extends StatelessWidget {
   const _DemoBanner();
 
@@ -330,8 +330,7 @@ class _DemoBanner extends StatelessWidget {
         border: Border.all(color: colors.border, width: AppStroke.hairline),
       ),
       child: Text(
-        'Mode démo — réponses simulées, aucune correction. '
-        'Configure une clé DeepSeek pour l’expérience réelle.',
+        'Mode démo — réponses simulées, aucune correction.',
         style: AppType.label(colors.textMuted),
         textAlign: TextAlign.center,
       ),
