@@ -310,6 +310,15 @@ class ConversationViewModel extends Notifier<ConversationState>
     await _pushToTalk.startRecording();
   }
 
+  /// Second tap while listening: send what was heard. Does not kill the loop.
+  Future<void> finishCurrentUtterance() async {
+    if (_pushToTalk.isRecording) {
+      await _pushToTalk.stopAndRespond();
+      return;
+    }
+    await ref.read(speechServiceProvider).stopListening();
+  }
+
   /// Stops the loop / the recording, returning to idle. In push-to-talk mode a
   /// tap while recording ends the utterance and triggers the response.
   Future<void> stopConversation() async {

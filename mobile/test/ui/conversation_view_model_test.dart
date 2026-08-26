@@ -310,6 +310,7 @@ class _BlockingSpeech implements SpeechService {
   @override
   Future<void> stopListening() async {
     stopped = true;
+    releaseListen(firstText);
   }
 }
 
@@ -1263,6 +1264,24 @@ void main() {
       final state = c.read(conversationViewModelProvider);
       expect(state.status, ConversationStatus.idle);
       expect(state.turns.length, 1); // only the opening assistant line
+    });
+
+    test('finishCurrentUtterance sends what was heard without killing the loop',
+        () async {
+      final speech = _BlockingSpeech('hello there');
+      final c = _container(_repoReturning(1, reply: 'Hi back!'), speech);
+      final vm = c.read(conversationViewModelProvider.notifier);
+
+      await vm.start();
+      unawaited(vm.listenAndRespond());
+      await speech.listenStarted.future;
+
+      await vm.finishCurrentUtterance();
+      await vm.awaitPlaybackForTest();
+
+      expect(speech.stopped, isTrue);
+      final state = c.read(conversationViewModelProvider);
+      expect(state.turns.map((t) => t.content), contains('hello there'));
     });
 
     test('stopConversation halts the loop and stops the recognizer', () async {
