@@ -40,7 +40,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      if (mounted) setState(() => _error = 'Request failed');
+      if (mounted) setState(() => _error = 'La demande a échoué');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -51,7 +51,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const AppBackLeading(fallback: Routes.login),
-        title: const Text('Forgot password'),
+        title: const Text('Mot de passe oublié'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -60,15 +60,15 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
           children: [
             const Text(
               key: Key('forgot_honest'),
-              'No reset email is sent yet. If an operator gave you a token, '
-              'paste it on the next screen. You can still record a request '
-              'below so the server issues a token they can retrieve in dev.',
+              'Aucun e-mail de réinitialisation n’est envoyé pour le moment. '
+              'Si on t’a donné un jeton, colle-le à l’écran suivant. '
+              'Tu peux quand même enregistrer une demande ci-dessous.',
             ),
             const SizedBox(height: 16),
             if (_done)
               const Text(
                 key: Key('forgot_sent'),
-                'Request recorded. Ask an operator for the token, then paste it.',
+                'Demande enregistrée. Demande le jeton à un opérateur, puis colle-le.',
               )
             else ...[
               TextField(
@@ -76,7 +76,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                 controller: _email,
                 keyboardType: TextInputType.emailAddress,
                 autocorrect: false,
-                decoration: const InputDecoration(labelText: 'Email'),
+                decoration: const InputDecoration(labelText: 'E-mail'),
               ),
               if (_error != null) Text(_error!, key: const Key('forgot_error')),
               FilledButton(
@@ -84,17 +84,17 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                 onPressed: _sending ? null : _submit,
                 child: _sending
                     ? const CircularProgressIndicator()
-                    : const Text('Record reset request'),
+                    : const Text('Enregistrer la demande'),
               ),
             ],
             TextButton(
               key: const Key('forgot_go_reset'),
               onPressed: () => context.go(Routes.resetPassword),
-              child: const Text('I have a reset token'),
+              child: const Text('J’ai un jeton de réinitialisation'),
             ),
             TextButton(
               onPressed: () => context.go(Routes.login),
-              child: const Text('Back to log in'),
+              child: const Text('Retour à la connexion'),
             ),
           ],
         ),
