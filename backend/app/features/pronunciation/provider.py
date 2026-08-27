@@ -79,6 +79,27 @@ class HttpGopProvider:
         await self._client.aclose()
 
 
+async def gop_service_ready(
+    base_url: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+    timeout: float = 2.0,
+) -> bool:
+    """True when the GOP microservice answers GET /health."""
+    url = base_url.rstrip("/") + "/health"
+    own = client is None
+    http = client or httpx.AsyncClient(timeout=timeout)
+    try:
+        response = await http.get(url)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return False
+    finally:
+        if own:
+            await http.aclose()
+    return True
+
+
 def build_pronunciation_provider(
     engine: str, service_url: str, timeout_seconds: float, secret: str = ""
 ) -> PronunciationProvider:

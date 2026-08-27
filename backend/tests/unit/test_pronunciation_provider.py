@@ -15,6 +15,7 @@ from app.features.pronunciation.domain import PhonemeScore
 from app.features.pronunciation.provider import (
     FakePronunciationProvider,
     HttpGopProvider,
+    gop_service_ready,
 )
 
 
@@ -23,6 +24,27 @@ async def test_fake_provider_returns_no_scores():
     # The default engine makes no phonetic claim — honest absence, not fake data.
     provider = FakePronunciationProvider()
     assert await provider.score_phonemes(audio=b"anything", target_text="think") == []
+
+
+@pytest.mark.asyncio
+async def test_gop_service_ready_true_on_health_ok():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url).endswith("/health")
+        return httpx.Response(200, json={"status": "ok"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert await gop_service_ready("http://gop:8100", client=client) is True
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gop_service_ready_false_on_down():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert await gop_service_ready("http://gop:8100", client=client) is False
+    await client.aclose()
 
 
 @pytest.mark.asyncio
