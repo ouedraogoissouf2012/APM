@@ -17,6 +17,7 @@ instance staging/production refuse de demarrer si un garde est viole.
   - Groq ou `groq_fallback` -> `GROQ_API_KEY`
 - si `PRONUNCIATION_ENGINE=gop` : `GOP_SERVICE_URL` + `GOP_SERVICE_SECRET`
 - `EXPOSE_RESET_TOKEN` interdit en staging/production
+- optionnel : `ALERT_WEBHOOK_URL` (Discord/Slack) pour 5xx et `meter_failures`
 
 ## Probes
 
