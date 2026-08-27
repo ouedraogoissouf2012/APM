@@ -433,9 +433,8 @@ class _SessionConflict extends ConsumerWidget {
   }
 }
 
-/// Shown when the daily free quota is spent — DESIGN_SPEC §9: a clear, warm
-/// message with a way forward, never a hard cut. No upgrade flow exists yet,
-/// so the primary action returns home; the copy sets up the future paywall.
+/// Shown when the daily free quota is spent. No payment yet (#503): honest
+/// quota-only page, come back tomorrow.
 class _QuotaExhausted extends StatelessWidget {
   const _QuotaExhausted();
 
@@ -452,14 +451,14 @@ class _QuotaExhausted extends StatelessWidget {
             Icon(Icons.hourglass_bottom, size: 40, color: colors.accent),
             const SizedBox(height: AppSpacing.lg),
             Text(
-              'Ton temps gratuit du jour est terminé.',
+              'Ton temps du jour est utilisé.',
               style: AppType.displayMd(colors.textPrimary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'Reviens demain pour continuer à progresser — '
-              'ou passe au premium bientôt pour parler sans limite.',
+              'Le parcours gratuit, c’est 10 minutes par jour. '
+              'Pas d’abonnement pour l’instant. Reviens demain.',
               style: AppType.body(colors.textSecondary),
               textAlign: TextAlign.center,
             ),
