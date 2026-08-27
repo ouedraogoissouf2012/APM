@@ -10,7 +10,7 @@ dépendance doit ajouter sa ligne (et la revue de PR doit la challenger).
 | `flutter_riverpod` | Gestion d'état (MVVM) | Injection de dépendances + état réactif testable ; standard du projet (view models par feature, fakes en tests). API manuelle sans codegen (conflits analyzer documentés). |
 | `go_router` | Navigation déclarative | Routing centralisé dans `core/router/`, redirect auth piloté par l'état ; package officiel Flutter. |
 | `dio` | Client HTTP | Intercepteurs (auth/refresh token), timeouts, erreurs typées — au-delà de `http`. Abstrait derrière `ApiClient` (`core/network/`), les repositories ne voient jamais Dio. |
-| `flutter_secure_storage` | Stockage des tokens | Keychain/Keystore natifs pour les JWT — jamais de secrets en clair. Abstrait derrière `TokenStorage`. |
+| `flutter_secure_storage` | Stockage des tokens | Keychain/Keystore natifs. Sur **web**, la clé AES est en `localStorage` (XSS) — PWA = beta (#495). Abstrait derrière `TokenStorage`. |
 | `speech_to_text` | STT sur l'appareil | Cœur du MVP voix tour-par-tour : reconnaissance gratuite sur le device, pas de clé API. Abstrait derrière `SpeechService`. |
 | `flutter_tts` | TTS sur l'appareil | Lecture des réponses de l'IA sans service payant. Abstrait derrière `SpeechService`. |
 | `cupertino_icons` | Icônes iOS | Standard Flutter. |
