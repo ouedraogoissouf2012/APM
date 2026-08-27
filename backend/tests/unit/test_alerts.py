@@ -21,9 +21,7 @@ async def test_notify_is_noop_when_webhook_unset(monkeypatch):
         posted.append(text)
 
     monkeypatch.setattr(alerts, "_post", fake_post)
-    monkeypatch.setattr(
-        alerts, "get_settings", lambda: SimpleNamespace(alert_webhook_url="")
-    )
+    monkeypatch.setattr(alerts, "get_settings", lambda: SimpleNamespace(alert_webhook_url=""))
     alerts.notify("5xx", "boom")
     await asyncio.sleep(0)
     assert posted == []
