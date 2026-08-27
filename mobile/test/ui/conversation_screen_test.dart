@@ -481,14 +481,16 @@ void main() {
     expect(stub.replaceCalled, isTrue);
   });
 
-  testWidgets('quota épuisé : affiche le paywall, pas l\'orbe', (tester) async {
+  testWidgets('quota épuisé : page honnête, pas d’orbe ni de premium', (
+    tester,
+  ) async {
     await _pump(tester, const ConversationState(quotaExhausted: true));
 
     expect(find.byKey(const Key('quota_exhausted')), findsOneWidget);
-    // No conversation UI when the session could not start.
     expect(find.byType(VoiceOrb), findsNothing);
-    // A way out: back home.
     expect(find.byKey(const Key('quota_home_button')), findsOneWidget);
+    expect(find.textContaining('10 minutes'), findsOneWidget);
+    expect(find.textContaining('premium'), findsNothing);
   });
 
   testWidgets('quota épuisé : le bouton ramène à l\'accueil', (tester) async {
