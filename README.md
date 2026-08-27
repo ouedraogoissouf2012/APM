@@ -90,6 +90,7 @@ Mobile :
 ## Limites actuelles
 
 - LiveKit n'est pas une feature a lancer (#506).
+- Web/PWA : tokens en localStorage, canal beta face XSS (#495). Produit = natif.
 - Azure Speech n'est pas livre. GOP wav2vec2 est optionnel.
 - Pas encore de memoire apprenant vectorielle ou long terme avancee.
 - Le mode par defaut utilise des moteurs fake pour pouvoir developper sans cle API.
@@ -254,6 +255,7 @@ Parcours a montrer :
 - Deploy production : [`docs/DEPLOY.md`](docs/DEPLOY.md)
 - Smoke 10 min : [`docs/SMOKE.md`](docs/SMOKE.md)
 - LiveKit parking : [`docs/LIVEKIT.md`](docs/LIVEKIT.md)
+- Auth web : [`backend/docs/adr/0002-web-session-storage.md`](backend/docs/adr/0002-web-session-storage.md)
 - Play Store Android : [`docs/ANDROID-PLAY.md`](docs/ANDROID-PLAY.md)
 - Spec de conception :
   [`docs/superpowers/specs/2026-06-02-app-anglais-oral-design.md`](docs/superpowers/specs/2026-06-02-app-anglais-oral-design.md)
