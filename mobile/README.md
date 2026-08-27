@@ -30,8 +30,11 @@ flutter test
 
 L'application utilise `flutter_secure_storage` via `SecureTokenStorage`.
 
-- Android/iOS/macOS/Windows/Linux : stockage natif sécurisé fourni par la plateforme.
-- Web : le plugin s'appuie sur les mécanismes du navigateur. Ce stockage dépend du contexte web, donc l'application garde les access tokens courts côté backend, fait une rotation du refresh token, purge les tokens dès qu'un refresh échoue et purge toujours au logout.
+- Android/iOS/macOS/Windows/Linux : Keystore / Keychain.
+- Web (beta, #495) : la clé AES du plugin est dans `localStorage`. XSS ou
+  DevTools lisent la session. Chrome = canal de **dev**, pas un produit
+  sécurisé. Access tokens courts, rotation du refresh, purge au refresh
+  raté et au logout.
 
 Les tokens ne doivent jamais être loggés ni affichés dans les erreurs. Les objets d'erreur et de tokens masquent les valeurs sensibles dans `toString()`.
 
