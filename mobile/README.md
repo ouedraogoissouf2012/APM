@@ -20,6 +20,9 @@ L'image Docker de l'API reste mappee `8000:8000`.
 
 Cette selection est centralisee dans `lib/src/core/config/app_config.dart`.
 
+Web/PWA = **beta** (micro navigateur + tokens XSS, #495). Produit = Play
+Store : [`docs/ANDROID-PLAY.md`](../docs/ANDROID-PLAY.md).
+
 ## Tests
 
 ```bash
