@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.errors import register_exception_handlers
 from app.api.middleware import BodySizeLimitMiddleware, RequestContextMiddleware
 from app.config import get_settings
-from app.core.engines import ENGINE_FAKE
+from app.core.engines import ENGINE_FAKE, ENGINE_GOP
 from app.core.logging import configure_logging
 from app.database import get_db
 from app.features.analytics.router import router as analytics_router
@@ -227,6 +227,12 @@ async def health_ready(db: AsyncSession = Depends(get_db)) -> JSONResponse:
         except Exception:
             logging.getLogger("apm").warning("Ready check failed: Redis unreachable", exc_info=True)
             return JSONResponse(status_code=503, content={"status": "unavailable"})
+    if settings.pronunciation_engine == ENGINE_GOP:
+        from app.features.pronunciation.provider import gop_service_ready
+
+        if not await gop_service_ready(settings.gop_service_url):
+            logging.getLogger("apm").warning("Ready check failed: GOP unreachable")
+            return JSONResponse(status_code=503, content={"status": "unavailable"})
     return JSONResponse(content={"status": "ok"})
 
 
@@ -282,4 +288,5 @@ async def public_config() -> dict[str, bool]:
         "conversation_server_tts": s.conversation_tts_on_server,
         "conversation_server_stt": s.conversation_stt_on_server,
         "password_reset_enabled": s.mailer_enabled,
+        "pronunciation_gop": s.pronunciation_engine == ENGINE_GOP,
     }
