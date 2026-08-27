@@ -178,7 +178,8 @@ class Settings(BaseSettings):
     session_history_page_size: int = 20
     # Literal-validated: a typo (e.g. "deepsek") or a not-yet-implemented
     # engine fails at startup instead of silently degrading or 502-ing.
-    voice_engine: VoiceEngineName = "fake"  # "fake" | "groq" (spoken turn) | "deepseek" | "groq_fallback"
+    # "fake" | "groq" (spoken turn) | "deepseek" | "groq_fallback"
+    voice_engine: VoiceEngineName = "fake"
     debrief_engine: DebriefEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
     # Compiles a pasted job offer / CV / pitch into a tailored simulation brief.
     mission_engine: MissionEngineName = "fake"  # "fake" (default, no keys) | "deepseek"
