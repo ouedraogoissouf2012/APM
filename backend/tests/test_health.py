@@ -44,3 +44,4 @@ async def test_config_reports_demo_mode_when_engine_is_fake(client):
     body = resp.json()
     assert body["demo_mode"] is True
     assert body["debrief_demo_mode"] is True
+    assert body["password_reset_enabled"] is False

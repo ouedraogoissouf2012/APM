@@ -1,5 +1,7 @@
+import 'package:apm/src/core/network/providers.dart';
 import 'package:apm/src/data/models/app_user.dart';
 import 'package:apm/src/data/repositories/auth_repository.dart';
+import 'package:apm/src/data/repositories/runtime_config_repository.dart';
 import 'package:apm/src/ui/auth/view_model/auth_view_model.dart';
 import 'package:apm/src/ui/auth/widgets/login_screen.dart';
 import 'package:flutter/material.dart';
@@ -44,5 +46,28 @@ void main() {
     await tester.pump();
 
     verify(() => repo.login(email: 'a@b.com', password: 's3cret!')).called(1);
+    expect(find.byKey(const Key('go_forgot_password')), findsNothing);
+  });
+
+  testWidgets('forgot link appears only when the mailer is live', (tester) async {
+    final repo = _MockAuthRepository();
+    when(repo.currentUser).thenAnswer((_) async => null);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(repo),
+          runtimeConfigProvider.overrideWith(
+            (ref) async => const RuntimeConfig(
+              demoMode: false,
+              serverTts: false,
+              passwordResetEnabled: true,
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: LoginScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('go_forgot_password')), findsOneWidget);
   });
 }

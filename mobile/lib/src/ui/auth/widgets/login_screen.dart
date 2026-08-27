@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/network/providers.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/ui/app_back_leading.dart';
 import '../view_model/auth_view_model.dart';
@@ -28,6 +29,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authViewModelProvider);
+    final resetOn =
+        ref.watch(runtimeConfigProvider).value?.passwordResetEnabled ?? false;
     return Scaffold(
       appBar: AppBar(
         leading: const AppBackLeading(fallback: Routes.onboarding),
@@ -56,11 +59,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ? const CircularProgressIndicator()
                   : const Text('Log in'),
             ),
-            TextButton(
-              key: const Key('go_forgot_password'),
-              onPressed: () => context.go(Routes.forgotPassword),
-              child: const Text('Forgot password?'),
-            ),
+            if (resetOn)
+              TextButton(
+                key: const Key('go_forgot_password'),
+                onPressed: () => context.go(Routes.forgotPassword),
+                child: const Text('Mot de passe oublié ?'),
+              ),
             TextButton(
               key: const Key('go_register'),
               onPressed: () => context.go(Routes.register),

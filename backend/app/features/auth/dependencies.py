@@ -7,6 +7,7 @@ from app.core.rate_limit import RateLimiter
 from app.core.rate_limit_factory import build_rate_limiter
 from app.database import get_db
 from app.domain.exceptions import AuthenticationError, AuthorizationError
+from app.features.auth.mailer import shared_mailer
 from app.features.auth.models import User
 from app.features.auth.repository import (
     RefreshTokenRepository,
@@ -132,6 +133,7 @@ def get_auth_service(
         refresh_tokens,
         settings.refresh_token_expire_days,
         reuse_grace_seconds=settings.refresh_reuse_grace_seconds,
+        mailer=shared_mailer(),
     )
 
 
