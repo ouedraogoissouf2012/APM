@@ -122,11 +122,12 @@ STT_ENGINE=device
 TTS_ENGINE=device
 ```
 
-`VOICE_ENGINE=fake` garde la conversation en mode fake. Pour utiliser DeepSeek
-dans le backend, renseigner `DEEPSEEK_API_KEY` puis mettre `VOICE_ENGINE=deepseek`.
+`VOICE_ENGINE=fake` garde la conversation en mode fake (tests / sans cle).
+Pour le tour parle, preferer `VOICE_ENGINE=groq` (`GROQ_API_KEY`) : TTFB ~0.4s
+vs 2-4s DeepSeek. DeepSeek reste bien pour le bilan / missions
+(`DEBRIEF_ENGINE=deepseek`). `groq_fallback` = Groq puis DeepSeek.
 
-`DEBRIEF_ENGINE=fake` retourne un bilan de demonstration valide. Pour un vrai
-bilan LLM, renseigner `DEEPSEEK_API_KEY` puis mettre `DEBRIEF_ENGINE=deepseek`.
+`DEBRIEF_ENGINE=fake` retourne un bilan de demonstration valide.
 
 L'image API : `docker compose --profile app up --build` (postgres + redis + backend).
 En staging/production, `APP_ENV=production` est obligatoire (sinon `/docs`, CORS `*`, JWT exemple).

@@ -128,13 +128,16 @@ Par défaut, le backend tourne en **mode fake** (aucune clé API requise) :
 les réponses de l'IA et le bilan sont des démonstrations valides. Parfait
 pour tester le parcours sans frais.
 
-**Pour activer la vraie IA** (DeepSeek), édite `backend/.env` :
+**Pour activer la vraie IA**, édite `backend/.env` :
 
 ```bash
+GROQ_API_KEY=ta-cle-groq-ici
+VOICE_ENGINE=groq
 DEEPSEEK_API_KEY=ta-cle-deepseek-ici
-VOICE_ENGINE=deepseek
 DEBRIEF_ENGINE=deepseek
 ```
+
+Groq (Llama) pour le tour parlé (~0.4 s). DeepSeek pour le bilan / missions.
 
 Puis **redémarre le backend** (Ctrl+C dans son terminal, puis relance la
 commande `uvicorn` de l'étape 2).
