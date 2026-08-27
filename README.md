@@ -254,6 +254,7 @@ Parcours a montrer :
 - Lancer en local : [`docs/LANCER-APM.md`](docs/LANCER-APM.md)
 - Deploy production : [`docs/DEPLOY.md`](docs/DEPLOY.md)
 - Smoke 10 min : [`docs/SMOKE.md`](docs/SMOKE.md)
+- LiveKit parking : [`docs/LIVEKIT.md`](docs/LIVEKIT.md)
 - Auth web : [`backend/docs/adr/0002-web-session-storage.md`](backend/docs/adr/0002-web-session-storage.md)
 - Spec de conception :
   [`docs/superpowers/specs/2026-06-02-app-anglais-oral-design.md`](docs/superpowers/specs/2026-06-02-app-anglais-oral-design.md)
