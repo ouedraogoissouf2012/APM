@@ -15,6 +15,10 @@ _counts: Counter[str] = Counter()
 
 def inc(name: str) -> None:
     _counts[name] += 1
+    if name == METER_FAILURES:
+        from app.core.alerts import notify
+
+        notify("meter_failures", "meter_failures incremented")
 
 
 def snapshot() -> dict[str, int]:

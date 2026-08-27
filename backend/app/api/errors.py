@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError, IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.alerts import notify
 from app.domain.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -88,6 +89,7 @@ def _log_server_side(request: Request, exc: Exception) -> None:
         exc_info=exc,
         extra={"request_id": request.scope.get("apm_request_id", "-")},
     )
+    notify("5xx", f"5xx {request.method} {request.url.path} {exc.__class__.__name__}")
 
 
 def _log_db_constraint_error(request: Request, exc: Exception) -> None:
@@ -125,6 +127,7 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
         exc_info=exc,
         extra={"request_id": request_id},
     )
+    notify("5xx", f"500 {request.method} {request.url.path} {exc.__class__.__name__}")
     return _error_response(
         status.HTTP_500_INTERNAL_SERVER_ERROR,
         "InternalServerError",

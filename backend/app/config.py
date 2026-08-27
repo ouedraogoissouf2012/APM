@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     # Optional shared secret for GET /metrics in staging/production. Empty =
     # the route 404s there (dev/test stay open for local scrapes).
     metrics_token: str = ""
+    # Discord or Slack incoming-webhook URL. Empty = alerts off.
+    alert_webhook_url: str = ""
 
     database_url: str
     database_url_test: str = ""
